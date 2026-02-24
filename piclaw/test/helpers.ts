@@ -10,6 +10,8 @@ export interface TempWorkspace {
   cleanup: () => void;
 }
 
+let sharedWorkspace: TempWorkspace | null = null;
+
 export function createTempWorkspace(prefix = "piclaw-test-"): TempWorkspace {
   const base = mkdtempSync(join(tmpdir(), prefix));
   const workspace = base;
@@ -27,6 +29,18 @@ export function createTempWorkspace(prefix = "piclaw-test-"): TempWorkspace {
     },
   };
 }
+
+export function getTestWorkspace(): TempWorkspace {
+  if (!sharedWorkspace) {
+    sharedWorkspace = createTempWorkspace("piclaw-shared-test-");
+  }
+  return sharedWorkspace;
+}
+
+const shared = getTestWorkspace();
+process.env.PICLAW_WORKSPACE = shared.workspace;
+process.env.PICLAW_STORE = shared.store;
+process.env.PICLAW_DATA = shared.data;
 
 export function setEnv(vars: Record<string, string | undefined>): () => void {
   const previous: Record<string, string | undefined> = {};
@@ -46,4 +60,13 @@ export function setEnv(vars: Record<string, string | undefined>): () => void {
 export async function importFresh<T = any>(modulePath: string): Promise<T> {
   const suffix = `?t=${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return import(`${modulePath}${suffix}`) as Promise<T>;
+}
+
+export async function waitFor(predicate: () => boolean, timeoutMs = 5000, intervalMs = 50): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (predicate()) return;
+    await Bun.sleep(intervalMs);
+  }
+  throw new Error("Timed out waiting for condition");
 }

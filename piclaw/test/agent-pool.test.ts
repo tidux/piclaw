@@ -1,21 +1,17 @@
 import { expect, test, afterEach } from "bun:test";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
-import { createTempWorkspace, importFresh, setEnv } from "./helpers.js";
+import { getTestWorkspace, importFresh, setEnv } from "./helpers.js";
 
 let restoreEnv: (() => void) | null = null;
-let cleanup: (() => void) | null = null;
 
 afterEach(() => {
   restoreEnv?.();
-  cleanup?.();
   restoreEnv = null;
-  cleanup = null;
 });
 
 test("agent pool aggregates streamed text and writes logs", async () => {
-  const ws = createTempWorkspace();
-  cleanup = ws.cleanup;
+  const ws = getTestWorkspace();
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
 
   const { AgentPool } = await importFresh<typeof import("../src/agent-pool.js")>("../src/agent-pool.js");
@@ -52,7 +48,7 @@ test("agent pool aggregates streamed text and writes logs", async () => {
   expect(result.result).toBe("Hello world");
   expect(process.env.PICLAW_CHAT_JID).toBe("web:default");
 
-  const logsDir = join(ws.workspace, "logs");
+  const logsDir = join(process.env.PICLAW_WORKSPACE || ws.workspace, "logs");
   const logFiles = readdirSync(logsDir).filter((f) => f.startsWith("agent-") && f.endsWith(".log"));
   expect(logFiles.length).toBeGreaterThan(0);
   const latest = logFiles.sort().slice(-1)[0];

@@ -1,21 +1,17 @@
 import { expect, test, afterEach } from "bun:test";
 import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
-import { createTempWorkspace, setEnv, importFresh } from "./helpers.js";
+import { getTestWorkspace, setEnv, importFresh } from "./helpers.js";
 
 let restoreEnv: (() => void) | null = null;
-let cleanup: (() => void) | null = null;
 
 afterEach(() => {
   restoreEnv?.();
-  cleanup?.();
   restoreEnv = null;
-  cleanup = null;
 });
 
 test("loads pushover config from .piclaw/config.json", async () => {
-  const ws = createTempWorkspace();
-  cleanup = ws.cleanup;
+  const ws = getTestWorkspace();
 
   const configDir = join(ws.workspace, ".piclaw");
   mkdirSync(configDir, { recursive: true });
@@ -29,7 +25,8 @@ test("loads pushover config from .piclaw/config.json", async () => {
         priority: 2,
         sound: "ping",
       },
-    })
+    }),
+    "utf8"
   );
 
   restoreEnv = setEnv({
@@ -38,6 +35,8 @@ test("loads pushover config from .piclaw/config.json", async () => {
     PICLAW_DATA: ws.data,
     ASSISTANT_NAME: "",
   });
+
+  await importFresh("../src/config.js");
 
   const cfg = await importFresh<typeof import("../src/config.js")>("../src/config.js");
   expect(cfg.PUSHOVER_APP_TOKEN).toBe("app-token");
@@ -48,8 +47,7 @@ test("loads pushover config from .piclaw/config.json", async () => {
 });
 
 test("env overrides config.json values", async () => {
-  const ws = createTempWorkspace();
-  cleanup = ws.cleanup;
+  const ws = getTestWorkspace();
 
   const configDir = join(ws.workspace, ".piclaw");
   mkdirSync(configDir, { recursive: true });
@@ -58,7 +56,8 @@ test("env overrides config.json values", async () => {
     JSON.stringify({
       PUSHOVER_APP_TOKEN: "config-token",
       PUSHOVER_USER_KEY: "config-user",
-    })
+    }),
+    "utf8"
   );
 
   restoreEnv = setEnv({

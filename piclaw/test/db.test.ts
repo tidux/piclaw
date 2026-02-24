@@ -1,15 +1,16 @@
 import { beforeAll, expect, test } from "bun:test";
-import { mkdtempSync } from "fs";
-import { tmpdir } from "os";
 import { join } from "path";
+import { getTestWorkspace, setEnv } from "./helpers.js";
 
 let db: typeof import("../src/db.js");
 
 beforeAll(async () => {
-  const base = mkdtempSync(join(tmpdir(), "piclaw-test-"));
-  process.env.PICLAW_WORKSPACE = base;
-  process.env.PICLAW_STORE = join(base, "store");
-  process.env.PICLAW_DATA = join(base, "data");
+  const ws = getTestWorkspace();
+  setEnv({
+    PICLAW_WORKSPACE: ws.workspace,
+    PICLAW_STORE: ws.store,
+    PICLAW_DATA: ws.data,
+  });
 
   db = await import("../src/db.js");
   db.initDatabase();

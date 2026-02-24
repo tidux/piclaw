@@ -1,22 +1,18 @@
 import { expect, test, afterEach } from "bun:test";
-import { createTempWorkspace, importFresh, setEnv } from "./helpers.js";
+import { getTestWorkspace, setEnv } from "./helpers.js";
 
 let restoreEnv: (() => void) | null = null;
-let cleanup: (() => void) | null = null;
 
 afterEach(() => {
   restoreEnv?.();
-  cleanup?.();
   restoreEnv = null;
-  cleanup = null;
 });
 
 test("web channel timeline and search endpoints", async () => {
-  const ws = createTempWorkspace();
-  cleanup = ws.cleanup;
+  const ws = getTestWorkspace();
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
 
-  const db = await importFresh<typeof import("../src/db.js")>("../src/db.js");
+  const db = await import("../src/db.js");
   db.initDatabase();
   db.storeChatMetadata("web:default", new Date().toISOString(), "Web");
 
@@ -33,9 +29,9 @@ test("web channel timeline and search endpoints", async () => {
 
   db.storeMessage(makeMessage("hello #world", "2024-01-01T00:00:00.000Z"));
   db.storeMessage(makeMessage("another message", "2024-01-01T00:01:00.000Z"));
-  db.storeMessage(makeMessage("world hello", "2024-01-01T00:02:00.000Z"));
+  db.storeMessage(makeMessage("#world hello", "2024-01-01T00:02:00.000Z"));
 
-  const webMod = await importFresh<typeof import("../src/channels/web.js")>("../src/channels/web.js");
+  const webMod = await import("../src/channels/web.js");
   const web = new (webMod.WebChannel as any)({
     queue: { enqueue: () => {} },
     agentPool: { runAgent: async () => ({ status: "success", result: "ok" }) },
@@ -55,15 +51,14 @@ test("web channel timeline and search endpoints", async () => {
 });
 
 test("web channel can create a post", async () => {
-  const ws = createTempWorkspace();
-  cleanup = ws.cleanup;
+  const ws = getTestWorkspace();
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
 
-  const db = await importFresh<typeof import("../src/db.js")>("../src/db.js");
+  const db = await import("../src/db.js");
   db.initDatabase();
   db.storeChatMetadata("web:default", new Date().toISOString(), "Web");
 
-  const webMod = await importFresh<typeof import("../src/channels/web.js")>("../src/channels/web.js");
+  const webMod = await import("../src/channels/web.js");
   const web = new (webMod.WebChannel as any)({
     queue: { enqueue: () => {} },
     agentPool: { runAgent: async () => ({ status: "success", result: "ok" }) },

@@ -1,10 +1,9 @@
 import { beforeAll, beforeEach, afterAll, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync, readdirSync } from "fs";
 import { join } from "path";
-import { createTempWorkspace, setEnv, importFresh } from "./helpers.js";
+import { getTestWorkspace, setEnv, waitFor } from "./helpers.js";
 
 let restoreEnv: (() => void) | null = null;
-let cleanup: (() => void) | null = null;
 let db: typeof import("../src/db.js");
 let ipc: typeof import("../src/ipc.js");
 
@@ -12,18 +11,17 @@ const sentMessages: Array<{ jid: string; text: string }> = [];
 const sentNudges: string[] = [];
 
 beforeAll(async () => {
-  const ws = createTempWorkspace();
-  cleanup = ws.cleanup;
+  const ws = getTestWorkspace();
   restoreEnv = setEnv({
     PICLAW_WORKSPACE: ws.workspace,
     PICLAW_STORE: ws.store,
     PICLAW_DATA: ws.data,
   });
 
-  db = await importFresh<typeof import("../src/db.js")>("../src/db.js");
+  db = await import("../src/db.js");
   db.initDatabase();
 
-  ipc = await importFresh<typeof import("../src/ipc.js")>("../src/ipc.js");
+  ipc = await import("../src/ipc.js");
   ipc.startIpcWatcher({
     sendMessage: async (jid, text) => {
       sentMessages.push({ jid, text });
@@ -32,6 +30,7 @@ beforeAll(async () => {
       sentNudges.push(text);
     },
   });
+
 });
 
 beforeEach(() => {
@@ -41,7 +40,6 @@ beforeEach(() => {
 
 afterAll(() => {
   restoreEnv?.();
-  cleanup?.();
 });
 
 test("IPC message sends to web chat and removes file", async () => {
@@ -53,7 +51,7 @@ test("IPC message sends to web chat and removes file", async () => {
     JSON.stringify({ type: "message", chatJid: "web:default", text: "hello" })
   );
 
-  await Bun.sleep(1200);
+  await waitFor(() => sentMessages.length === 1);
 
   expect(sentMessages.length).toBe(1);
   expect(sentMessages[0].jid).toBe("web:default");
@@ -76,7 +74,7 @@ test("IPC schedule_task creates a due task", async () => {
     })
   );
 
-  await Bun.sleep(1200);
+  await waitFor(() => db.getDueTasks().length > 0);
 
   const due = db.getDueTasks();
   expect(due.length).toBeGreaterThan(0);

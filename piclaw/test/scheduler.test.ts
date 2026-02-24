@@ -1,22 +1,18 @@
 import { afterEach, expect, test } from "bun:test";
-import { createTempWorkspace, importFresh, setEnv } from "./helpers.js";
+import { getTestWorkspace, setEnv } from "./helpers.js";
 
 let restoreEnv: (() => void) | null = null;
-let cleanup: (() => void) | null = null;
 
 afterEach(() => {
   restoreEnv?.();
-  cleanup?.();
   restoreEnv = null;
-  cleanup = null;
 });
 
 test("computeNextRun handles cron and interval", async () => {
-  const ws = createTempWorkspace();
-  cleanup = ws.cleanup;
+  const ws = getTestWorkspace();
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
 
-  const scheduler = await importFresh<typeof import("../src/task-scheduler.js")>("../src/task-scheduler.js");
+  const scheduler = await import("../src/task-scheduler.js");
 
   const cronNext = scheduler.computeNextRun("cron", "*/5 * * * *");
   expect(cronNext).not.toBeNull();
@@ -29,14 +25,13 @@ test("computeNextRun handles cron and interval", async () => {
 });
 
 test("runScheduledTask logs run and updates task", async () => {
-  const ws = createTempWorkspace();
-  cleanup = ws.cleanup;
+  const ws = getTestWorkspace();
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
 
-  const db = await importFresh<typeof import("../src/db.js")>("../src/db.js");
+  const db = await import("../src/db.js");
   db.initDatabase();
 
-  const scheduler = await importFresh<typeof import("../src/task-scheduler.js")>("../src/task-scheduler.js");
+  const scheduler = await import("../src/task-scheduler.js");
 
   const taskId = `task-${Date.now()}`;
   db.createTask({
