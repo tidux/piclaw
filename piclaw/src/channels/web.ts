@@ -353,24 +353,18 @@ export class WebChannel {
     const DRAFT_PREVIEW_LINES = 8;
     const PREVIEW_MAX_CHARS_PER_LINE = 160;
 
-    const splitSoftLines = (line: string, maxChars: number): string[] => {
-      if (!line) return [""];
-      if (line.length <= maxChars) return [line];
-      const chunks: string[] = [];
-      for (let i = 0; i < line.length; i += maxChars) {
-        chunks.push(line.slice(i, i + maxChars));
-      }
-      return chunks;
+    const countSoftLines = (line: string, maxChars: number): number => {
+      if (!line) return 1;
+      return Math.max(1, Math.ceil(line.length / maxChars));
     };
 
     const buildPreview = (text: string, maxLines: number): { preview: string; totalLines: number } => {
       const value = (text || "").replace(/\r\n/g, "\n");
       if (!value) return { preview: "", totalLines: 0 };
       const rawLines = value.split("\n");
-      const softLines = rawLines.flatMap((line) => splitSoftLines(line, PREVIEW_MAX_CHARS_PER_LINE));
-      const totalLines = softLines.length;
-      if (softLines.length <= maxLines) return { preview: softLines.join("\n"), totalLines };
-      return { preview: softLines.slice(0, maxLines).join("\n"), totalLines };
+      const totalLines = rawLines.reduce((acc, line) => acc + countSoftLines(line, PREVIEW_MAX_CHARS_PER_LINE), 0);
+      const previewLines = rawLines.slice(0, maxLines);
+      return { preview: previewLines.join("\n"), totalLines };
     };
 
     const extractToolArgs = (args: unknown): Record<string, unknown> | null => {

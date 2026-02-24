@@ -919,6 +919,13 @@ function AgentStatus({ status, draft, plan, thought, pendingRequest }) {
         return { text, totalLines };
     };
 
+    const PREVIEW_MAX_CHARS_PER_LINE = 160;
+
+    const countSoftLines = (line) => {
+        if (!line) return 1;
+        return Math.max(1, Math.ceil(line.length / PREVIEW_MAX_CHARS_PER_LINE));
+    };
+
     const truncateLines = (text, maxLines, totalLinesOverride) => {
         const value = (text || '').replace(/\r\n/g, '\n');
         if (!value) {
@@ -926,9 +933,11 @@ function AgentStatus({ status, draft, plan, thought, pendingRequest }) {
             return { text: '', omitted: 0, totalLines, visibleLines: 0 };
         }
         const lines = value.split('\n');
-        const totalLines = Number.isFinite(totalLinesOverride) ? totalLinesOverride : lines.length;
-        const visibleLines = Math.min(lines.length, maxLines);
         const clipped = lines.length > maxLines ? lines.slice(0, maxLines).join('\n') : value;
+        const totalLines = Number.isFinite(totalLinesOverride) ? totalLinesOverride : lines.reduce((acc, line) => acc + countSoftLines(line), 0);
+        const visibleLines = clipped
+            ? clipped.split('\n').reduce((acc, line) => acc + countSoftLines(line), 0)
+            : 0;
         const omitted = Math.max(totalLines - visibleLines, 0);
         return { text: clipped, omitted, totalLines, visibleLines };
     };
