@@ -297,7 +297,7 @@ export class WebChannel {
             return Math.max(1, Math.ceil(line.length / maxChars));
         };
         const buildPreview = (text, maxLines) => {
-            const value = (text || "").replace(/\r\n/g, "\n");
+            const value = (text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
             if (!value)
                 return { preview: "", totalLines: 0 };
             const rawLines = value.split("\n");
