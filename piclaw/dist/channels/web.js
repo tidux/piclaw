@@ -602,6 +602,7 @@ export class WebChannel {
         const lookupToolTitle = (toolCallId, toolName, args) => {
             return toolTitles.get(toolCallId) ?? formatToolTitle(toolName, args);
         };
+        const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         this.broadcastEvent("agent_status", {
             thread_id: threadId,
             agent_id: agentId,
@@ -609,7 +610,6 @@ export class WebChannel {
             title: "Thinking...",
             turn_id: turnId,
         });
-        const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const output = await this.agentPool.runAgent(prompt, chatJid, {
             onEvent: (event) => {
                 if (event.type === "message_update") {
