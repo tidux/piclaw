@@ -104,12 +104,13 @@ async function execute(
 
 const ATTACHMENT_HINT = [
   "## File Attachments",
-  "When you produce a file the user should download (e.g. a generated image,",
-  "CSV, PDF, archive), call attach_file with the workspace path.",
-  "The file will appear as a download card in the chat — you do NOT need to",
-  "paste the file contents into your reply.",
-  "After calling attach_file, mention what you attached in your response",
-  "(e.g. \"Here's the report\") so the user knows to look for the download card below.",
+  "You have an attach_file tool. When you create or generate a file the user",
+  "will want (images, charts, CSVs, PDFs, archives, code exports, etc.),",
+  "always call attach_file with the workspace path so they get a download",
+  "card in the chat. Do not just tell the user the file path — attach it.",
+  "You do NOT need to paste the file contents into your reply.",
+  "After attaching, briefly mention what you attached so the user knows",
+  "to look for the download card below your message.",
 ].join("\n");
 
 // ── Factory ───────────────────────────────────────────────
