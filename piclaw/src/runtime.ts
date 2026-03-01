@@ -28,6 +28,7 @@ import { PushoverChannel } from "./channels/pushover.js";
 import { detectChannel, formatMessages, formatOutbound } from "./router.js";
 import { startToolOutputCleanup } from "./tool-output.js";
 import { parseControlCommand, type AgentControlCommand } from "./agent-control.js";
+import { createId } from "./utils/ids.js";
 
 let lastTimestamp = "";
 let lastAgentTimestamp: Record<string, string> = {};
@@ -261,7 +262,7 @@ export async function main(): Promise<void> {
           chatJid: "web:default",
           text: code,
         };
-        const filePath = join(ipcDir, `pairing-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`);
+        const filePath = join(ipcDir, `${createId("pairing")}.json`);
         writeFileSync(filePath, JSON.stringify(payload));
       } catch (err) {
         console.error("[whatsapp] Failed to write pairing code IPC message:", err);

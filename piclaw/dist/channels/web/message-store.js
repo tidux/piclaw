@@ -1,9 +1,10 @@
 import { attachMediaToMessage, clampWebContent, createMedia, getMessageByRowId, storeChatMetadata, storeMessage, } from "../../db.js";
 import { getWebPreviewMaxChars, shouldPreviewWebContent } from "../../db/web-content.js";
 import { scheduleLinkPreviews } from "./link-previews.js";
+import { createId } from "../../utils/ids.js";
 export function storeWebMessage(channel, params, options = {}) {
     const timestamp = new Date().toISOString();
-    const messageId = `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const messageId = createId("web");
     let contentBlocks = Array.isArray(options.contentBlocks)
         ? [...options.contentBlocks]
         : undefined;

@@ -3,6 +3,7 @@ import { join } from "path";
 import { CronExpressionParser } from "cron-parser";
 import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from "./config.js";
 import { createTask, deleteTask, getTaskById, updateTask } from "./db.js";
+import { createId } from "./utils/ids.js";
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
@@ -96,7 +97,7 @@ async function processTaskCommand(data: Record<string, any>, deps: IpcDeps): Pro
       }
 
       createTask({
-        id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: createId("task"),
         chat_jid: data.chatJid,
         prompt: data.prompt,
         model,

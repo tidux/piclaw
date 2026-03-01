@@ -6,6 +6,7 @@ import { createAgentProfileBuilder } from "../agent-utils.js";
 import { createAgentEventEmitter, createStreamingEventHandler } from "../agent-events.js";
 import { storeAgentTurn } from "../agent-message-store.js";
 import { resolveThreadId, resolveThreadRootId } from "../threading.js";
+import { createId } from "../../../utils/ids.js";
 export async function handleAgentMessage(channel, req, pathname, chatJid, defaultAgentId) {
     const agentId = pathname.split("/")[2] || defaultAgentId;
     let data;
@@ -98,7 +99,7 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
     const THOUGHT_PREVIEW_LINES = 8;
     const DRAFT_PREVIEW_LINES = 8;
     const PREVIEW_MAX_CHARS_PER_LINE = 160;
-    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const turnId = createId("turn");
     const withAgentProfile = createAgentProfileBuilder(ASSISTANT_NAME, ASSISTANT_AVATAR);
     const emitter = createAgentEventEmitter(channel, withAgentProfile);
     emitter.status({
