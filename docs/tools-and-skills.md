@@ -41,6 +41,10 @@ Each skill keeps its script alongside its `SKILL.md` for portability. Current se
 | `send-message` | Send chat messages immediately via IPC |
 | `token-chart` | Generate token usage charts (from `token_usage`) |
 | `graphite-power-chart` | Generate Zigbee/Graphite charts for the web timeline |
+| `web-search` | Search the web via SearXNG and convert pages to Markdown |
+| `web-search-summary` | Search via SearXNG with auto-summarized results |
+| `twitter-summary` | Fetch a user's recent tweets via Playwright + Nitter |
+| `feed-digest` | Build a deduped Markdown digest from an RSS/Atom feed index |
 
 ## Slash commands
 

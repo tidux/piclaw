@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Wrapper to run the Playwright-based twitter summary scraper.
+# Usage: ./run <handle> <hours> [out.json]
+
+HANDLE=${1:-example_user}
+HOURS=${2:-16}
+OUT=${3:-/tmp/twitter_fetch.json}
+LOG=${LOG:-/tmp/twitter-summary.log}
+
+SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT="$SKILL_DIR/playwright-twitter-summary.ts"
+
+echo "Running twitter-summary: handle=$HANDLE hours=$HOURS -> $OUT (log: $LOG)" >&2
+
+cd /workspace
+bun "$SCRIPT" --handle="$HANDLE" --hours="$HOURS" > "$OUT" 2>"$LOG" || {
+  echo "Scraper failed. See $LOG" >&2
+  exit 1
+}
+
+echo "Saved $OUT (log: $LOG)" >&2
