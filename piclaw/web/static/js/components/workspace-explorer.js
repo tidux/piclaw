@@ -105,11 +105,12 @@ export function WorkspaceExplorer({ onFileSelect }) {
             const data = await getWorkspaceTree('', 3);
             const signature = treeSignature(data.root);
             if (signature && signature !== lastTreeRef.current) {
-                setTree(data.root);
                 lastTreeRef.current = signature;
+                requestAnimationFrame(() => setTree(data.root));
             }
             if (data.root?.path) {
                 setExpanded((prev) => {
+                    if (prev.has(data.root.path)) return prev;
                     const next = new Set(prev);
                     next.add(data.root.path);
                     return next;
@@ -183,7 +184,7 @@ export function WorkspaceExplorer({ onFileSelect }) {
                 <button class=${`workspace-refresh ${isRefreshing ? 'is-refreshing' : ''}`} onClick=${loadTree} title="Refresh">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <polyline points="23 4 23 10 17 10" />
-                        <path d="M20 15a9 9 0 1 1 -3 -5" />
+                        <path d="M3 12a9 9 0 0 1 15-6.7L23 10" />
                     </svg>
                 </button>
             </div>
@@ -200,17 +201,26 @@ export function WorkspaceExplorer({ onFileSelect }) {
                             const isSelected = node.path === selectedPath;
                             const isDir = node.type === 'dir';
                             const expandedDir = isDir && expanded.has(node.path);
-                            const caret = isDir ? (expandedDir ? '▾' : '▸') : '';
-                            const caretWidth = 22;
+                            const caret = isDir ? (expandedDir ? 'down' : 'right') : null;
+                            const caretSize = 14;
+                            const caretWidth = caretSize;
+                            const caretY = y - caretSize / 2;
                             const iconSlot = 20;
                             const iconSize = isDir ? 20 : 16;
                             const iconX = x + caretWidth + (iconSlot - iconSize) / 2;
-                            const iconY = y - iconSize / 2;
+                            const iconY = y - iconSize / 2 - (isDir ? 1 : 0);
                             const textX = x + caretWidth + iconSlot + 6;
                             return html`
                                 <g class="workspace-row" onClick=${() => handleSelect(node)}>
                                     <rect x="0" y=${y - 14} width=${TREE_WIDTH} height=${ROW_HEIGHT} class=${`workspace-row-bg ${isSelected ? 'selected' : ''}`} />
-                                    ${caret && html`<text class="workspace-caret" x=${x} y=${y}>${caret}</text>`}
+                                    ${caret && html`
+                                        <svg class="workspace-caret-icon" x=${x} y=${caretY} width=${caretSize} height=${caretSize} viewBox="0 0 14 14" aria-hidden="true">
+                                            ${caret === 'down'
+                                                ? html`<polygon points="2 4 12 4 7 12" />`
+                                                : html`<polygon points="4 2 12 7 4 12" />`
+                                            }
+                                        </svg>
+                                    `}
                                     <svg
                                         class=${`workspace-icon ${isDir ? 'folder' : 'file'}`}
                                         x=${iconX}

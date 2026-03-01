@@ -213,11 +213,9 @@ body {
     dominant-baseline: middle;
 }
 
-.workspace-caret {
+.workspace-caret-icon {
     fill: var(--text-secondary);
-    font-size: 18px;
-    font-weight: 700;
-    dominant-baseline: middle;
+    display: block;
 }
 
 .workspace-icon {
