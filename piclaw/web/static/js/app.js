@@ -92,6 +92,7 @@ function App() {
     const [currentHashtag, setCurrentHashtag] = useState(null);
     const [searchQuery, setSearchQuery] = useState(null);
     const [searchOpen, setSearchOpen] = useState(false);
+    const [fileRefs, setFileRefs] = useState([]);
     const [agentStatus, setAgentStatus] = useState(null);
     const [agentDraft, setAgentDraft] = useState({ text: '', totalLines: 0 });
     const [agentPlan, setAgentPlan] = useState('');
@@ -114,6 +115,19 @@ function App() {
     
     // Refresh timestamps every 30 seconds
     useTimestampRefresh(30000);
+
+    const addFileRef = useCallback((path) => {
+        if (!path) return;
+        setFileRefs((prev) => (prev.includes(path) ? prev : [...prev, path]));
+    }, []);
+
+    const removeFileRef = useCallback((path) => {
+        setFileRefs((prev) => prev.filter((item) => item !== path));
+    }, []);
+
+    const clearFileRefs = useCallback(() => {
+        setFileRefs([]);
+    }, []);
 
     const noteAgentActivity = useCallback((options = {}) => {
         const now = Date.now();
@@ -649,7 +663,7 @@ function App() {
     
     return html`
         <div class="app-shell">
-            <${WorkspaceExplorer} />
+            <${WorkspaceExplorer} onFileSelect=${addFileRef} />
             <div class="container">
                 ${searchQuery && isIOSDevice() && html`<div class="search-results-spacer"></div>`}
                 ${(currentHashtag || searchQuery) && html`
@@ -687,6 +701,9 @@ function App() {
                     onSearch=${handleSearch}
                     onEnterSearch=${enterSearchMode}
                     onExitSearch=${exitSearchMode}
+                    fileRefs=${fileRefs}
+                    onRemoveFileRef=${removeFileRef}
+                    onClearFileRefs=${clearFileRefs}
                 />
                 <${ConnectionStatus} status=${connectionStatus} />
                 <${AgentRequestModal}

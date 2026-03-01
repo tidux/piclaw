@@ -5,12 +5,23 @@ import { sendAgentMessage, uploadMedia } from '../api.js';
 /**
  * Compose box component
  */
-export function ComposeBox({ onPost, onFocus, searchMode, onSearch, onEnterSearch, onExitSearch }) {
+export function ComposeBox({
+    onPost,
+    onFocus,
+    searchMode,
+    onSearch,
+    onEnterSearch,
+    onExitSearch,
+    fileRefs = [],
+    onRemoveFileRef,
+    onClearFileRefs,
+}) {
     const [content, setContent] = useState('');
     const [searchText, setSearchText] = useState('');
     const [loading, setLoading] = useState(false);
     const [mediaFiles, setMediaFiles] = useState([]);
     const textareaRef = useRef(null);
+    const canSend = !loading && (content.trim() || mediaFiles.length > 0 || fileRefs.length > 0);
     const canShareLocation = typeof window !== 'undefined'
         && typeof navigator !== 'undefined'
         && Boolean(navigator.geolocation)
@@ -40,7 +51,7 @@ export function ComposeBox({ onPost, onFocus, searchMode, onSearch, onEnterSearc
     };
 
     const handleSubmit = async () => {
-        if (!content.trim() && mediaFiles.length === 0) return;
+        if (!content.trim() && mediaFiles.length === 0 && fileRefs.length === 0) return;
 
         setLoading(true);
         try {
@@ -51,11 +62,18 @@ export function ComposeBox({ onPost, onFocus, searchMode, onSearch, onEnterSearc
                 mediaIds.push(result.id);
             }
 
+            const baseContent = content.trim();
+            const fileBlock = fileRefs.length
+                ? `Files:\n${fileRefs.map((path) => `- ${path}`).join('\n')}`
+                : '';
+            const message = [fileBlock, baseContent].filter(Boolean).join('\n\n');
+
             // Send to agent by default
-            await sendAgentMessage('default', content, null, mediaIds);
+            await sendAgentMessage('default', message, null, mediaIds);
 
             setContent('');
             setMediaFiles([]);
+            onClearFileRefs?.();
             onPost?.();
         } catch (error) {
             console.error('Failed to post:', error);
@@ -114,17 +132,49 @@ export function ComposeBox({ onPost, onFocus, searchMode, onSearch, onEnterSearc
     return html`
         <div class="compose-box">
             <div class="compose-input-wrapper">
-                <textarea
-                    ref=${textareaRef}
-                    placeholder=${searchMode ? "Search (Enter to run)..." : "Message (Enter to send, Shift+Enter for newline)..."}
-                    value=${searchMode ? searchText : content}
-                    onInput=${handleInput}
-                    onKeyDown=${handleKeyDown}
-                    onFocus=${onFocus}
-                    onClick=${onFocus}
-                    disabled=${loading}
-                    rows="1"
-                />
+                <div class="compose-input-main">
+                    ${!searchMode && fileRefs.length > 0 && html`
+                        <div class="compose-file-refs">
+                            ${fileRefs.map((path) => {
+                                const label = path.split('/').pop() || path;
+                                return html`
+                                    <span class="compose-file-pill" title=${path}>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                            <polyline points="14 2 14 8 20 8"/>
+                                        </svg>
+                                        <span class="compose-file-name">${label}</span>
+                                        <button
+                                            class="compose-file-remove"
+                                            onClick=${(event) => {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+                                                onRemoveFileRef?.(path);
+                                            }}
+                                            title="Remove file"
+                                            type="button"
+                                        >
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M18 6L6 18M6 6l12 12"/>
+                                            </svg>
+                                        </button>
+                                    </span>
+                                `;
+                            })}
+                        </div>
+                    `}
+                    <textarea
+                        ref=${textareaRef}
+                        placeholder=${searchMode ? "Search (Enter to run)..." : "Message (Enter to send, Shift+Enter for newline)..."}
+                        value=${searchMode ? searchText : content}
+                        onInput=${handleInput}
+                        onKeyDown=${handleKeyDown}
+                        onFocus=${onFocus}
+                        onClick=${onFocus}
+                        disabled=${loading}
+                        rows="1"
+                    />
+                </div>
                 <div class="compose-actions ${searchMode ? 'search-mode' : ''}">
                     <button
                         class="icon-btn search-toggle"
@@ -165,7 +215,7 @@ export function ComposeBox({ onPost, onFocus, searchMode, onSearch, onEnterSearc
                         <button 
                             class="icon-btn send-btn" 
                             onClick=${handleSubmit}
-                            disabled=${loading || (!content.trim() && mediaFiles.length === 0)}
+                            disabled=${!canSend}
                             title="Send (Ctrl+Enter)"
                         >
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>

@@ -169,6 +169,11 @@ body {
     overflow: visible;
 }
 
+.workspace-refresh svg {
+    width: 18px;
+    height: 18px;
+}
+
 .workspace-refresh.is-refreshing svg {
     animation: workspaceSpin 0.9s linear infinite;
 }
@@ -210,7 +215,7 @@ body {
 
 .workspace-caret {
     fill: var(--text-secondary);
-    font-size: 14px;
+    font-size: 18px;
     font-weight: 700;
     dominant-baseline: middle;
 }
@@ -375,6 +380,61 @@ body {
 
 .compose-input-wrapper:focus-within {
     border-color: var(--accent-color);
+}
+
+.compose-input-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    min-width: 0;
+}
+
+.compose-file-refs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    padding: 2px var(--spacing-xs) 0 var(--spacing-xs);
+}
+
+.compose-file-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    padding: 2px 6px;
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    max-width: 100%;
+}
+
+.compose-file-pill svg {
+    display: block;
+}
+
+.compose-file-name {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.compose-file-remove {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: inherit;
+    cursor: pointer;
+}
+
+.compose-file-remove:hover {
+    color: var(--text-primary);
 }
 
 .compose-box textarea {

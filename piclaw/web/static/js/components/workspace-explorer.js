@@ -13,7 +13,7 @@ import { renderMarkdown } from '../markdown.js';
 
 const ROW_HEIGHT = 22;
 const TREE_WIDTH = 260;
-const INDENT = 16;
+const INDENT = 18;
 const REFRESH_INTERVAL_MS = 15000;
 
 function FileAttachmentCard({ mediaId }) {
@@ -61,6 +61,16 @@ function flattenTree(node, expanded, depth = 0, rows = []) {
     return rows;
 }
 
+function treeSignature(node) {
+    if (!node) return '';
+    const walk = (item) => ({
+        path: item.path,
+        type: item.type,
+        children: item.children ? item.children.map(walk) : null,
+    });
+    return JSON.stringify(walk(node));
+}
+
 function iconPath(type) {
     if (type === 'dir') {
         return html`<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />`;
@@ -71,7 +81,7 @@ function iconPath(type) {
     `;
 }
 
-export function WorkspaceExplorer() {
+export function WorkspaceExplorer({ onFileSelect }) {
     const [tree, setTree] = useState(null);
     const [expanded, setExpanded] = useState(new Set(['.']));
     const [selectedPath, setSelectedPath] = useState(null);
@@ -93,10 +103,10 @@ export function WorkspaceExplorer() {
         setError(null);
         try {
             const data = await getWorkspaceTree('', 3);
-            const serialized = JSON.stringify(data.root || {});
-            if (serialized && serialized !== lastTreeRef.current) {
+            const signature = treeSignature(data.root);
+            if (signature && signature !== lastTreeRef.current) {
                 setTree(data.root);
-                lastTreeRef.current = serialized;
+                lastTreeRef.current = signature;
             }
             if (data.root?.path) {
                 setExpanded((prev) => {
@@ -152,6 +162,7 @@ export function WorkspaceExplorer() {
             return;
         }
         setSelectedPath(node.path);
+        onFileSelect?.(node.path, node);
         loadPreview(node.path);
     };
 
@@ -172,7 +183,7 @@ export function WorkspaceExplorer() {
                 <button class=${`workspace-refresh ${isRefreshing ? 'is-refreshing' : ''}`} onClick=${loadTree} title="Refresh">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <polyline points="23 4 23 10 17 10" />
-                        <path d="M20.49 15a9 9 0 1 1 2.13-9" />
+                        <path d="M20 15a9 9 0 1 1 -3 -5" />
                     </svg>
                 </button>
             </div>
@@ -190,11 +201,12 @@ export function WorkspaceExplorer() {
                             const isDir = node.type === 'dir';
                             const expandedDir = isDir && expanded.has(node.path);
                             const caret = isDir ? (expandedDir ? '▾' : '▸') : '';
-                            const caretWidth = 14;
-                            const iconSize = 16;
-                            const iconX = x + caretWidth;
+                            const caretWidth = 22;
+                            const iconSlot = 20;
+                            const iconSize = isDir ? 20 : 16;
+                            const iconX = x + caretWidth + (iconSlot - iconSize) / 2;
                             const iconY = y - iconSize / 2;
-                            const textX = iconX + iconSize + 6;
+                            const textX = x + caretWidth + iconSlot + 6;
                             return html`
                                 <g class="workspace-row" onClick=${() => handleSelect(node)}>
                                     <rect x="0" y=${y - 14} width=${TREE_WIDTH} height=${ROW_HEIGHT} class=${`workspace-row-bg ${isSelected ? 'selected' : ''}`} />
