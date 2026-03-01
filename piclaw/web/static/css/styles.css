@@ -281,6 +281,33 @@ body {
     background: var(--accent-color);
 }
 
+/* ── Horizontal splitter between tree and preview ── */
+.workspace-preview-splitter-h {
+    height: 5px;
+    flex-shrink: 0;
+    cursor: row-resize;
+    background: transparent;
+    position: relative;
+    z-index: 10;
+    transition: background 0.15s;
+}
+
+.workspace-preview-splitter-h::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 2px;
+    height: 1px;
+    background: var(--border-color);
+    transition: background 0.15s;
+}
+
+.workspace-preview-splitter-h:hover::after,
+.workspace-preview-splitter-h.dragging::after {
+    background: var(--accent-color);
+}
+
 .workspace-preview {
     height: var(--preview-height, 280px);
     min-height: 80px;
@@ -314,7 +341,6 @@ body {
 }
 
 .workspace-preview-text {
-    max-height: 220px;
     overflow: auto;
     background: var(--bg-secondary);
     border-radius: var(--radius-sm);
@@ -324,7 +350,7 @@ body {
 
 .workspace-preview-image img {
     max-width: 100%;
-    max-height: 220px;
+    max-height: 100%;
     border-radius: var(--radius-sm);
 }
 
