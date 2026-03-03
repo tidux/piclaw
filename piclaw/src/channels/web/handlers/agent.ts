@@ -134,8 +134,15 @@ export async function processChat(
   const turnId = createUuid("turn");
   const withAgentProfile = createAgentProfileBuilder(ASSISTANT_NAME, ASSISTANT_AVATAR);
   const emitter = createAgentEventEmitter(channel, withAgentProfile);
+  const trackedEmitter = {
+    ...emitter,
+    status: (payload: Record<string, unknown>) => {
+      channel.updateAgentStatus(chatJid, payload);
+      emitter.status(payload);
+    },
+  };
 
-  emitter.status({
+  trackedEmitter.status({
     thread_id: threadId,
     agent_id: agentId,
     type: "thinking",
@@ -152,7 +159,7 @@ export async function processChat(
 
 
   const streamingHandler = createStreamingEventHandler({
-    emitter,
+    emitter: trackedEmitter,
     agentId,
     threadId,
     turnId,
@@ -175,7 +182,7 @@ export async function processChat(
         ? "Auto-compacting to free context"
         : "Auto-compacting after response";
       if (notice.status === "start") {
-        emitter.status({
+        trackedEmitter.status({
           thread_id: threadId,
           agent_id: agentId,
           type: "intent",
@@ -183,7 +190,7 @@ export async function processChat(
           turn_id: turnId,
         });
       } else if (notice.status === "end" && notice.phase === "pre") {
-        emitter.status({
+        trackedEmitter.status({
           thread_id: threadId,
           agent_id: agentId,
           type: "thinking",
@@ -191,14 +198,14 @@ export async function processChat(
           turn_id: turnId,
         });
       } else if (notice.status === "error" && notice.phase === "pre") {
-        emitter.status({
+        trackedEmitter.status({
           thread_id: threadId,
           agent_id: agentId,
           type: "intent",
           title: "Auto-compaction failed; continuing",
           turn_id: turnId,
         });
-        emitter.status({
+        trackedEmitter.status({
           thread_id: threadId,
           agent_id: agentId,
           type: "thinking",
@@ -225,7 +232,7 @@ export async function processChat(
   if (output.status === "error") {
     channel.state.lastAgentTimestamp[chatJid] = prevCursor;
     channel.saveState();
-    emitter.status({
+    trackedEmitter.status({
       thread_id: threadId,
       agent_id: agentId,
       type: "error",
@@ -256,7 +263,7 @@ export async function processChat(
     }
   }
 
-  emitter.status({
+  trackedEmitter.status({
     thread_id: threadId,
     agent_id: agentId,
     type: "done",

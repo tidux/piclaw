@@ -78,6 +78,9 @@ export async function handleWebRequest(channel, req) {
     if (req.method === "POST" && pathname.startsWith("/agent/") && pathname.endsWith("/message")) {
         return channel.handleAgentMessage(req, pathname);
     }
+    if (req.method === "GET" && pathname === "/agent/status") {
+        return channel.handleAgentStatus(req);
+    }
     if (req.method === "POST" && pathname === "/agent/respond") {
         return channel.handleAgentRespond(req);
     }

@@ -27,6 +27,7 @@ export class WebChannel {
     workspaceVisible = false;
     workspaceShowHidden = false;
     pendingSteering = new Map();
+    activeAgentStatuses = new Map();
     thoughtBuffers = new Map();
     draftBuffers = new Map();
     expandedPanels = new Map();
@@ -97,6 +98,17 @@ export class WebChannel {
         this.pendingSteering.delete(chatJid);
         entries.sort();
         return entries[entries.length - 1] ?? null;
+    }
+    updateAgentStatus(chatJid, status) {
+        const type = status?.type;
+        if (type === "done" || type === "error") {
+            this.activeAgentStatuses.delete(chatJid);
+            return;
+        }
+        this.activeAgentStatuses.set(chatJid, status);
+    }
+    getAgentStatus(chatJid) {
+        return this.activeAgentStatuses.get(chatJid) ?? null;
     }
     replaceQueuedFollowupPlaceholder(chatJid, rowId, text, mediaIds, contentBlocks, threadId) {
         const updated = replaceMessageContent(chatJid, rowId, text, {
@@ -267,6 +279,12 @@ export class WebChannel {
     async handlePost(req, isReply) {
         const { handlePost } = await import("./web/handlers/posts.js");
         return handlePost(this, req, isReply, DEFAULT_CHAT_JID);
+    }
+    handleAgentStatus(req) {
+        const url = new URL(req.url);
+        const chatJid = (url.searchParams.get("chat_jid") || DEFAULT_CHAT_JID).trim() || DEFAULT_CHAT_JID;
+        const status = this.getAgentStatus(chatJid);
+        return this.json({ status: status ? "active" : "idle", data: status });
     }
     async handleAgentRespond(req) {
         let data;

@@ -166,6 +166,35 @@ test("web channel queues follow-up placeholder for /queue", async () => {
   expect(last.data.content).toContain("Queued as a follow-up");
 });
 
+test("web channel reports active agent status", async () => {
+  const ws = createTempWorkspace("piclaw-web-channel-");
+  cleanupWorkspace = ws.cleanup;
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../../src/db.js");
+  db.initDatabase();
+  db.getDb().exec("DELETE FROM message_media; DELETE FROM messages; DELETE FROM chats;");
+  db.storeChatMetadata("web:default", new Date().toISOString(), "Web");
+
+  const webMod = await import("../../../src/channels/web.js");
+  const web = new (webMod.WebChannel as any)({
+    queue: { enqueue: () => {} },
+    agentPool: { runAgent: async () => ({ status: "success", result: "ok" }) },
+  });
+
+  web.updateAgentStatus("web:default", { type: "thinking", title: "Thinking...", turn_id: "turn-1" });
+
+  const res = await (web as any).handleRequest(new Request("http://test/agent/status"));
+  const json = await res.json();
+  expect(json.status).toBe("active");
+  expect(json.data.turn_id).toBe("turn-1");
+
+  web.updateAgentStatus("web:default", { type: "done", turn_id: "turn-1" });
+  const resIdle = await (web as any).handleRequest(new Request("http://test/agent/status"));
+  const jsonIdle = await resIdle.json();
+  expect(jsonIdle.status).toBe("idle");
+});
+
 test("web channel delete post cascades thread replies", async () => {
   const ws = createTempWorkspace("piclaw-web-channel-");
   cleanupWorkspace = ws.cleanup;

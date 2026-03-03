@@ -98,7 +98,14 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
     const turnId = createUuid("turn");
     const withAgentProfile = createAgentProfileBuilder(ASSISTANT_NAME, ASSISTANT_AVATAR);
     const emitter = createAgentEventEmitter(channel, withAgentProfile);
-    emitter.status({
+    const trackedEmitter = {
+        ...emitter,
+        status: (payload) => {
+            channel.updateAgentStatus(chatJid, payload);
+            emitter.status(payload);
+        },
+    };
+    trackedEmitter.status({
         thread_id: threadId,
         agent_id: agentId,
         type: "thinking",
@@ -107,7 +114,7 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
     });
     const resolvedThreadRootId = resolveThreadRootId(channel, chatJid, messages[messages.length - 1].id ?? "", threadRootId);
     const streamingHandler = createStreamingEventHandler({
-        emitter,
+        emitter: trackedEmitter,
         agentId,
         threadId,
         turnId,
@@ -128,7 +135,7 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
                 ? "Auto-compacting to free context"
                 : "Auto-compacting after response";
             if (notice.status === "start") {
-                emitter.status({
+                trackedEmitter.status({
                     thread_id: threadId,
                     agent_id: agentId,
                     type: "intent",
@@ -137,7 +144,7 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
                 });
             }
             else if (notice.status === "end" && notice.phase === "pre") {
-                emitter.status({
+                trackedEmitter.status({
                     thread_id: threadId,
                     agent_id: agentId,
                     type: "thinking",
@@ -146,14 +153,14 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
                 });
             }
             else if (notice.status === "error" && notice.phase === "pre") {
-                emitter.status({
+                trackedEmitter.status({
                     thread_id: threadId,
                     agent_id: agentId,
                     type: "intent",
                     title: "Auto-compaction failed; continuing",
                     turn_id: turnId,
                 });
-                emitter.status({
+                trackedEmitter.status({
                     thread_id: threadId,
                     agent_id: agentId,
                     type: "thinking",
@@ -179,7 +186,7 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
     if (output.status === "error") {
         channel.state.lastAgentTimestamp[chatJid] = prevCursor;
         channel.saveState();
-        emitter.status({
+        trackedEmitter.status({
             thread_id: threadId,
             agent_id: agentId,
             type: "error",
@@ -207,7 +214,7 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
             channel.saveState();
         }
     }
-    emitter.status({
+    trackedEmitter.status({
         thread_id: threadId,
         agent_id: agentId,
         type: "done",

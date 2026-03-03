@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { html, render, useState, useEffect, useCallback, useRef } from './vendor/preact-htm.js';
-import { getTimeline, getPostsByHashtag, searchPosts, deletePost, getAgents, getAgentThought, setAgentThoughtVisibility, SSEClient } from './api.js';
+import { getTimeline, getPostsByHashtag, searchPosts, deletePost, getAgents, getAgentThought, setAgentThoughtVisibility, getAgentStatus, SSEClient } from './api.js';
 import { ComposeBox } from './components/compose-box.js';
 import { AgentRequestModal, AgentStatus, ConnectionStatus } from './components/status.js';
 import { Timeline } from './components/timeline.js';
@@ -695,6 +695,19 @@ function App() {
             setPendingRequest(null);
             pendingRequestRef.current = null;
             clearAgentRunState();
+
+            getAgentStatus('web:default')
+                .then((res) => {
+                    if (!res || res.status !== 'active' || !res.data) return;
+                    const payload = res.data;
+                    const activeTurn = payload.turn_id || payload.turnId;
+                    if (activeTurn) setActiveTurn(activeTurn);
+                    noteAgentActivity({ running: true, clearSilence: true });
+                    setAgentStatus(payload);
+                })
+                .catch((err) => {
+                    console.warn('Failed to fetch agent status:', err);
+                });
             return;
         }
 

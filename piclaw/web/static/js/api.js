@@ -103,6 +103,14 @@ export async function getAgents() {
 }
 
 /**
+ * Get current agent status
+ */
+export async function getAgentStatus(chatJid = null) {
+    const query = chatJid ? `?chat_jid=${encodeURIComponent(chatJid)}` : '';
+    return request(`/agent/status${query}`);
+}
+
+/**
  * Upload media file
  */
 export async function uploadMedia(file) {

@@ -46,6 +46,7 @@ export class WebChannel {
   workspaceVisible = false;
   workspaceShowHidden = false;
   pendingSteering = new Map<string, string[]>();
+  activeAgentStatuses = new Map<string, Record<string, unknown>>();
   thoughtBuffers = new Map<string, { text: string; totalLines: number; updatedAt: number }>();
   draftBuffers = new Map<string, { text: string; totalLines: number; updatedAt: number }>();
   expandedPanels = new Map<string, { thought: boolean; draft: boolean }>();
@@ -123,6 +124,19 @@ export class WebChannel {
     this.pendingSteering.delete(chatJid);
     entries.sort();
     return entries[entries.length - 1] ?? null;
+  }
+
+  updateAgentStatus(chatJid: string, status: Record<string, unknown>): void {
+    const type = status?.type;
+    if (type === "done" || type === "error") {
+      this.activeAgentStatuses.delete(chatJid);
+      return;
+    }
+    this.activeAgentStatuses.set(chatJid, status);
+  }
+
+  getAgentStatus(chatJid: string): Record<string, unknown> | null {
+    return this.activeAgentStatuses.get(chatJid) ?? null;
   }
 
   replaceQueuedFollowupPlaceholder(
@@ -311,6 +325,13 @@ export class WebChannel {
   async handlePost(req: Request, isReply: boolean): Promise<Response> {
     const { handlePost } = await import("./web/handlers/posts.js");
     return handlePost(this, req, isReply, DEFAULT_CHAT_JID);
+  }
+
+  handleAgentStatus(req: Request): Response {
+    const url = new URL(req.url);
+    const chatJid = (url.searchParams.get("chat_jid") || DEFAULT_CHAT_JID).trim() || DEFAULT_CHAT_JID;
+    const status = this.getAgentStatus(chatJid);
+    return this.json({ status: status ? "active" : "idle", data: status });
   }
 
   async handleAgentRespond(req: Request): Promise<Response> {
