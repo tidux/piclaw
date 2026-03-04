@@ -1,4 +1,4 @@
-# Azure VM Piclaw ops notes (sanitized)
+# Azure VM Piclaw ops notes
 
 ## Access
 - Host: `your-vm.example.com`
@@ -39,7 +39,7 @@ Systemd user unit:
 
 Expected ExecStart (adjust to your install path):
 ```
-ExecStart=/home/agent/.bun/bin/piclaw --port 3000
+ExecStart=/usr/local/bin/piclaw --port 3000
 ```
 
 Restart:
@@ -49,21 +49,24 @@ systemctl --user status piclaw.service --no-pager -l | head -n 15
 ```
 
 ## Bun + global installs
-- Bun should live at `/home/agent/.bun/bin/bun`
-- PATH should include `~/.bun/bin` in `~/.bashrc`
+- Bun should live at `/usr/local/bun/bin/bun`
+- PATH should include `/usr/local/bun/bin` in `~/.bashrc` for interactive shells
 
 Reinstall bun (if missing):
 ```
-curl -fsSL https://bun.sh/install | bash
+sudo BUN_INSTALL=/usr/local/bun bash -c "$(curl -fsSL https://bun.sh/install)"
 ```
 
 Global installs:
 ```
 # pi CLI
-/home/agent/.bun/bin/bun add -g @mariozechner/pi-coding-agent
+sudo /usr/local/bun/bin/bun add -g @mariozechner/pi-coding-agent
 
 # piclaw from workspace
-/home/agent/.bun/bin/bun add -g --no-save file:/workspace/piclaw/piclaw
+sudo /usr/local/bun/bin/bun add -g --no-save file:/workspace/piclaw/piclaw
+
+# ensure wrapper is reachable
+sudo ln -sf /usr/local/bun/bin/piclaw /usr/local/bin/piclaw
 ```
 
 ## Remote changes audit + import

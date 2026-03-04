@@ -3,6 +3,10 @@ import OpenAI from "openai";
 import {
   AssistantMessageEventStream,
   supportsXhigh,
+  type AssistantMessage,
+  type Model,
+  type ToolCall,
+  type ToolResultMessage,
 } from "@mariozechner/pi-ai";
 import {
   convertResponsesMessages,
@@ -69,6 +73,16 @@ const CACHE_DIR = process.env.AOAI_TOKEN_CACHE_DIR || "/workspace/.piclaw/cache"
 const CACHE_FILE = process.env.AOAI_TOKEN_CACHE_FILE || `${CACHE_DIR}/aoai-token.json`;
 const SKEW_SECONDS = Number(process.env.AOAI_TOKEN_SKEW_SECONDS || "300");
 const TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode", PROVIDER, FOUNDRY_PROVIDER]);
+const DISABLE_TOOLS = /^(1|true|yes)$/i.test(process.env.AOAI_DISABLE_TOOLS || "");
+const DISABLE_REASONING = /^(1|true|yes)$/i.test(process.env.AOAI_DISABLE_REASONING || "");
+const DISABLE_REASONING_MODELS = new Set(
+  (process.env.AOAI_DISABLE_REASONING_MODELS || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+);
+// Debug helper: log phase replay/persistence details when troubleshooting gpt-5.3-codex.
+const LOG_PHASES = /^(1|true|yes)$/i.test(process.env.AOAI_LOG_PHASES || "");
 
 // Per-model overrides: contextWindow, maxTokens, reasoning
 const MODEL_SPECS: Record<string, { contextWindow?: number; maxTokens?: number; reasoning?: boolean }> = {
@@ -80,7 +94,36 @@ const MODEL_SPECS: Record<string, { contextWindow?: number; maxTokens?: number; 
   "mistral-large-3":    { contextWindow: 131072, maxTokens: 16384,  reasoning: false },
   "flux-2-pro":         { contextWindow: 4096,   maxTokens: 4096,   reasoning: false },
 };
-const DEFAULT_SPEC = { contextWindow: 200000, maxTokens: 64000, reasoning: false };
+const DEFAULT_AZURE_SPEC = { contextWindow: 200000, maxTokens: 64000, reasoning: true };
+const DEFAULT_FOUNDRY_SPEC = { contextWindow: 200000, maxTokens: 64000, reasoning: false };
+let extensionLogged = false;
+
+function logExtensionLoaded(): void {
+  if (extensionLogged) return;
+  extensionLogged = true;
+  const summary = {
+    provider: PROVIDER,
+    foundryProvider: FOUNDRY_PROVIDER,
+    api: AZURE_API,
+    foundryApi: FOUNDRY_API,
+    baseUrl: BASE_URL,
+    foundryBaseUrl: FOUNDRY_BASE_URL,
+    modelIds: MODEL_IDS,
+    foundryModelIds: FOUNDRY_MODEL_IDS,
+    disableTools: DISABLE_TOOLS,
+    disableReasoning: DISABLE_REASONING,
+    disableReasoningModels: Array.from(DISABLE_REASONING_MODELS),
+    bun: process.versions?.bun || null,
+    node: process.versions?.node || null,
+  };
+  setTimeout(() => {
+    try {
+      console.error("[azure-openai] Extension loaded:", JSON.stringify(summary));
+    } catch (error) {
+      console.error("[azure-openai] Extension loaded (failed to serialize):", error);
+    }
+  }, 0);
+}
 
 function sanitizeOpenAIId(value?: string): string | undefined {
   if (!value) return value;
@@ -98,6 +141,134 @@ function sanitizeToolCallId(value?: string): string | undefined {
   const tail = rest.length ? `|${rest.join("|")}` : "";
   if (sanitizedItemId) return `${sanitizedCallId}|${sanitizedItemId}${tail}`;
   return sanitizedCallId;
+}
+
+function logStreamFailureEvent(event: any, requestSummary?: Record<string, unknown>, loggedRef?: { logged: boolean }): void {
+  if (!event || typeof event !== "object") return;
+  const type = (event as { type?: string }).type;
+  if (type === "response.failed") {
+    const response = (event as { response?: any }).response;
+    const error = response?.error || response?.status_details || response || event;
+    console.error("[azure-openai] Stream response.failed:", JSON.stringify(error));
+    if (requestSummary && loggedRef && !loggedRef.logged) {
+      console.error("[azure-openai] Request summary:", JSON.stringify(requestSummary));
+      loggedRef.logged = true;
+    }
+  }
+  if (type === "error") {
+    const { code, message, error } = event as { code?: string; message?: string; error?: unknown };
+    console.error("[azure-openai] Stream error:", JSON.stringify({ code, message, error }));
+    if (requestSummary && loggedRef && !loggedRef.logged) {
+      console.error("[azure-openai] Request summary:", JSON.stringify(requestSummary));
+      loggedRef.logged = true;
+    }
+  }
+}
+
+function logAzureError(modelId: string, error: unknown, requestSummary?: Record<string, unknown>, loggedRef?: { logged: boolean }): void {
+  const err = error as { name?: string; message?: string; status?: number; code?: string; type?: string; response?: any; error?: any };
+  const details = {
+    name: err?.name,
+    message: err?.message ?? String(error),
+    status: err?.status ?? err?.response?.status,
+    code: err?.code,
+    type: err?.type,
+    response: err?.response?.data,
+    error: err?.error,
+  };
+  console.error(`[azure-openai] Error for ${modelId}:`, JSON.stringify(details));
+  if (requestSummary && loggedRef && !loggedRef.logged) {
+    console.error("[azure-openai] Request summary:", JSON.stringify(requestSummary));
+    loggedRef.logged = true;
+  }
+}
+
+function isReasoningEnabled(model: Model<any>): boolean {
+  if (!model?.reasoning) return false;
+  if (DISABLE_REASONING) return false;
+  if (DISABLE_REASONING_MODELS.has(model.id)) return false;
+  return true;
+}
+
+// GPT-5.3 Codex introduces a `phase` field on assistant output items (commentary vs final_answer).
+// The cookbook notes that integrations must persist this metadata and replay it on subsequent
+// requests, or the model may exhibit degraded behavior or failures. We store `phase` on the
+// text blocks we persist, then re-apply it to the outgoing Responses API input items.
+function collectMessagePhases(messages: unknown[]): Map<string, string> {
+  const phases = new Map<string, string>();
+  for (const msg of messages) {
+    if (!msg || typeof msg !== "object") continue;
+    if ((msg as { role?: string }).role !== "assistant") continue;
+    const content = (msg as { content?: Array<any> }).content || [];
+    for (const block of content) {
+      if (block?.type !== "text") continue;
+      const id = block.textSignature;
+      const phase = block.phase;
+      if (id && typeof id === "string" && phase && typeof phase === "string") {
+        phases.set(id, phase);
+      }
+    }
+  }
+  return phases;
+}
+
+// Apply stored phase metadata to assistant output items when reconstructing input for /responses.
+function applyPhasesToResponseInput(items: Array<any>, phases: Map<string, string>): void {
+  if (!phases.size) return;
+  for (const item of items) {
+    if (item?.type !== "message" || !item.id) continue;
+    const phase = phases.get(item.id);
+    if (phase) item.phase = phase;
+  }
+}
+
+// After streaming completes, copy the phase from Responses output items onto our stored text blocks
+// so future requests can replay it (phase is required for gpt-5.3-codex continuity).
+function applyPhasesToOutputMessage(output: { content?: Array<any> }, phases: Map<string, string>): void {
+  if (!phases.size || !output?.content) return;
+  for (const block of output.content) {
+    if (block?.type !== "text") continue;
+    const id = block.textSignature;
+    if (!id || typeof id !== "string") continue;
+    const phase = phases.get(id);
+    if (phase) block.phase = phase;
+  }
+}
+
+// Produce a compact, log-friendly summary of phase metadata in outgoing ResponseInput items.
+// We avoid logging content and only emit IDs + phase counts when AOAI_LOG_PHASES=1.
+function summarizeResponseInputPhases(items: Array<any>): {
+  total: number;
+  counts: Record<string, number>;
+  sample: Array<{ id: string; phase: string }>;
+} {
+  const counts: Record<string, number> = {};
+  const sample: Array<{ id: string; phase: string }> = [];
+  let total = 0;
+
+  for (const item of items) {
+    if (item?.type !== "message" || !item.id || !item.phase) continue;
+    const phase = String(item.phase);
+    counts[phase] = (counts[phase] || 0) + 1;
+    total += 1;
+    if (sample.length < 6) {
+      sample.push({ id: String(item.id), phase });
+    }
+  }
+
+  return { total, counts, sample };
+}
+
+function isSameModel(message: AssistantMessage, model: Model<any> | undefined): boolean {
+  if (!model) return false;
+  return message.provider === model.provider && message.api === model.api && message.model === model.id;
+}
+
+function stripToolCallItemId(id: string): { id: string; changed: boolean } {
+  if (!id.includes("|")) return { id, changed: false };
+  const [callId] = id.split("|");
+  if (!callId || callId === id) return { id, changed: false };
+  return { id: callId, changed: true };
 }
 
 
@@ -424,6 +595,9 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
       timestamp: Date.now(),
     };
 
+    let requestSummary: Record<string, unknown> | undefined;
+    const loggedRef = { logged: false };
+
     try {
       const headers = { ...model.headers };
       if (options?.headers) {
@@ -436,7 +610,36 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
         }
       }
 
+      // Pull any stored phase metadata from prior assistant messages, then apply it to the
+      // reconstructed ResponseInput so gpt-5.3-codex sees the same phases on replay.
+      const phaseById = collectMessagePhases(context.messages || []);
       const messages = convertResponsesMessages(model, context, TOOL_CALL_PROVIDERS);
+      applyPhasesToResponseInput(messages as Array<any>, phaseById);
+      const phaseReplaySummary = LOG_PHASES ? summarizeResponseInputPhases(messages as Array<any>) : null;
+
+      const messageTypeCounts = messages.reduce<Record<string, number>>((acc, item: any) => {
+        const key = item?.type || item?.role || "unknown";
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+      const toolsEnabled = !DISABLE_TOOLS;
+      const reasoningEnabled = isReasoningEnabled(model);
+      requestSummary = {
+        model: model.id,
+        api: model.api,
+        provider: model.provider,
+        baseUrl: model.baseUrl,
+        messageCount: messages.length,
+        messageTypes: messageTypeCounts,
+        toolCount: toolsEnabled && context.tools ? context.tools.length : 0,
+        hasToolCalls: messages.some((item: any) => item?.type === "function_call"),
+        reasoning: reasoningEnabled ? { effort: options?.reasoningEffort ?? null, summary: options?.reasoningSummary ?? null } : null,
+        toolsEnabled,
+        reasoningEnabled,
+        // Phase replay summary is included only when AOAI_LOG_PHASES=1; omit otherwise.
+        phaseReplay: phaseReplaySummary,
+        storedPhaseCount: phaseById.size,
+      };
 
       // Post-conversion sanitization for Azure OpenAI compatibility.
       // Azure requires: id/call_id max 64 chars, only [a-zA-Z0-9_-].
@@ -459,7 +662,7 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
       };
 
       // Only include OpenAI-specific params for models that support them
-      if (model.reasoning) {
+      if (reasoningEnabled) {
         params.prompt_cache_key = options?.sessionId;
         params.text = { format: { type: "text" }, verbosity: "medium" };
       }
@@ -470,11 +673,13 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
       if (options?.temperature !== undefined) {
         params.temperature = options?.temperature;
       }
-      if (context.tools) {
+      if (!DISABLE_TOOLS && context.tools) {
         params.tools = convertResponsesTools(context.tools);
+      } else if (DISABLE_TOOLS) {
+        params.tool_choice = "none";
       }
 
-      if (model.reasoning) {
+      if (reasoningEnabled) {
         if (options?.reasoningEffort || options?.reasoningSummary) {
           params.reasoning = {
             effort: options?.reasoningEffort || "medium",
@@ -512,8 +717,29 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
         openaiStream = await createStream();
       }
 
+      // Capture `phase` for assistant output items so we can persist it on stored messages.
+      // This uses the Responses stream events to avoid any SDK version mismatches.
+      const outputPhases = new Map<string, string>();
+      const loggingStream = (async function* () {
+        for await (const event of openaiStream) {
+          if (event?.type === "response.output_item.added" || event?.type === "response.output_item.done") {
+            const item = (event as { item?: any }).item;
+            const phase = item?.phase;
+            if (item?.type === "message" && item?.id && typeof phase === "string") {
+              outputPhases.set(item.id, phase);
+            }
+          }
+          logStreamFailureEvent(event, requestSummary, loggedRef);
+          yield event;
+        }
+      })();
+
       stream.push({ type: "start", partial: output });
-      await processResponsesStream(openaiStream, output, stream, model);
+      await processResponsesStream(loggingStream, output, stream, model);
+      applyPhasesToOutputMessage(output, outputPhases);
+      if (LOG_PHASES && outputPhases.size > 0) {
+        console.error("[azure-openai] Output phases:", JSON.stringify({ total: outputPhases.size, phases: Array.from(outputPhases.entries()).slice(0, 6) }));
+      }
 
       if (options?.signal?.aborted) {
         throw new Error("Request was aborted");
@@ -525,7 +751,7 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
       stream.push({ type: "done", reason: output.stopReason, message: output });
       stream.end();
     } catch (error) {
-      console.error(`[azure-openai] Error for ${model.id}:`, error instanceof Error ? error.message : error);
+      logAzureError(model.id, error, requestSummary, loggedRef);
       for (const block of output.content) delete (block as any).index;
       output.stopReason = options?.signal?.aborted ? "aborted" : "error";
       output.errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
@@ -557,7 +783,7 @@ function streamSimpleFoundryOpenAICompletions(model: any, context: any, options:
 
 function registerProvider(pi: ExtensionAPI, token: string) {
   const openaiModels = MODEL_IDS.map((id, idx) => {
-    const spec = MODEL_SPECS[id] || DEFAULT_SPEC;
+    const spec = MODEL_SPECS[id] || DEFAULT_AZURE_SPEC;
     return {
       id,
       name: MODEL_NAMES[idx] || (id === MODEL_ID ? MODEL_NAME : `Azure ${id}`),
@@ -579,7 +805,7 @@ function registerProvider(pi: ExtensionAPI, token: string) {
   });
 
   const foundryModels = FOUNDRY_TEXT_MODEL_IDS.map((id, idx) => {
-    const spec = MODEL_SPECS[id] || DEFAULT_SPEC;
+    const spec = MODEL_SPECS[id] || DEFAULT_FOUNDRY_SPEC;
     return {
       id,
       name: FOUNDRY_MODEL_NAMES[idx] || `Azure Foundry ${id}`,
@@ -604,6 +830,51 @@ function registerProvider(pi: ExtensionAPI, token: string) {
 }
 
 export default function (pi: ExtensionAPI) {
+  logExtensionLoaded();
+
+  pi.on("context", async (event, ctx) => {
+    const currentModel = ctx.model;
+    if (!currentModel) return;
+
+    const idMap = new Map<string, string>();
+    let modified = false;
+
+    const messages = event.messages.map((message) => {
+      if (message.role === "assistant") {
+        const assistant = message as AssistantMessage;
+        if (isSameModel(assistant, currentModel)) return message;
+
+        let contentChanged = false;
+        const content = assistant.content.map((block) => {
+          if (block.type !== "toolCall") return block;
+          const toolCall = block as ToolCall;
+          const { id, changed } = stripToolCallItemId(toolCall.id);
+          if (!changed) return toolCall;
+          idMap.set(toolCall.id, id);
+          contentChanged = true;
+          return { ...toolCall, id };
+        });
+
+        if (!contentChanged) return message;
+        modified = true;
+        return { ...assistant, content };
+      }
+
+      if (message.role === "toolResult") {
+        const toolResult = message as ToolResultMessage;
+        const mapped = idMap.get(toolResult.toolCallId);
+        if (!mapped || mapped === toolResult.toolCallId) return message;
+        modified = true;
+        return { ...toolResult, toolCallId: mapped };
+      }
+
+      return message;
+    });
+
+    if (!modified) return;
+    return { messages };
+  });
+
   pi.registerCommand("image", {
     description: "Generate an image with Azure OpenAI",
     handler: async (input, ctx) => {
@@ -698,6 +969,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   const refresh = async () => {
+    logExtensionLoaded();
     const cache = await ensureToken();
     if (cache.accessToken) {
       registerProvider(pi, cache.accessToken);

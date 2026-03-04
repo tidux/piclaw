@@ -6,7 +6,7 @@ This is a concise checklist for deploying Piclaw on an Azure VM.
 
 - Create a Linux VM (Debian/Ubuntu recommended).
 - Open inbound ports for:
-  - **SSH** (consider a non‑standard port, e.g. 2211)
+  - **SSH** (consider a non‑standard port)
   - **HTTP/HTTPS** (80/443) for the web UI
 - Create a non‑root user (e.g. `agent`) and enable passwordless sudo.
 
@@ -93,7 +93,7 @@ Ensure ports 80/443 are open and DNS points to the VM.
 
 ## 7) Optional: SSH hardening
 
-- Move SSH to a custom port (e.g. 2211).
+- Move SSH to a custom port.
 - Disable password login after key auth is working.
 
 ## 8) Optional: Azure OpenAI + Foundry managed-identity extension
@@ -115,4 +115,8 @@ The extension uses **custom API names** (`azure-openai-responses-mi`, `azure-fou
 
 - Prefer `systemctl --user restart piclaw.service` over killing port 3000 directly.
 - Keep `/workspace/.piclaw` on persistent storage if possible.
-- See `docs/azure/azurevm-ops.md` for sanitized ops notes.
+- See `docs/azure/azurevm-ops.md` for ops notes.
+
+## Known issues
+
+- `gpt-5-3-codex` can still emit `response.failed` / “Unknown error” after model switching. Phase replay and tool/ reasoning toggles reduce some errors but do not fully eliminate failures yet. See `docs/azure/azure-openai-extension.md`.

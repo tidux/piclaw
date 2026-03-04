@@ -16,7 +16,11 @@ This note documents the piclaw extension that registers Azure OpenAI and Azure A
 - **OpenAI client** from the `openai` package, configured with the Azure Responses API base URL.
 - **Custom API names** so this extension does *not* replace the global `openai-responses` / `openai-completions` handlers.
 - **Tool-call ID normalization + sanitization** for Azure Responses constraints.
+- **Model-switch tool-call cleanup** strips tool-call item IDs when providers/models differ.
 - **Thinking level support** maps `/thinking` settings to `reasoning.effort` (clamped for xhigh when needed).
+- **Runtime flags** to disable tools or reasoning (`AOAI_DISABLE_TOOLS`, `AOAI_DISABLE_REASONING`, `AOAI_DISABLE_REASONING_MODELS`).
+- **Phase capture + replay** for GPT‑5.3 Codex output metadata (`AOAI_LOG_PHASES` for debug).
+- **Stream failure logging** for `response.failed` / `error` events with request summaries.
 - **Text output forcing** via `text: { format: { type: "text" }, verbosity: "medium" }`.
 
 ## Pitfalls / guardrails
@@ -144,10 +148,16 @@ include: ["reasoning.encrypted_content"]
 - `AOAI_TOKEN_CACHE_DIR` – cache directory (default `/workspace/.piclaw/cache`)
 - `AOAI_TOKEN_CACHE_FILE` – cache file path (default `${AOAI_TOKEN_CACHE_DIR}/aoai-token.json`)
 - `AOAI_TOKEN_SKEW_SECONDS` – refresh skew in seconds (default `300`)
+- `AOAI_API_VERSION` – Azure OpenAI API version (default `2024-02-15-preview`)
+- `AOAI_DISABLE_TOOLS` – disable tool calls (`true`/`1`/`yes`)
+- `AOAI_DISABLE_REASONING` – disable reasoning (`true`/`1`/`yes`)
+- `AOAI_DISABLE_REASONING_MODELS` – comma‑separated model IDs to force reasoning off
+- `AOAI_LOG_PHASES` – log GPT‑5.3 phase replay details (`true`/`1`/`yes`)
 
 - `FOUNDRY_BASE_URL` – Foundry base URL
 - `FOUNDRY_MODEL_IDS` / `FOUNDRY_MODEL_NAMES` – Foundry model list + names
 - `FOUNDRY_IMAGE_MODEL_ID` – Foundry image model ID
+- `FOUNDRY_API_VERSION` – Foundry API version override (defaults to `AOAI_API_VERSION`)
 - `FOUNDRY_IMAGE_BASE_URL` – Optional explicit Foundry image base URL
 - `FOUNDRY_IMAGE_API_VERSION` – Foundry image API version (default `preview`)
 - `FOUNDRY_RESOURCE` – resource URI for IMDS token fetch
@@ -157,9 +167,67 @@ include: ["reasoning.encrypted_content"]
 - **Extension source**: `~/.pi/agent/extensions/azure-openai-token.ts`
 - **Token cache**: `${AOAI_TOKEN_CACHE_DIR}/aoai-token.json`
 
+## Model-switch regression test (web)
+
+Use this to validate cross-provider tool-call ID handling after changes to the extension.
+
+Notes:
+- IPC message files only send outbound bot messages; they do **not** trigger `/model` control commands.
+- Use the internal web endpoint with the internal secret to issue `/model` and prompt messages.
+
+Example (run on the host where piclaw runs):
+
+```bash
+BASE="http://localhost:3000"
+SECRET="$PICLAW_INTERNAL_SECRET"
+
+send_msg() {
+  local msg="$1"
+  curl -sS -H "x-piclaw-internal-secret: $SECRET" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n --arg content "$msg" '{content:$content}')" \
+    "$BASE/agent/default/message" >/tmp/piclaw-test-last.json
+}
+
+wait_idle() {
+  for i in $(seq 1 60); do
+    status=$(curl -sS -H "x-piclaw-internal-secret: $SECRET" \
+      "$BASE/agent/status?chat_jid=web:default" | jq -r .status)
+    [ "$status" = "idle" ] && return 0
+    sleep 2
+  done
+  return 1
+}
+
+# List models if needed
+send_msg "/model"; wait_idle
+
+# Smoke test sequence
+send_msg "/model azure-openai/gpt-5-2-codex"; wait_idle
+send_msg "ping 1"; wait_idle
+send_msg "/model azure-openai/gpt-5-3-codex"; wait_idle
+send_msg "ping 2"; wait_idle
+send_msg "/model azure-openai/gpt-5-1-codex-mini"; wait_idle
+send_msg "ping 3"; wait_idle
+send_msg "/model github-copilot/claude-opus-4.6"; wait_idle
+send_msg "ping opus"; wait_idle
+send_msg "/model azure-openai/gpt-5-3-codex"; wait_idle
+send_msg "ping after opus"; wait_idle
+```
+
+## GPT‑5.3 Codex challenges
+
+- GPT‑5.3 adds a `phase` field on assistant output items (commentary vs `final_answer`). The extension captures it from the Responses stream and replays it on the next request so continuity is preserved.
+- Even with phase replay enabled, long multi‑model sessions can still emit `response.failed` (sometimes with `error: null`) and `/compact` can return “Unknown error.”
+- Disabling tools/reasoning (`AOAI_DISABLE_TOOLS`, `AOAI_DISABLE_REASONING`) does not consistently resolve the failure once it appears.
+- For diagnosis, enable `AOAI_LOG_PHASES=1` and review stream failure logs + request summaries to see message counts and tool-call volume.
+- Workarounds: restart the session, reduce tool-call history, or use `gpt-5-2-codex` until upstream handling stabilizes.
+
 ## Troubleshooting
 
 - If model output is missing: verify the `text` format block is being injected.
 - If tool call errors appear: ensure `TOOL_CALL_PROVIDERS` includes `azure-openai`/`azure-foundry` and that ID sanitization remains.
 - If tokens fail: check IMDS connectivity (`curl -H Metadata:true http://169.254.169.254/...`).
 - If other providers break: verify you did **not** register `openai-responses` / `openai-completions` in this extension.
+- Stream failures now log `response.failed` / `error` events plus a request summary (model, message counts, tool counts):
+  - `journalctl --user -u piclaw.service --no-pager | rg "azure-openai\] Stream"`

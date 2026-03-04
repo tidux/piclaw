@@ -25,7 +25,7 @@ export function createTrackedBashOperations() {
                         return;
                     }
                     let resolvedEnv;
-                    let resolvedCommand = command;
+                    let resolvedCommand;
                     try {
                         resolvedEnv = env ? await resolveKeychainEnv(env) : { ...process.env };
                         resolvedCommand = await resolveKeychainPlaceholders(command);
