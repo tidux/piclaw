@@ -15,7 +15,7 @@ export function Timeline({ posts, hasMore, onLoadMore, onPostClick, onHashtagCli
         if (!onLoadMore || !hasMore || loadingMore) return;
         setLoadingMore(true);
         try {
-            await onLoadMore();
+            await onLoadMore({ preserveScroll: true, preserveMode: 'top' });
         } finally {
             setLoadingMore(false);
         }
@@ -72,11 +72,13 @@ export function Timeline({ posts, hasMore, onLoadMore, onPostClick, onHashtagCli
     useEffect(() => {
         if (!timelineRef?.current) return;
         if (!hasMore || loadingMore) return;
-        const { scrollHeight, clientHeight } = timelineRef.current;
-        if (scrollHeight <= clientHeight + 1) {
+        const { scrollTop, scrollHeight, clientHeight } = timelineRef.current;
+        const distanceFromTop = reverse ? (scrollHeight - clientHeight - scrollTop) : scrollTop;
+        const prefetchThreshold = Math.max(300, clientHeight);
+        if (scrollHeight <= clientHeight + 1 || distanceFromTop < prefetchThreshold) {
             triggerLoadMore();
         }
-    }, [posts, hasMore, loadingMore, timelineRef, triggerLoadMore]);
+    }, [posts, hasMore, loadingMore, reverse, timelineRef, triggerLoadMore]);
 
     if (!posts) {
         return html`<div class="loading"><div class="spinner"></div></div>`;

@@ -30,7 +30,7 @@ export function createTrackedBashOperations(): BashOperations {
           }
 
           let resolvedEnv: NodeJS.ProcessEnv;
-          let resolvedCommand = command;
+          let resolvedCommand: string;
           try {
             resolvedEnv = env ? await resolveKeychainEnv(env) : { ...process.env };
             resolvedCommand = await resolveKeychainPlaceholders(command);

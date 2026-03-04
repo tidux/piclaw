@@ -128,6 +128,8 @@ function App() {
     const viewStateRef = useRef({ currentHashtag: null, searchQuery: null });
     const hasMoreRef = useRef(false);
     const loadMoreRef = useRef(null);
+    const loadingMoreRef = useRef(false);
+    const lastBeforeIdRef = useRef(null);
     const timelineRef = useRef(null);
     const lastAgentEventRef = useRef(null);
     const lastSilenceNoticeRef = useRef(0);
@@ -602,7 +604,8 @@ function App() {
     // Load older messages (prepend)
     const loadMore = useCallback(async (options = {}) => {
         if (!posts || posts.length === 0) return;
-        const { preserveScroll = false, preserveMode = 'bottom' } = options;
+        if (loadingMoreRef.current) return;
+        const { preserveScroll = true, preserveMode = 'top', allowRepeat = false } = options;
         const applyUpdate = (fn) => {
             if (!preserveScroll) {
                 fn();
@@ -612,12 +615,14 @@ function App() {
             else preserveTimelineScroll(fn);
         };
         const sortedPosts = posts.slice().sort((a, b) => a.id - b.id);
-        const oldestId = sortedPosts[0].id;
-        
-        console.log('Loading more before id:', oldestId);
+        const oldestId = sortedPosts[0]?.id;
+        if (!Number.isFinite(oldestId)) return;
+        if (!allowRepeat && lastBeforeIdRef.current === oldestId) return;
+
+        loadingMoreRef.current = true;
+        lastBeforeIdRef.current = oldestId;
         try {
-            const result = await getTimeline(5, oldestId);
-            console.log('Loaded:', result.posts.length, 'has_more:', result.has_more);
+            const result = await getTimeline(10, oldestId);
             if (result.posts.length > 0) {
                 applyUpdate(() => {
                     setPosts(prev => dedupePosts([...result.posts, ...(prev || [])]));
@@ -628,6 +633,8 @@ function App() {
             }
         } catch (error) {
             console.error('Failed to load more posts:', error);
+        } finally {
+            loadingMoreRef.current = false;
         }
     }, [posts, preserveTimelineScroll, preserveTimelineScrollTop]);
 
