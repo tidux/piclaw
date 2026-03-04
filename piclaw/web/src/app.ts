@@ -116,6 +116,7 @@ function App() {
     const [activeModel, setActiveModel] = useState(null);
     const [notificationsEnabled, setNotificationsEnabled] = useState(false);
     const [notificationPermission, setNotificationPermission] = useState('default');
+    const [removingPostIds, setRemovingPostIds] = useState(() => new Set());
     const [workspaceOpen, setWorkspaceOpen] = useState(() => {
         if (typeof window === 'undefined') return true;
         const stored = localStorage.getItem('workspaceOpen');
@@ -708,15 +709,34 @@ function App() {
             const confirmed = window.confirm(`Delete this message and its ${replyCount} replies?`);
             if (!confirmed) return;
         }
+
+        const scheduleRemoval = (ids) => {
+            if (!ids.length) return;
+            setRemovingPostIds((prev) => {
+                const next = new Set(prev);
+                ids.forEach((id) => next.add(id));
+                return next;
+            });
+            const delayMs = 180;
+            setTimeout(() => {
+                preserveTimelineScrollTop(() => {
+                    setPosts((prev) => (prev ? prev.filter((item) => !ids.includes(item.id)) : prev));
+                });
+                setRemovingPostIds((prev) => {
+                    const next = new Set(prev);
+                    ids.forEach((id) => next.delete(id));
+                    return next;
+                });
+                if (hasMoreRef.current) {
+                    loadMoreRef.current?.({ preserveScroll: true, preserveMode: 'top' });
+                }
+            }, delayMs);
+        };
+
         try {
             const result = await deletePost(postId, replyCount > 0);
             if (result?.ids?.length) {
-                preserveTimelineScrollTop(() => {
-                    setPosts((prev) => prev ? prev.filter((item) => !result.ids.includes(item.id)) : prev);
-                });
-                if (hasMore) {
-                    await loadMore({ preserveScroll: true, preserveMode: 'top' });
-                }
+                scheduleRemoval(result.ids);
             }
         } catch (error) {
             const errorMessage = error?.message || '';
@@ -725,19 +745,14 @@ function App() {
                 if (!confirmed) return;
                 const result = await deletePost(postId, true);
                 if (result?.ids?.length) {
-                    preserveTimelineScrollTop(() => {
-                        setPosts((prev) => prev ? prev.filter((item) => !result.ids.includes(item.id)) : prev);
-                    });
-                    if (hasMore) {
-                        await loadMore({ preserveScroll: true, preserveMode: 'top' });
-                    }
+                    scheduleRemoval(result.ids);
                 }
                 return;
             }
             console.error('Failed to delete post:', error);
             alert(`Failed to delete message: ${errorMessage}`);
         }
-    }, [hasMore, loadMore, posts, preserveTimelineScrollTop]);
+    }, [posts, preserveTimelineScrollTop]);
 
     const loadAgents = useCallback(async () => {
         try {
@@ -1232,6 +1247,7 @@ function App() {
                     agents=${agents}
                     user=${userProfile}
                     reverse=${!(searchQuery && !currentHashtag)}
+                    removingPostIds=${removingPostIds}
                 />
                 <${AgentStatus}
                     status=${agentStatus}

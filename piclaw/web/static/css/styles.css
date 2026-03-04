@@ -841,7 +841,13 @@ body {
     gap: var(--spacing-sm);
     align-items: flex-start;
     animation: fadeSlideIn 0.3s ease-out backwards;
-    transition: background-color var(--ui-transition-fast);
+    transition: background-color var(--ui-transition-fast), opacity 0.18s ease, transform 0.18s ease;
+}
+
+.post.removing {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+    pointer-events: none;
 }
 
 .post:hover {
