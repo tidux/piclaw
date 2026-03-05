@@ -73,6 +73,17 @@ All `piclaw` extensions are shipped as **inline extension factories** — they a
 
 Each factory receives an `ExtensionAPI` and registers tools or slash commands via `pi.registerTool()` and `pi.registerSlashCommand()`. System prompt hints are injected via `pi.on("before_agent_start")`.
 
+### Bundled optional extensions (experimental)
+
+In addition to the inline factories, piclaw ships two **optional extensions** under `extensions/` in the package tree. These are loaded via jiti at session start and gated on environment variables:
+
+| Extension | Gate | Purpose |
+|-----------|------|---------|
+| `azure-openai.ts` | `AOAI_BASE_URL` must be set | Azure OpenAI + Foundry provider with managed-identity or API-key auth |
+| `context-mode.ts` | Always loaded | Tool-output storage, search handles, and `batch_exec` tool |
+
+These extensions are **experimental** — their API surface and loading mechanism may change between releases. They use relative imports (`../src/...`) to reference piclaw internals and require a `node_modules` symlink next to the `extensions/` directory (created automatically at startup) for jiti to resolve deep package imports.
+
 ## Notes
 
 - The agent pool keeps one warm session per chat JID and evicts idle sessions after a TTL.
