@@ -29,7 +29,29 @@ const APPLE_ICON_PATHS = new Set([
 
 const ENROLL_RATE_WINDOW_MS = 5 * 60 * 1000;
 const ENROLL_RATE_LIMIT = 20;
-const enrollRateBuckets = new Map<string, number[]>();
+const AUTH_RATE_WINDOW_MS = 5 * 60 * 1000;
+const AUTH_RATE_LIMIT = 10;
+const rateBuckets = new Map<string, number[]>();
+
+// Prune stale IP entries every 10 minutes to prevent unbounded memory growth.
+const RATE_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
+let lastRatePrune = Date.now();
+
+function pruneRateBuckets(): void {
+  const now = Date.now();
+  if (now - lastRatePrune < RATE_PRUNE_INTERVAL_MS) return;
+  lastRatePrune = now;
+  const maxWindow = Math.max(ENROLL_RATE_WINDOW_MS, AUTH_RATE_WINDOW_MS);
+  const cutoff = now - maxWindow;
+  for (const [key, entries] of rateBuckets.entries()) {
+    const live = entries.filter((ts) => ts > cutoff);
+    if (live.length === 0) {
+      rateBuckets.delete(key);
+    } else {
+      rateBuckets.set(key, live);
+    }
+  }
+}
 
 function getClientKey(req: Request): string {
   const forwarded = req.headers.get("x-forwarded-for");
@@ -42,15 +64,16 @@ function getClientKey(req: Request): string {
   return "unknown";
 }
 
-function isEnrollRateLimited(req: Request, bucket: string): boolean {
+function isRateLimited(req: Request, bucket: string, windowMs: number, limit: number): boolean {
+  pruneRateBuckets();
   const key = `${getClientKey(req)}:${bucket}`;
   const now = Date.now();
-  const cutoff = now - ENROLL_RATE_WINDOW_MS;
-  const entries = enrollRateBuckets.get(key) || [];
+  const cutoff = now - windowMs;
+  const entries = rateBuckets.get(key) || [];
   const trimmed = entries.filter((ts) => ts > cutoff);
   trimmed.push(now);
-  enrollRateBuckets.set(key, trimmed);
-  return trimmed.length > ENROLL_RATE_LIMIT;
+  rateBuckets.set(key, trimmed);
+  return trimmed.length > limit;
 }
 
 /** Business logic for handling compose-box submissions and agent runs. */
@@ -129,8 +152,19 @@ export class RequestRouterService {
       return this.channel.json({ error: "Auth disabled" }, 404);
     }
 
+    // Rate-limit auth endpoints to prevent brute-force attacks.
+    if (isAuthVerify) {
+      if (isRateLimited(req, "auth/verify", AUTH_RATE_WINDOW_MS, AUTH_RATE_LIMIT)) {
+        return this.channel.json({ error: "Too many login attempts. Try again later." }, 429);
+      }
+    }
+    if (isWebauthnLoginStart || isWebauthnLoginFinish) {
+      if (isRateLimited(req, "webauthn/login", AUTH_RATE_WINDOW_MS, AUTH_RATE_LIMIT)) {
+        return this.channel.json({ error: "Too many login attempts. Try again later." }, 429);
+      }
+    }
     if (isWebauthnEnrollPage || isWebauthnRegisterStart || isWebauthnRegisterFinish) {
-      if (isEnrollRateLimited(req, pathname)) {
+      if (isRateLimited(req, "webauthn/enrol", ENROLL_RATE_WINDOW_MS, ENROLL_RATE_LIMIT)) {
         return this.channel.json({ error: "Too many enrol attempts. Try again later." }, 429);
       }
     }

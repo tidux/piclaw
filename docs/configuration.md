@@ -76,14 +76,15 @@ You can gate the entire web UI behind a 6-digit TOTP challenge and optionally en
 ### Passkey enrolment
 
 1. Sign in with TOTP.
-2. Run `/passkey enrol` in the web UI to get a one-time enrolment link.
-3. Open the link in the same browser and complete the passkey prompt.
+2. Run `/passkey enrol` in the web UI to get a one-time enrolment link (valid for 5 minutes).
+3. Open the link in the same browser and complete the passkey prompt. The enrol page requires a TOTP session — passkey-only sessions are not sufficient.
 
 ### Notes
 
 - Multiple passkeys are supported per user; use `/passkey list` to review and `/passkey delete` to revoke.
 - Passkeys are bound to the hostname used during enrolment (RP ID).
 - Login attempts automatically try passkeys first when supported; TOTP remains as fallback unless you set `PICLAW_WEB_PASSKEY_MODE=passkey-only`.
+- All auth endpoints (`/auth/verify`, WebAuthn login, and enrol) are rate-limited per IP (10–20 attempts per 5 minutes).
 
 Internal automation still works via `/internal/post` as long as the request includes the configured secret in the `x-piclaw-internal-secret` header or the `Authorization` header.
 

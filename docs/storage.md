@@ -181,6 +181,7 @@ erDiagram
   WEB_SESSIONS {
     text token
     text user_id
+    text auth_method
     text created_at
     text expires_at
   }
