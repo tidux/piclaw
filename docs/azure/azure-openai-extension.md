@@ -25,7 +25,7 @@ This note documents the piclaw extension that registers Azure OpenAI and Azure A
 - **Runtime flags** to disable tools or reasoning (`AOAI_DISABLE_TOOLS`, `AOAI_DISABLE_REASONING`, `AOAI_DISABLE_REASONING_MODELS`).
 - **Phase capture + replay** for GPT‑5.3 Codex output metadata (`AOAI_LOG_PHASES` for debug).
 - **Stream failure logging** for `response.failed` / `error` events with request summaries.
-- **Tool-call trimming + summarisation** to stay under Azure’s 128 tool-call limit (with optional dedupe of `tool_output_search`).
+- **Tool-call trimming + summarisation** to stay under Azure’s 128 tool-call limit (default cap 96, with optional dedupe of `tool_output_search`).
 - **Text output forcing** via `text: { format: { type: "text" }, verbosity: "medium" }`.
 
 ## Pitfalls / guardrails
