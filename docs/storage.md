@@ -22,6 +22,9 @@
 | `workspace_fts` | Full‑text index for workspace content |
 | `router_state` | Polling cursors |
 | `keychain_entries` | Encrypted secrets for tool env injection |
+| `webauthn_credentials` | Stored passkeys (credential public keys + counters) |
+| `webauthn_enrollments` | One‑time enrolment tokens for passkey registration |
+| `web_sessions` | Persistent web UI sessions (TOTP + passkey logins) |
 
 Attachments and link previews are stored on the message record (`content_blocks`, `link_previews`).
 
@@ -158,6 +161,29 @@ erDiagram
     text created_at
     text updated_at
   }
+  WEBAUTHN_CREDENTIALS {
+    int id
+    text user_id
+    text rp_id
+    text credential_id
+    text public_key
+    int sign_count
+    text transports
+    text created_at
+    text last_used_at
+  }
+  WEBAUTHN_ENROLLMENTS {
+    text token
+    text user_id
+    text created_at
+    text expires_at
+  }
+  WEB_SESSIONS {
+    text token
+    text user_id
+    text created_at
+    text expires_at
+  }
 ```
 
 ## Token usage
@@ -184,6 +210,9 @@ erDiagram
 - `message_media(message_rowid)` and `message_media(media_id)` for joins
 - `messages_fts`, `tool_outputs_fts`, and `workspace_fts` for full-text search
 - `keychain_entries(type)` for keychain lookups
+- `webauthn_credentials(user_id)` and `webauthn_credentials(rp_id)` for passkey queries
+- `webauthn_enrollments(expires_at)` for enrolment cleanup
+- `web_sessions(expires_at)` for session cleanup
 
 ## Data paths
 

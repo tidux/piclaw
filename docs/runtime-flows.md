@@ -2,6 +2,14 @@
 
 This document covers the primary web‑first flows. WhatsApp is documented separately in [whatsapp.md](whatsapp.md).
 
+## Authentication flow (TOTP + passkeys)
+
+The web UI can be gated behind TOTP with optional WebAuthn passkeys. Passkeys are enrolled via the `/passkey enrol` slash command (after signing in with TOTP). The login page attempts passkeys automatically when supported and falls back to the TOTP form if none are available.
+
+- **Passkey enrolment**: `/passkey enrol` → one‑time link → WebAuthn registration
+- **Login**: passkey first (conditional mediation or first input focus), then TOTP fallback
+- **Multiple passkeys** are supported per user; manage with `/passkey list` and `/passkey delete`
+
 ## Web UI → Agent → Web UI
 
 The web UI supports steering mid‑response by queuing follow‑ups while streaming.
