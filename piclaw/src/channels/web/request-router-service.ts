@@ -102,7 +102,6 @@ export class RequestRouterService {
       isFavicon ||
       isAppleIcon ||
       isStaticAsset ||
-      isDocsAsset ||
       isAvatar;
 
     if (authEnabled) {

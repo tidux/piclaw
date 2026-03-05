@@ -66,10 +66,17 @@ export class RequestRouterService {
         const isStaticAsset = pathname.startsWith("/static/");
         const isDocsAsset = pathname.startsWith("/docs/");
         const isAvatar = isGetOrHead && pathname === "/avatar/agent";
-        if (internalSecretEnabled && (isInternalPost || isInternalPatch)) {
-            if (!hasInternalAccess) {
-                return this.channel.json({ error: "Unauthorized" }, 401);
+        // Internal post/patch: require internal secret when configured, otherwise
+        // fall through to normal TOTP auth (do NOT skip auth).
+        if (isInternalPost || isInternalPatch) {
+            if (internalSecretEnabled) {
+                if (!hasInternalAccess) {
+                    return this.channel.json({ error: "Unauthorized" }, 401);
+                }
+                // hasInternalAccess is true → skipAuthCheck will include it below
             }
+            // If internal secret is NOT enabled, these are treated as normal
+            // endpoints and must pass TOTP auth like everything else.
         }
         if (!authEnabled && isAuthVerify) {
             return this.channel.json({ error: "Auth disabled" }, 404);
@@ -81,7 +88,6 @@ export class RequestRouterService {
             isFavicon ||
             isAppleIcon ||
             isStaticAsset ||
-            isDocsAsset ||
             isAvatar;
         if (authEnabled) {
             if (isAuthVerify) {
@@ -90,7 +96,7 @@ export class RequestRouterService {
             if (isLoginPage) {
                 return this.channel.serveLoginPage();
             }
-            if (!skipAuthCheck && !hasInternalAccess && !this.channel.isAuthenticated(req) && !isInternalPost && !isInternalPatch) {
+            if (!skipAuthCheck && !this.channel.isAuthenticated(req)) {
                 if (isIndex) {
                     return this.channel.serveLoginPage();
                 }
