@@ -25,10 +25,15 @@ export async function handleAgentMessage(channel, req, pathname, chatJid, defaul
     if (parsed.error || !parsed.payload)
         return channel.json({ error: parsed.error }, 400);
     const normalized = normalizeAgentMessagePayload(parsed.payload);
-    if (!normalized.content)
+    const content = typeof normalized.content === "string" ? normalized.content : "";
+    const hasAttachments = normalized.mediaIds.length > 0 ||
+        (Array.isArray(normalized.contentBlocks) && normalized.contentBlocks.length > 0) ||
+        (Array.isArray(normalized.linkPreviews) && normalized.linkPreviews.length > 0);
+    const hasPayload = content.trim().length > 0 || hasAttachments;
+    if (!hasPayload)
         return channel.json({ error: "Missing 'content' field" }, 400);
     const interaction = storeAgentUserMessage(channel, chatJid, {
-        content: normalized.content,
+        content,
         mediaIds: normalized.mediaIds,
         contentBlocks: normalized.contentBlocks,
         linkPreviews: normalized.linkPreviews,
