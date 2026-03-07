@@ -93,6 +93,61 @@ describe("AgentQueue", () => {
     await queue.shutdown(100);
   });
 
+  test("retries are appended after unrelated tasks", async () => {
+    const queue = new AgentQueue();
+    const order: string[] = [];
+    let attempts = 0;
+
+    const originalSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: (...args: any[]) => void, ms?: number, ...args: any[]) =>
+      originalSetTimeout(fn, Math.min(ms ?? 0, 20), ...args)) as typeof setTimeout;
+
+    try {
+      queue.enqueue(async () => {
+        order.push(attempts === 0 ? "first" : "retry");
+        if (attempts === 0) {
+          attempts += 1;
+          throw new Error("fail");
+        }
+      }, "task-1");
+
+      queue.enqueue(async () => {
+        order.push("second");
+      }, "task-2");
+
+      await new Promise((resolve) => originalSetTimeout(resolve, 80));
+      expect(order.slice(0, 2)).toEqual(["first", "second"]);
+      expect(order).toContain("retry");
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      await queue.shutdown(100);
+    }
+  });
+
+  test("shutdown returns after timeout and clears pending", async () => {
+    const queue = new AgentQueue();
+    let ran = false;
+    let pendingRan = false;
+
+    queue.enqueue(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      ran = true;
+    });
+
+    queue.enqueue(async () => {
+      pendingRan = true;
+    });
+
+    const start = Date.now();
+    await queue.shutdown(5);
+    const duration = Date.now() - start;
+    expect(duration).toBeLessThan(40);
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(ran).toBe(true);
+    expect(pendingRan).toBe(false);
+  });
+
   test("retry policy helpers", () => {
     expect(shouldRetry(0, 3, false)).toBe(true);
     expect(shouldRetry(3, 3, false)).toBe(false);
