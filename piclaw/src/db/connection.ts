@@ -24,6 +24,8 @@ import { STORE_DIR } from "../core/config.js";
 
 /** Singleton database handle; set by initDatabase(), accessed via getDb(). */
 let db: Database | null = null;
+let dbMode: "memory" | "file" | null = null;
+let dbPathCache: string | null = null;
 
 /**
  * Create all tables, indexes, FTS virtual tables, and triggers if they do
@@ -502,25 +504,43 @@ export function initDatabase(): void {
     process.env.PICLAW_DB_IN_MEMORY === "1" ||
     process.env.PICLAW_DB_IN_MEMORY === "true" ||
     process.env.PICLAW_STORE === ":memory:";
+  const nextMode: "memory" | "file" = useMemory ? "memory" : "file";
+  const nextPath = useMemory ? ":memory:" : path.join(STORE_DIR, "messages.db");
 
-  if (db) {
+  let reuse = false;
+  if (db && dbMode === nextMode && (nextMode === "memory" || dbPathCache === nextPath)) {
     try {
-      db.close();
+      db.prepare("SELECT 1;").get();
+      reuse = true;
     } catch {
-      // ignore close errors
+      reuse = false;
     }
   }
 
-  if (useMemory) {
-    db = new Database(":memory:");
-    db.exec("PRAGMA journal_mode = MEMORY;");
-  } else {
-    const dbPath = path.join(STORE_DIR, "messages.db");
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    db = new Database(dbPath);
-    db.exec("PRAGMA journal_mode = WAL;");
+  if (!reuse) {
+    if (db) {
+      try {
+        db.close();
+      } catch {
+        // ignore close errors
+      }
+    }
+
+    if (useMemory) {
+      db = new Database(":memory:");
+    } else {
+      fs.mkdirSync(path.dirname(nextPath), { recursive: true });
+      db = new Database(nextPath);
+    }
+    dbMode = nextMode;
+    dbPathCache = nextPath;
   }
 
+  if (!db) {
+    throw new Error("Database initialization failed");
+  }
+
+  db.exec(useMemory ? "PRAGMA journal_mode = MEMORY;" : "PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA busy_timeout = 5000;");
   db.exec("PRAGMA secure_delete = ON;");
   createSchema(db);

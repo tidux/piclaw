@@ -2,24 +2,37 @@
  * test/task-scheduler-shell.test.ts – Scheduled shell task execution.
  */
 import { beforeEach, afterEach, expect, test } from "bun:test";
-import "./helpers.js";
-import { initDatabase, getDb, createTask, getTaskById } from "../src/db.js";
-import { runScheduledTask } from "../src/task-scheduler.js";
+import { getTestWorkspace, importFresh, setEnv } from "./helpers.js";
 
 const sentMessages: Array<{ jid: string; text: string }> = [];
+let restoreEnv: (() => void) | null = null;
+let db: typeof import("../src/db.js") | null = null;
+let scheduler: typeof import("../src/task-scheduler.js") | null = null;
 
 afterEach(() => {
   sentMessages.length = 0;
-  try { getDb().close(); } catch {}
+  restoreEnv?.();
+  restoreEnv = null;
+  try { db?.getDb().close(); } catch {}
+  db = null;
+  scheduler = null;
 });
 
-beforeEach(() => {
-  initDatabase();
+beforeEach(async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({
+    PICLAW_WORKSPACE: ws.workspace,
+    PICLAW_STORE: ws.store,
+    PICLAW_DATA: ws.data,
+  });
+  db = await importFresh("../src/db.js");
+  scheduler = await importFresh("../src/task-scheduler.js");
+  db.initDatabase();
 });
 
 test("runScheduledTask executes shell command and sends output", async () => {
   const taskId = `task-shell-${Date.now()}`;
-  createTask({
+  db!.createTask({
     id: taskId,
     chat_jid: "web:default",
     prompt: "echo hi",
@@ -35,10 +48,10 @@ test("runScheduledTask executes shell command and sends output", async () => {
     created_at: new Date().toISOString(),
   });
 
-  const task = getTaskById(taskId);
+  const task = db!.getTaskById(taskId);
   expect(task?.task_kind).toBe("shell");
 
-  await runScheduledTask(task!, {
+  await scheduler!.runScheduledTask(task!, {
     queue: {} as any,
     agentPool: {} as any,
     sendMessage: async (jid, text) => { sentMessages.push({ jid, text }); },

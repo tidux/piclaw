@@ -3,6 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import "../helpers.js";
+import { resolve } from "path";
 import { WORKSPACE_DIR } from "../../src/core/config.js";
 import { validateShellCommand, validateShellCwd } from "../../src/utils/task-validation.js";
 
@@ -33,8 +34,9 @@ describe("validateShellCommand", () => {
 describe("validateShellCwd", () => {
   test("defaults to workspace", () => {
     const res = validateShellCwd(undefined);
+    const expected = resolve(process.env.PICLAW_WORKSPACE || WORKSPACE_DIR);
     expect(res.ok).toBe(true);
-    expect(res.cwd).toBe(WORKSPACE_DIR);
+    expect(res.cwd).toBe(expected);
   });
 
   test("rejects outside workspace", () => {

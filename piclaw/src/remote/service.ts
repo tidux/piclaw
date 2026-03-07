@@ -67,6 +67,18 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function isRemoteInteropEnabled(): boolean {
+  if (REMOTE_INTEROP_ENABLED) return true;
+  const raw = (process.env.PICLAW_REMOTE_INTEROP_ENABLED || "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+function getRemoteInteropDecisionModel(): string {
+  const raw = (process.env.PICLAW_REMOTE_INTEROP_DECISION_MODEL || "").trim();
+  if (raw) return raw;
+  return REMOTE_INTEROP_DECISION_MODEL || "";
+}
+
 function buildCallbackProofString(requestId: string, challenge: string, receiverInstanceId: string): string {
   return `${requestId}\n${challenge}\n${receiverInstanceId}`;
 }
@@ -242,7 +254,7 @@ export class RemoteInteropService {
   constructor(private agentPool?: AgentPool) {}
 
   async handleRequest(req: Request): Promise<Response> {
-    if (!REMOTE_INTEROP_ENABLED) {
+    if (!isRemoteInteropEnabled()) {
       return jsonResponse({ error: "Not found" }, 404);
     }
 
@@ -558,7 +570,7 @@ export class RemoteInteropService {
       reason: "Proposal queued for review.",
       negotiation_id: requestId,
       remote_mode: peer.mode,
-      decision_model: REMOTE_INTEROP_DECISION_MODEL || null,
+      decision_model: getRemoteInteropDecisionModel() || null,
     });
   }
 

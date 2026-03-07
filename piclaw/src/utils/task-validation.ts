@@ -8,6 +8,14 @@ import { existsSync } from "fs";
 import { resolve } from "path";
 import { WORKSPACE_DIR } from "../core/config.js";
 
+function resolveWorkspaceDir(): string {
+  const envDir = process.env.PICLAW_WORKSPACE;
+  if (envDir && envDir.trim()) {
+    return resolve(envDir.trim());
+  }
+  return WORKSPACE_DIR;
+}
+
 const MAX_COMMAND_LENGTH = 2000;
 
 const FORBIDDEN_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
@@ -47,18 +55,19 @@ export function validateShellCommand(input: unknown): { ok: boolean; command?: s
 }
 
 export function validateShellCwd(input: unknown): { ok: boolean; cwd: string; error?: string } {
+  const workspaceDir = resolveWorkspaceDir();
   if (input === undefined || input === null || input === "") {
-    return { ok: true, cwd: WORKSPACE_DIR };
+    return { ok: true, cwd: workspaceDir };
   }
   if (typeof input !== "string") {
-    return { ok: false, cwd: WORKSPACE_DIR, error: "cwd must be a string." };
+    return { ok: false, cwd: workspaceDir, error: "cwd must be a string." };
   }
-  const resolved = resolve(WORKSPACE_DIR, input);
-  if (!resolved.startsWith(WORKSPACE_DIR)) {
-    return { ok: false, cwd: WORKSPACE_DIR, error: "cwd must stay within the workspace." };
+  const resolved = resolve(workspaceDir, input);
+  if (!resolved.startsWith(workspaceDir)) {
+    return { ok: false, cwd: workspaceDir, error: "cwd must stay within the workspace." };
   }
   if (!existsSync(resolved)) {
-    return { ok: false, cwd: WORKSPACE_DIR, error: "cwd does not exist." };
+    return { ok: false, cwd: workspaceDir, error: "cwd does not exist." };
   }
   return { ok: true, cwd: resolved };
 }
