@@ -178,16 +178,6 @@ export function ComposeBox({
     const notificationActive = notificationPermission === 'granted' && notificationsEnabled;
     const notificationTitle = notificationActive ? 'Disable notifications' : 'Enable notifications';
 
-    const MAX_TEXTAREA_HEIGHT = 180;
-
-    const resizeTextarea = () => {
-        const textarea = textareaRef.current;
-        if (!textarea) return;
-        textarea.style.height = 'auto';
-        const nextHeight = Math.min(textarea.scrollHeight, MAX_TEXTAREA_HEIGHT);
-        textarea.style.height = `${nextHeight}px`;
-        textarea.style.overflowY = textarea.scrollHeight > MAX_TEXTAREA_HEIGHT ? 'auto' : 'hidden';
-    };
 
     /** Update slash autocomplete matches based on current input. */
     const updateSlashAutocomplete = (value) => {
@@ -235,7 +225,6 @@ export function ComposeBox({
             textarea.selectionStart = len;
             textarea.selectionEnd = len;
             textarea.focus();
-            resizeTextarea();
         });
     };
 
@@ -246,7 +235,6 @@ export function ComposeBox({
             setContent(value);
             updateSlashAutocomplete(value);
         }
-        requestAnimationFrame(resizeTextarea);
     };
 
     const appendToValue = (snippet) => {
@@ -567,9 +555,6 @@ export function ComposeBox({
         updateValue(value);
     };
 
-    useEffect(() => {
-        requestAnimationFrame(resizeTextarea);
-    }, [content, searchText, searchMode]);
 
     return html`
         <div class="compose-box">

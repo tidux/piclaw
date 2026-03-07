@@ -1081,9 +1081,10 @@ body {
     flex: 1;
     width: 100%;
     min-height: 50px;
-    max-height: 180px;
+    max-height: none;
     border: none;
     resize: none;
+    field-sizing: content;
     font-family: inherit;
     font-size: var(--font-size-sm);
     color: var(--text-primary);
@@ -1288,8 +1289,9 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    padding: var(--spacing-xs);
+    border-radius: var(--radius-full);
+    box-sizing: border-box;
     line-height: 0;
     opacity: 0.7;
     cursor: default;
