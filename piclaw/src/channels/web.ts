@@ -86,6 +86,7 @@ import {
 } from "../db.js";
 import type { InteractionRow } from "../db.js";
 import { WebChannelState } from "./web/channel-state.js";
+import { AgentStatusStore } from "./web/agent-status-store.js";
 import { storeWebMessage } from "./web/message-store.js";
 import { deletePostResponse } from "./web/timeline-service.js";
 import { ensureAvatarCache, resolveAvatarUrl } from "./web/avatar-service.js";
@@ -156,7 +157,7 @@ export class WebChannel {
   workspaceVisible = false;
   workspaceShowHidden = false;
   pendingSteering = new Map<string, string[]>();
-  activeAgentStatuses = new Map<string, Record<string, unknown>>();
+  agentStatusStore: AgentStatusStore;
   lastCommandInteractionId: number | null = null;
   webauthnChallenges = new WebauthnChallengeTracker();
   totpFailureTracker = new TotpFailureTracker();
@@ -167,6 +168,7 @@ export class WebChannel {
     this.agentPool = opts.agentPool;
     this.uiBridge = new UiBridge(this);
     this.remoteInterop = new RemoteInteropService(this.agentPool);
+    this.agentStatusStore = new AgentStatusStore(this.state);
     bindWebUiSessionBinder(this.agentPool, (session, chatJid) =>
       this.uiBridge.bindSession(session, chatJid)
     );
@@ -273,22 +275,11 @@ export class WebChannel {
   }
 
   updateAgentStatus(chatJid: string, status: Record<string, unknown>): void {
-    const type = status?.type;
-    if (type === "done" || type === "error") {
-      const removed = this.activeAgentStatuses.delete(chatJid);
-      if (removed) {
-        this.state.setAgentStatus(chatJid, null);
-        this.saveState();
-      }
-      return;
-    }
-    this.activeAgentStatuses.set(chatJid, status);
-    this.state.setAgentStatus(chatJid, status);
-    this.saveState();
+    this.agentStatusStore.update(chatJid, status);
   }
 
   getAgentStatus(chatJid: string): Record<string, unknown> | null {
-    return this.activeAgentStatuses.get(chatJid) ?? null;
+    return this.agentStatusStore.get(chatJid);
   }
 
   replaceQueuedFollowupPlaceholder(
@@ -373,18 +364,7 @@ export class WebChannel {
   }
 
   loadState(): void {
-    this.state.load();
-    // Clear any persisted agent statuses from the previous process.
-    // After a restart no agents are running, so stale "intent" or "tool_call"
-    // statuses would otherwise be served to the UI indefinitely.
-    const restored = this.state.getAgentStatuses();
-    if (Object.keys(restored).length > 0) {
-      for (const jid of Object.keys(restored)) {
-        this.state.setAgentStatus(jid, null);
-      }
-      this.state.save();
-    }
-    this.activeAgentStatuses = new Map();
+    this.agentStatusStore.load();
   }
 
   saveState(): void {
