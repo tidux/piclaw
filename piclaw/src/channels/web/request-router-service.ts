@@ -29,6 +29,15 @@ import type { WebChannel } from "../web.js";
 import { rememberWebOrigin } from "./request-origin.js";
 import { getClientKey } from "./http/client.js";
 import { isRateLimited } from "./http/rate-limit.js";
+import {
+  AUTH_RATE_LIMIT,
+  AUTH_RATE_WINDOW_MS,
+  DATA_RATE_WINDOW_MS,
+  ENROLL_RATE_LIMIT,
+  ENROLL_RATE_WINDOW_MS,
+  getDataRateLimitRule,
+} from "./http/rate-limit-rules.js";
+import { getRouteFlags, shouldSkipAuthCheck } from "./http/route-flags.js";
 import { checkCsrfOrigin, rateLimitResponse, withSecurityHeaders } from "./http/security.js";
 
 const STATIC_DIR = resolve(import.meta.dir, "..", "..", "..", "..", "web", "static");
@@ -37,58 +46,6 @@ const STATIC_MIME_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
   ".json": "application/manifest+json; charset=utf-8",
 };
-
-const APPLE_ICON_PATHS = new Set([
-  "/apple-touch-icon.png",
-  "/apple-touch-icon-precomposed.png",
-  "/apple-touch-icon-180x180.png",
-  "/apple-touch-icon-167x167.png",
-  "/apple-touch-icon-152x152.png",
-]);
-
-// ── Auth rate limiting ──
-// Limits brute-force attempts on login and enrolment endpoints.
-const ENROLL_RATE_WINDOW_MS = 5 * 60 * 1000;  // 5-minute sliding window
-const ENROLL_RATE_LIMIT = 20;                   // max 20 enrol attempts per window
-const AUTH_RATE_WINDOW_MS = 5 * 60 * 1000;      // 5-minute sliding window
-const AUTH_RATE_LIMIT = 10;                      // max 10 login attempts per window
-
-// ── Data endpoint rate limiting ──
-// Limits abuse of state-changing endpoints (message flooding, upload spam,
-// mass deletion). Applied per client IP, after auth check passes.
-const DATA_RATE_WINDOW_MS = 60 * 1000; // 1-minute sliding window
-
-// Per-endpoint rate limits (counts are per client IP per window).
-const DATA_POST_LIMIT = 30; // POST /post
-const DATA_REPLY_LIMIT = 30; // POST /reply
-const DATA_AGENT_MESSAGE_LIMIT = 30; // POST /agent/:id/message
-const DATA_MEDIA_UPLOAD_LIMIT = 20; // POST /media/upload
-const DATA_WORKSPACE_UPLOAD_LIMIT = 20; // POST /workspace/upload
-const DATA_DELETE_LIMIT = 60; // DELETE /post/:id
-const DATA_WRITE_LIMIT = 30; // PUT /workspace/file
-
-/**
- * Determine which /static/ paths are safe to serve without authentication.
- * Public pages only need styling, icons, and the login bundle.
- *
- * Auth split:
- *   - Public: /static/dist/login.bundle.js + /static/dist/login.bundle.css
- *   - Auth-only: /static/dist/app.bundle.js + /static/dist/app.bundle.css
- */
-function isPublicStaticPath(pathname: string): boolean {
-  // Fonts are needed by KaTeX and login/app styles.
-  if (pathname.startsWith("/static/fonts/")) return true;
-
-  // Explicitly allow only login bundles (+ source maps) for unauthenticated users.
-  if (pathname === "/static/dist/login.bundle.js") return true;
-  if (pathname === "/static/dist/login.bundle.js.map") return true;
-  if (pathname === "/static/dist/login.bundle.css") return true;
-  if (pathname === "/static/dist/login.bundle.css.map") return true;
-
-  // Static images/icons used by favicon/PWA/login branding.
-  if (pathname.startsWith("/static/") && /\.(png|ico|svg|jpg|jpeg|webp|gif)$/i.test(pathname)) return true;
-  return false;
-}
 
 /** Business logic for handling compose-box submissions and agent runs. */
 export class RequestRouterService {
@@ -149,35 +106,14 @@ export class RequestRouterService {
     // Track the last seen origin so slash commands can build absolute links.
     rememberWebOrigin("web:default", req);
 
-    const isGetOrHead = req.method === "GET" || req.method === "HEAD";
+    const flags = getRouteFlags(req, pathname);
     const authEnabled = this.channel.isAuthEnabled();
     const internalSecretEnabled = this.channel.isInternalSecretEnabled();
-    const isLoginPage = isGetOrHead && (pathname === "/login" || pathname === "/login.html");
-    const isAuthVerify = req.method === "POST" && pathname === "/auth/verify";
-    const isWebauthnLoginStart = req.method === "POST" && pathname === "/auth/webauthn/login/start";
-    const isWebauthnLoginFinish = req.method === "POST" && pathname === "/auth/webauthn/login/finish";
-    const isWebauthnRegisterStart = req.method === "POST" && pathname === "/auth/webauthn/register/start";
-    const isWebauthnRegisterFinish = req.method === "POST" && pathname === "/auth/webauthn/register/finish";
-    const isWebauthnEnrollPage = isGetOrHead && pathname === "/auth/webauthn/enrol";
-    const isInternalPost = req.method === "POST" && pathname === "/internal/post";
-    const isInternalPatch = req.method === "PATCH" && pathname.startsWith("/post/");
     const hasInternalAccess = internalSecretEnabled && this.channel.verifyInternalSecret(req);
-    const isIndex = isGetOrHead && (pathname === "/" || pathname === "/index.html");
-    const isManifest = isGetOrHead && pathname === "/manifest.json";
-    const isFavicon = isGetOrHead && pathname === "/favicon.ico";
-    const isAppleIcon = isGetOrHead && APPLE_ICON_PATHS.has(pathname);
-    // Auth-gate app bundle assets: only fonts, static images, and login
-    // bundles (/static/dist/login.bundle.js|.css + source maps) are served
-    // pre-auth. Authenticated UI bundles (/static/dist/app.bundle.js|.css)
-    // stay gated.
-    const isStaticAsset = pathname.startsWith("/static/");
-    const isPublicStatic = isStaticAsset && isPublicStaticPath(pathname);
-    const isDocsAsset = pathname.startsWith("/docs/");
-    const isAvatar = isGetOrHead && pathname === "/avatar/agent";
 
     // Internal post/patch: require internal secret when configured, otherwise
     // fall through to normal TOTP auth (do NOT skip auth).
-    if (isInternalPost || isInternalPatch) {
+    if (flags.isInternalPost || flags.isInternalPatch) {
       if (internalSecretEnabled) {
         if (!hasInternalAccess) {
           console.warn(
@@ -191,78 +127,59 @@ export class RequestRouterService {
       // endpoints and must pass TOTP auth like everything else.
     }
 
-    if (!authEnabled && isAuthVerify) {
+    if (!authEnabled && flags.isAuthVerify) {
       return this.channel.json({ error: "Auth disabled" }, 404);
     }
 
     // Rate-limit auth endpoints to prevent brute-force attacks.
-    if (isAuthVerify) {
+    if (flags.isAuthVerify) {
       if (isRateLimited(req, "auth/verify", AUTH_RATE_WINDOW_MS, AUTH_RATE_LIMIT)) {
         console.warn(`[auth] Rate limit exceeded for /auth/verify (ip=${getClientKey(req)})`);
         return this.channel.json({ error: "Too many login attempts. Try again later." }, 429);
       }
     }
-    if (isWebauthnLoginStart || isWebauthnLoginFinish) {
+    if (flags.isWebauthnLoginStart || flags.isWebauthnLoginFinish) {
       if (isRateLimited(req, "webauthn/login", AUTH_RATE_WINDOW_MS, AUTH_RATE_LIMIT)) {
         console.warn(`[auth] Rate limit exceeded for WebAuthn login (ip=${getClientKey(req)})`);
         return this.channel.json({ error: "Too many login attempts. Try again later." }, 429);
       }
     }
-    if (isWebauthnEnrollPage || isWebauthnRegisterStart || isWebauthnRegisterFinish) {
+    if (flags.isWebauthnEnrollPage || flags.isWebauthnRegisterStart || flags.isWebauthnRegisterFinish) {
       if (isRateLimited(req, "webauthn/enrol", ENROLL_RATE_WINDOW_MS, ENROLL_RATE_LIMIT)) {
         console.warn(`[auth] Rate limit exceeded for WebAuthn enrol (ip=${getClientKey(req)})`);
         return this.channel.json({ error: "Too many enrol attempts. Try again later." }, 429);
       }
     }
 
-    const skipAuthCheck =
-      hasInternalAccess ||
-      isLoginPage ||
-      isAuthVerify ||
-      isWebauthnLoginStart ||
-      isWebauthnLoginFinish ||
-      isWebauthnRegisterStart ||
-      isWebauthnRegisterFinish ||
-      isManifest ||
-      isFavicon ||
-      isAppleIcon ||
-      isPublicStatic ||
-      isAvatar;
+    const skipAuthCheck = shouldSkipAuthCheck(flags, hasInternalAccess);
 
     if (authEnabled) {
-      if (isAuthVerify) {
+      if (flags.isAuthVerify) {
         return this.channel.handleAuthVerify(req);
       }
-      if (isLoginPage) {
+      if (flags.isLoginPage) {
         return this.channel.serveLoginPage();
       }
       if (!skipAuthCheck && !this.channel.isAuthenticated(req)) {
         console.warn(
           `[auth] Unauthorized request (ip=${getClientKey(req)}, method=${req.method}, path=${pathname})`
         );
-        if (isIndex) {
+        if (flags.isIndex) {
           return this.channel.serveLoginPage();
         }
-        if (isGetOrHead) {
+        if (flags.isGetOrHead) {
           return this.channel.redirectToLogin();
         }
         return this.channel.json({ error: "Unauthorized" }, 401);
       }
-    } else if (isLoginPage) {
+    } else if (flags.isLoginPage) {
       return this.channel.json({ error: "Not found" }, 404);
     }
 
     // ── CSRF origin check on state-changing methods ──
     // Auth endpoints are exempt: they have their own rate limiting and are
     // needed before the user has a session (Origin may vary in edge cases).
-    const isMutating = req.method === "POST" || req.method === "PUT" || req.method === "DELETE" || req.method === "PATCH";
-    const isAuthEndpoint =
-      isAuthVerify ||
-      isWebauthnLoginStart ||
-      isWebauthnLoginFinish ||
-      isWebauthnRegisterStart ||
-      isWebauthnRegisterFinish;
-    if (isMutating && !hasInternalAccess && !isAuthEndpoint) {
+    if (flags.isMutating && !hasInternalAccess && !flags.isAuthEndpoint) {
       if (!checkCsrfOrigin(req)) {
         console.warn(`[security] CSRF origin check failed (ip=${getClientKey(req)}, origin=${req.headers.get("origin")})`);
         return this.channel.json({ error: "Origin not allowed" }, 403);
@@ -270,52 +187,16 @@ export class RequestRouterService {
     }
 
     // ── Rate limiting on data endpoints ──
-    if (isMutating && !hasInternalAccess) {
-      if (req.method === "POST" && pathname === "/post") {
-        if (isRateLimited(req, "data/post", DATA_RATE_WINDOW_MS, DATA_POST_LIMIT)) {
-          return rateLimitResponse("Too many posts. Slow down.");
-        }
-      }
-      if (req.method === "POST" && pathname === "/reply") {
-        if (isRateLimited(req, "data/reply", DATA_RATE_WINDOW_MS, DATA_REPLY_LIMIT)) {
-          return rateLimitResponse("Too many replies. Slow down.");
-        }
-      }
-      if (req.method === "POST" && pathname.endsWith("/message")) {
-        if (isRateLimited(req, "data/agent_message", DATA_RATE_WINDOW_MS, DATA_AGENT_MESSAGE_LIMIT)) {
-          return rateLimitResponse("Too many agent messages. Slow down.");
-        }
-      }
-      if (req.method === "POST" && pathname === "/media/upload") {
-        if (isRateLimited(req, "data/media_upload", DATA_RATE_WINDOW_MS, DATA_MEDIA_UPLOAD_LIMIT)) {
-          return rateLimitResponse("Too many media uploads. Slow down.");
-        }
-      }
-      if (req.method === "POST" && pathname === "/workspace/upload") {
-        if (isRateLimited(req, "data/workspace_upload", DATA_RATE_WINDOW_MS, DATA_WORKSPACE_UPLOAD_LIMIT)) {
-          return rateLimitResponse("Too many workspace uploads. Slow down.");
-        }
-      }
-      if (req.method === "DELETE" && pathname.startsWith("/post/")) {
-        if (isRateLimited(req, "data/delete_post", DATA_RATE_WINDOW_MS, DATA_DELETE_LIMIT)) {
-          return rateLimitResponse("Too many deletions. Slow down.");
-        }
-      }
-      if (req.method === "PUT" && pathname === "/workspace/file") {
-        if (isRateLimited(req, "data/write", DATA_RATE_WINDOW_MS, DATA_WRITE_LIMIT)) {
-          return rateLimitResponse("Too many file writes. Slow down.");
-        }
-      }
-      if (req.method === "DELETE" && pathname === "/workspace/file") {
-        if (isRateLimited(req, "data/write", DATA_RATE_WINDOW_MS, DATA_WRITE_LIMIT)) {
-          return rateLimitResponse("Too many file writes. Slow down.");
-        }
+    if (flags.isMutating && !hasInternalAccess) {
+      const dataRule = getDataRateLimitRule(req.method, pathname);
+      if (dataRule && isRateLimited(req, dataRule.bucket, DATA_RATE_WINDOW_MS, dataRule.limit)) {
+        return rateLimitResponse(dataRule.message);
       }
     }
 
-    if (isWebauthnEnrollPage) {
+    if (flags.isWebauthnEnrollPage) {
       if (!this.channel.isTotpSession(req)) {
-        if (isGetOrHead) {
+        if (flags.isGetOrHead) {
           return this.channel.redirectToLogin();
         }
         return this.channel.json({ error: "TOTP session required" }, 401);
@@ -323,38 +204,38 @@ export class RequestRouterService {
       return this.channel.handleWebauthnEnrollPage(req);
     }
 
-    if (isWebauthnLoginStart) {
+    if (flags.isWebauthnLoginStart) {
       return this.channel.handleWebauthnLoginStart(req);
     }
 
-    if (isWebauthnLoginFinish) {
+    if (flags.isWebauthnLoginFinish) {
       return this.channel.handleWebauthnLoginFinish(req);
     }
 
-    if (isWebauthnRegisterStart) {
+    if (flags.isWebauthnRegisterStart) {
       return this.channel.handleWebauthnRegisterStart(req);
     }
 
-    if (isWebauthnRegisterFinish) {
+    if (flags.isWebauthnRegisterFinish) {
       return this.channel.handleWebauthnRegisterFinish(req);
     }
 
-    if (isIndex) {
+    if (flags.isIndex) {
       return this.channel.serveStatic("index.html");
     }
 
-    if (isManifest) {
+    if (flags.isManifest) {
       return this.channel.handleManifest(req);
     }
 
-    if (isFavicon) {
+    if (flags.isFavicon) {
       // Prefer agent avatar for favicon if configured
       const avatarResp = await this.channel.handleAvatar("agent", req);
       if (avatarResp.status === 200) return avatarResp;
       return this.serveStaticAsset(req, "favicon.ico");
     }
 
-    if (isAppleIcon) {
+    if (flags.isAppleIcon) {
       // If a custom agent avatar is configured, serve it for apple-touch-icon paths
       // so the PWA home-screen icon matches the configured avatar.
       const avatarResp = await this.channel.handleAvatar("agent", req);
@@ -362,12 +243,12 @@ export class RequestRouterService {
       return this.serveStaticAsset(req, pathname.slice(1));
     }
 
-    if (isStaticAsset) {
+    if (flags.isStaticAsset) {
       const rel = pathname.replace("/static/", "");
       return this.channel.serveStatic(rel);
     }
 
-    if (isDocsAsset) {
+    if (flags.isDocsAsset) {
       const rel = pathname.replace("/docs/", "");
       return this.channel.serveDocsStatic(rel);
     }
@@ -380,11 +261,11 @@ export class RequestRouterService {
       return await this.channel.handleAgents();
     }
 
-    if (isAvatar) {
+    if (flags.isAvatar) {
       return await this.channel.handleAvatar("agent", req);
     }
 
-    if (isGetOrHead && pathname === "/avatar/user") {
+    if (flags.isGetOrHead && pathname === "/avatar/user") {
       return await this.channel.handleAvatar("user", req);
     }
 
