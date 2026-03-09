@@ -28,6 +28,7 @@ import { extname, resolve } from "path";
 import type { WebChannel } from "../web.js";
 import { rememberWebOrigin } from "./request-origin.js";
 import { handleAgentRoutes } from "./http/dispatch-agent.js";
+import { handleAuthRoutes } from "./http/dispatch-auth.js";
 import { handleContentPrimaryRoutes, handleContentSecondaryRoutes } from "./http/dispatch-content.js";
 import { handleMediaRoutes } from "./http/dispatch-media.js";
 import { handleShellRoutes } from "./http/dispatch-shell.js";
@@ -108,30 +109,9 @@ export class RequestRouterService {
       return guardResponse;
     }
 
-    if (flags.isWebauthnEnrollPage) {
-      if (!this.channel.isTotpSession(req)) {
-        if (flags.isGetOrHead) {
-          return this.channel.redirectToLogin();
-        }
-        return this.channel.json({ error: "TOTP session required" }, 401);
-      }
-      return this.channel.handleWebauthnEnrollPage(req);
-    }
-
-    if (flags.isWebauthnLoginStart) {
-      return this.channel.handleWebauthnLoginStart(req);
-    }
-
-    if (flags.isWebauthnLoginFinish) {
-      return this.channel.handleWebauthnLoginFinish(req);
-    }
-
-    if (flags.isWebauthnRegisterStart) {
-      return this.channel.handleWebauthnRegisterStart(req);
-    }
-
-    if (flags.isWebauthnRegisterFinish) {
-      return this.channel.handleWebauthnRegisterFinish(req);
+    const authRouteResponse = await handleAuthRoutes(this.channel, req, flags);
+    if (authRouteResponse) {
+      return authRouteResponse;
     }
 
     const shellResponse = await handleShellRoutes(
