@@ -27,6 +27,7 @@
 import { extname, resolve } from "path";
 import type { WebChannel } from "../web.js";
 import { rememberWebOrigin } from "./request-origin.js";
+import { handleMediaRoutes } from "./http/dispatch-media.js";
 import { enforceRequestGuards } from "./http/request-guards.js";
 import { getRouteFlags } from "./http/route-flags.js";
 import { withSecurityHeaders } from "./http/security.js";
@@ -297,26 +298,9 @@ export class RequestRouterService {
       return this.channel.json({ error: "Not found" }, 404);
     }
 
-    if (req.method === "POST" && pathname === "/media/upload") {
-      return this.channel.handleMediaUpload(req);
-    }
-
-    if (req.method === "GET" && pathname.startsWith("/media/") && pathname.endsWith("/thumbnail")) {
-      const id = this.channel.parseOptionalInt(pathname.replace("/media/", "").replace("/thumbnail", ""));
-      if (!id) return this.channel.json({ error: "Media not found" }, 404);
-      return this.channel.handleMedia(id, true);
-    }
-
-    if (req.method === "GET" && pathname.startsWith("/media/") && pathname.endsWith("/info")) {
-      const id = this.channel.parseOptionalInt(pathname.replace("/media/", "").replace("/info", ""));
-      if (!id) return this.channel.json({ error: "Media not found" }, 404);
-      return this.channel.handleMediaInfo(id);
-    }
-
-    if (req.method === "GET" && pathname.startsWith("/media/")) {
-      const id = this.channel.parseOptionalInt(pathname.replace("/media/", ""));
-      if (!id) return this.channel.json({ error: "Media not found" }, 404);
-      return this.channel.handleMedia(id, false);
+    const mediaResponse = await handleMediaRoutes(this.channel, req, pathname);
+    if (mediaResponse) {
+      return mediaResponse;
     }
 
     return this.channel.json({ error: "Not found" }, 404);
