@@ -280,12 +280,16 @@ function buildStarburstSegments(rootNode, baseSize, isDarkTheme) {
             if (ring) {
                 const color = segmentColorFromAngle(childStart, depth, isDarkTheme);
                 segments.push({
-                    key: `${child.path}:${depth}`,
+                    key: child.path,
                     path: child.path,
                     label: child.name,
                     size: childSize,
                     color,
                     depth,
+                    startAngle: childStart,
+                    endAngle: childEnd,
+                    innerRadius: ring[0],
+                    outerRadius: ring[1],
                     d: describeDonutSegment(120, 120, ring[0], ring[1], childStart, childEnd),
                 });
                 if (depth === 1) {
@@ -365,6 +369,53 @@ function FolderStarburstChart({ payload }) {
         return buildStarburstSegments(zoomRoot, baseSize, payload.isDarkTheme);
     }, [zoomRoot, baseSize, payload.isDarkTheme]);
 
+    const [animatedSegments, setAnimatedSegments] = useState(segments);
+    const prevSegmentsRef = useRef(new Map());
+    const animFrameRef = useRef(0);
+
+    useEffect(() => {
+        const prevMap = prevSegmentsRef.current;
+        const nextMap = new Map(segments.map((segment) => [segment.key, segment]));
+        const start = performance.now();
+        const duration = 220;
+
+        const animate = (now) => {
+            const t = Math.min(1, (now - start) / duration);
+            const eased = t * (2 - t);
+            const interpolated = segments.map((segment) => {
+                const prev = prevMap.get(segment.key);
+                const from = prev || {
+                    startAngle: segment.startAngle,
+                    endAngle: segment.startAngle,
+                    innerRadius: segment.innerRadius,
+                    outerRadius: segment.innerRadius,
+                };
+                const lerp = (a, b) => a + (b - a) * eased;
+                const startAngle = lerp(from.startAngle, segment.startAngle);
+                const endAngle = lerp(from.endAngle, segment.endAngle);
+                const innerRadius = lerp(from.innerRadius, segment.innerRadius);
+                const outerRadius = lerp(from.outerRadius, segment.outerRadius);
+                return {
+                    ...segment,
+                    d: describeDonutSegment(120, 120, innerRadius, outerRadius, startAngle, endAngle),
+                };
+            });
+            setAnimatedSegments(interpolated);
+            if (t < 1) {
+                animFrameRef.current = requestAnimationFrame(animate);
+            }
+        };
+
+        if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = requestAnimationFrame(animate);
+        prevSegmentsRef.current = nextMap;
+        return () => {
+            if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+        };
+    }, [segments]);
+
+    const displaySegments = animatedSegments.length ? animatedSegments : segments;
+
     const totalLabel = baseSize > 0 ? formatFileSize(baseSize) : '0 B';
     const rawLabel = zoomRoot?.name || '';
     const labelBase = rawLabel && rawLabel !== '.' ? rawLabel : 'Total';
@@ -398,7 +449,7 @@ function FolderStarburstChart({ payload }) {
         <div class="workspace-folder-starburst">
             <svg viewBox="0 0 240 240" class=${`workspace-folder-starburst-svg${isZooming ? ' is-zooming' : ''}`} role="img"
                 aria-label=${`Folder sizes for ${zoomRoot?.path || payload?.root?.path || '.'}`}>
-                ${segments.map((segment) => html`
+                ${displaySegments.map((segment) => html`
                     <path
                         key=${segment.key}
                         d=${segment.d}
