@@ -66,6 +66,8 @@ build-web: ## Build web JS/CSS bundles (+ sourcemaps) into static/dist/ (include
 		piclaw/web/static/dist/app.bundle.js \
 		piclaw/web/static/dist/app.bundle.js.map \
 		piclaw/web/static/dist/app.bundle.css \
+		piclaw/web/static/dist/editor.bundle.js \
+		piclaw/web/static/dist/editor.bundle.js.map \
 		piclaw/web/static/dist/login.bundle.js \
 		piclaw/web/static/dist/login.bundle.js.map \
 		piclaw/web/static/dist/login.bundle.css

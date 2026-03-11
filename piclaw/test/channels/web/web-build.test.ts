@@ -33,6 +33,9 @@ test("build:web produces bundle assets", async () => {
   const loginMapPath = join(root, "web", "static", "dist", "login.bundle.js.map");
   const loginCssPath = join(root, "web", "static", "dist", "login.bundle.css");
 
+  const editorBundlePath = join(root, "web", "static", "dist", "editor.bundle.js");
+  const editorMapPath = join(root, "web", "static", "dist", "editor.bundle.js.map");
+
   expect(existsSync(appBundlePath)).toBe(true);
   expect(existsSync(appMapPath)).toBe(true);
   expect(existsSync(appCssPath)).toBe(true);
@@ -40,4 +43,7 @@ test("build:web produces bundle assets", async () => {
   expect(existsSync(loginBundlePath)).toBe(true);
   expect(existsSync(loginMapPath)).toBe(true);
   expect(existsSync(loginCssPath)).toBe(true);
+
+  expect(existsSync(editorBundlePath)).toBe(true);
+  expect(existsSync(editorMapPath)).toBe(true);
 });

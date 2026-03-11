@@ -1,10 +1,9 @@
 // @ts-nocheck
 /**
- * editor-pane.ts — EditorPaneExtension
+ * @deprecated Use editor-extension.ts (standalone) + editor-loader.ts (lazy wrapper) instead.
  *
- * Wraps the existing WorkspaceEditor Preact component as a WebPaneExtension.
- * This is the bridge between the pane contract and the legacy editor component,
- * keeping WorkspaceEditor internally unchanged.
+ * editor-pane.ts — Legacy EditorPaneExtension (Preact wrapper).
+ * Retained for reference only. Nothing imports this file.
  *
  * The editor pane handles all text files (placement: "tabs").
  */

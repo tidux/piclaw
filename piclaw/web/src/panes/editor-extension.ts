@@ -157,7 +157,7 @@ function createStatusPanel(vimEnabledRef: { current: boolean }) {
  * Self-contained editor pane instance. Creates CodeMirror directly,
  * manages file I/O, dirty tracking, and theming internally.
  */
-class StandaloneEditorInstance implements PaneInstance {
+export class StandaloneEditorInstance implements PaneInstance {
     // DOM
     private container: HTMLElement;
     private paneEl: HTMLElement;

@@ -21,7 +21,7 @@ import { AgentRequestModal, AgentStatus, ConnectionStatus } from './components/s
 import { Timeline } from './components/timeline.js';
 import { WorkspaceExplorer } from './components/workspace-explorer.js';
 import { TabStrip } from './components/tab-strip.js';
-import { paneRegistry, editorPaneExtension, terminalPaneExtension, tabStore } from './panes/index.js';
+import { paneRegistry, editorPaneExtension, preloadEditorBundle, terminalPaneExtension, tabStore } from './panes/index.js';
 import { getLocalStorageBoolean, getLocalStorageNumber, setLocalStorageItem } from './utils/storage.js';
 import { useSseConnection } from './ui/use-sse-connection.js';
 import { useNotifications } from './ui/use-notifications.js';
@@ -75,6 +75,8 @@ if (window.marked) {
  */
 // Register built-in pane extensions
 paneRegistry.register(editorPaneExtension);
+// Preload the editor bundle in the background so first file open is instant
+preloadEditorBundle();
 
 // Terminal dock pane is behind a feature flag — opt in via localStorage
 // or config. Editor pane is always registered as the default.

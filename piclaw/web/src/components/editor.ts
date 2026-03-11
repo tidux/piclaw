@@ -1,4 +1,11 @@
 // @ts-nocheck
+/**
+ * @deprecated Use panes/editor-extension.ts (StandaloneEditorInstance) instead.
+ *
+ * Legacy WorkspaceEditor Preact component. Retained for reference only.
+ * Nothing imports this file — the standalone editor extension creates
+ * CodeMirror directly without a Preact wrapper.
+ */
 import { html, useCallback, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js';
 import { getLocalStorageBoolean, setLocalStorageItem } from '../utils/storage.js';
 import { getThemeMode } from '../ui/theme.js';
