@@ -118,6 +118,7 @@ export function ComposeBox({
     onRemoveMessageRef,
     onClearMessageRefs,
     activeModel = null,
+    modelUsage = null,
     thinkingLevel = null,
     supportsThinking = false,
     contextUsage = null,
@@ -190,6 +191,17 @@ export function ComposeBox({
 
     const modelHintSuffix = supportsThinking && thinkingLevel ? ` (${thinkingLevel})` : '';
     const modelHintLabel = activeModel ? `${activeModel}${modelHintSuffix}` : '';
+    const modelUsageLabel = typeof modelUsage?.hint_short === 'string' ? modelUsage.hint_short.trim() : '';
+    const modelUsageTitleParts = [
+        modelHintLabel ? `Current model: ${modelHintLabel}` : null,
+        modelUsage?.plan ? `Plan: ${modelUsage.plan}` : null,
+        modelUsageLabel || null,
+        modelUsage?.primary?.reset_description || null,
+        modelUsage?.secondary?.reset_description || null,
+    ].filter(Boolean);
+    const modelHintTitle = switchingModel
+        ? 'Switching model…'
+        : (modelUsageTitleParts.join(' • ') || `Current model: ${modelHintLabel} (tap to open model picker)`);
 
     const emitModelState = (payload) => {
         if (!payload || typeof payload !== 'object') return;
@@ -199,6 +211,7 @@ export function ComposeBox({
                 model: modelLabel ?? null,
                 thinking_level: payload.thinking_level ?? null,
                 supports_thinking: payload.supports_thinking,
+                provider_usage: payload.provider_usage ?? null,
             });
         }
         if (modelLabel && typeof onModelChange === 'function') {
@@ -304,6 +317,10 @@ export function ComposeBox({
                 thinking_level: response?.command?.thinking_level,
                 supports_thinking: response?.command?.supports_thinking,
             });
+            try {
+                const latest = await getAgentModels();
+                if (latest) emitModelState(latest);
+            } catch {}
             onPost?.();
             return true;
         } catch (error) {
@@ -373,6 +390,10 @@ export function ComposeBox({
                     thinking_level: response.command.thinking_level,
                     supports_thinking: response.command.supports_thinking,
                 });
+                try {
+                    const latest = await getAgentModels();
+                    if (latest) emitModelState(latest);
+                } catch {}
             }
 
             if (baseContent) {
@@ -772,13 +793,18 @@ export function ComposeBox({
                                 ref=${modelHintRef}
                                 type="button"
                                 class="compose-model-hint compose-model-hint-btn"
-                                title=${switchingModel ? `Switching model…` : `Current model: ${modelHintLabel} (tap to open model picker)`}
+                                title=${modelHintTitle}
                                 aria-label="Open model picker"
                                 onClick=${toggleModelPopup}
                                 disabled=${loading || switchingModel}
                             >
                                 ${switchingModel ? 'Switching…' : modelHintLabel}
                             </button>
+                            ${!switchingModel && modelUsageLabel && html`
+                                <span class="compose-model-usage-hint" title=${modelHintTitle}>
+                                    ${modelUsageLabel}
+                                </span>
+                            `}
                         </div>
                     `}
                     <div class="compose-actions ${searchMode ? 'search-mode' : ''}">

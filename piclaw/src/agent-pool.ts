@@ -45,6 +45,7 @@ import { writeAgentLog } from "./agent-pool/logging.js";
 import { pruneOrphanToolResults } from "./agent-pool/orphan-tool-results.js";
 import { createDefaultSession, ensureSessionDir } from "./agent-pool/session.js";
 import { executeSlashCommand } from "./agent-pool/slash-command.js";
+import { getProviderUsage } from "./agent-pool/provider-usage.js";
 import { recordMessageUsage } from "./agent-pool/usage.js";
 import { resolveModelLabel } from "./utils/model-utils.js";
 import { withChatContext } from "./core/chat-context.js";
@@ -240,7 +241,13 @@ export class AgentPool {
   }
 
   /** Return available model labels and current model for a chat session. */
-  async getAvailableModels(chatJid: string): Promise<{ current: string | null; models: string[]; thinking_level: string | null; supports_thinking: boolean }> {
+  async getAvailableModels(chatJid: string): Promise<{
+    current: string | null;
+    models: string[];
+    thinking_level: string | null;
+    supports_thinking: boolean;
+    provider_usage: Awaited<ReturnType<typeof getProviderUsage>>;
+  }> {
     const session = await this.getOrCreate(chatJid);
     const registry = (session as AgentSession & { modelRegistry?: ModelRegistry }).modelRegistry ?? this.modelRegistry;
     const available = registry.getAvailable();
@@ -250,7 +257,16 @@ export class AgentPool {
     const supportsThinking = typeof (session as AgentSession & { supportsThinking?: () => boolean }).supportsThinking === "function"
       ? (session as AgentSession & { supportsThinking: () => boolean }).supportsThinking()
       : Boolean(session.model?.reasoning);
-    return { current: currentModel, models, thinking_level: thinkingLevel, supports_thinking: supportsThinking };
+    const providerUsage = session.model?.provider
+      ? await getProviderUsage(this.authStorage, session.model.provider)
+      : null;
+    return {
+      current: currentModel,
+      models,
+      thinking_level: thinkingLevel,
+      supports_thinking: supportsThinking,
+      provider_usage: providerUsage,
+    };
   }
 
   /** Return the current context token usage for a chat session, or null if unknown. */

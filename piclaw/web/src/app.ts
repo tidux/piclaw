@@ -124,6 +124,7 @@ function App() {
     const [activeModel, setActiveModel] = useState(null);
     const [activeThinkingLevel, setActiveThinkingLevel] = useState(null);
     const [supportsThinking, setSupportsThinking] = useState(false);
+    const [activeModelUsage, setActiveModelUsage] = useState(null);
     const [contextUsage, setContextUsage] = useState(null);
     const {
         notificationsEnabled,
@@ -964,6 +965,7 @@ function App() {
         if (nextModel !== undefined) setActiveModel(nextModel);
         if (payload.thinking_level !== undefined) setActiveThinkingLevel(payload.thinking_level ?? null);
         if (payload.supports_thinking !== undefined) setSupportsThinking(Boolean(payload.supports_thinking));
+        if (payload.provider_usage !== undefined) setActiveModelUsage(payload.provider_usage ?? null);
     }, []);
 
     const refreshModelState = useCallback(() => {
@@ -973,6 +975,14 @@ function App() {
             })
             .catch(() => {});
     }, [applyModelState]);
+
+    useEffect(() => {
+        refreshModelState();
+        const interval = setInterval(() => {
+            refreshModelState();
+        }, 60_000);
+        return () => clearInterval(interval);
+    }, [refreshModelState]);
 
     const handleSseEvent = useCallback((eventType, data) => {
         const turnId = data?.turn_id;
@@ -1469,6 +1479,7 @@ function App() {
                     activeEditorPath=${tabStripActiveId}
                     onAttachEditorFile=${attachActiveEditorFile}
                     activeModel=${activeModel}
+                    modelUsage=${activeModelUsage}
                     thinkingLevel=${activeThinkingLevel}
                     supportsThinking=${supportsThinking}
                     contextUsage=${contextUsage}
