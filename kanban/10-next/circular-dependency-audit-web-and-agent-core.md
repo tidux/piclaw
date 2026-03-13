@@ -117,7 +117,7 @@ Current cycle list (from latest audit):
 - ✅ Completed final cycle-break for remaining runtime cycle by extracting scheduling logic into `src/task-scheduler-utils.ts`.
 - Mitigation: moved `computeNextRun` out of `task-scheduler.ts`, updated `extensions/scheduled-tasks.ts` to import it from the new utility, and re-exported it from `task-scheduler.ts` for existing API compatibility.
 - `bunx madge --circular src/index.ts` now reports **no circular dependencies**.
-- Commit: `TBD` (scheduled-tasks cycle-break refactor)
+- Commit: `a3140ea` (scheduled-tasks cycle-break refactor)
 - Test evidence captured on branch: `bun run quality` (pass)
 
 ### 2026-03-12
