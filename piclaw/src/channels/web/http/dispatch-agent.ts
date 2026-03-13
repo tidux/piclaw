@@ -2,13 +2,13 @@
  * web/http/dispatch-agent.ts – Agent route dispatch helpers.
  */
 
-import type { WebChannel } from "../../web.js";
+import type { WebChannelLike } from "../web-channel-contracts.js";
 
 /**
  * Handle /agent routes when the request matches; otherwise return null.
  */
 export async function handleAgentRoutes(
-  channel: WebChannel,
+  channel: WebChannelLike,
   req: Request,
   pathname: string,
   url: URL

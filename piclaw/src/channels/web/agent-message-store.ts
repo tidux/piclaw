@@ -8,7 +8,7 @@
  * Consumers: channels/web.ts and web/agent-events.ts write to this store.
  */
 
-import type { WebChannel } from "../web.js";
+import type { WebChannelLike } from "./web-channel-contracts.js";
 import type { AttachmentInfo } from "../../agent-pool/attachments.js";
 import type { AgentEventEmitter } from "./agent-events.js";
 import { formatOutbound, type ChatChannel } from "../../router.js";
@@ -30,7 +30,7 @@ function buildAttachmentBlocks(attachments: AttachmentInfo[]): {
 
 /** Persist the accumulated agent turn (text + attachments) to the database. */
 export function storeAgentTurn(
-  channel: WebChannel,
+  channel: WebChannelLike,
   emitter: AgentEventEmitter,
   params: {
     chatJid: string;

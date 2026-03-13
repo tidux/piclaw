@@ -7,7 +7,7 @@
  * Consumers: channels/web.ts calls this after agent runs complete.
  */
 
-import type { WebChannel } from "../web.js";
+import type { WebChannelLike } from "./web-channel-contracts.js";
 import type { InteractionRow } from "../../db.js";
 import { normalizeMediaIds } from "./posts-service.js";
 
@@ -66,7 +66,7 @@ export function normalizeAgentMessagePayload(payload: AgentMessagePayload): {
 
 /** Store the user portion of an agent interaction in the database. */
 export function storeAgentUserMessage(
-  channel: WebChannel,
+  channel: WebChannelLike,
   chatJid: string,
   payload: {
     content: string;

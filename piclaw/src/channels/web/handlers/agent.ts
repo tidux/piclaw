@@ -8,7 +8,7 @@
  * Consumers: web/request-router.ts routes agent paths to these handlers.
  */
 
-import type { WebChannel } from "../../web.js";
+import type { WebChannelLike } from "../web-channel-contracts.js";
 import {
   ASSISTANT_AVATAR,
   ASSISTANT_NAME,
@@ -45,10 +45,11 @@ import { broadcastInteractionUpdated } from "../interaction-service.js";
 import { storeAgentTurn } from "../agent-message-store.js";
 import { resolveThreadId, resolveThreadRootId } from "../threading.js";
 import { createUuid } from "../../../utils/ids.js";
+import type { AttachmentInfo } from "../../../agent-pool/attachments.js";
 
 /** Handle POST to create an agent message and start an agent run. */
 export async function handleAgentMessage(
-  channel: WebChannel,
+  channel: WebChannelLike,
   req: Request,
   pathname: string,
   chatJid: string,
@@ -284,7 +285,7 @@ export async function handleAgentMessage(
 
 /** Process a chat message: detect commands, queue agent run, or store post. */
 export async function processChat(
-  channel: WebChannel,
+  channel: WebChannelLike,
   chatJid: string,
   agentId: string,
   threadRootId?: number
@@ -366,7 +367,7 @@ export async function processChat(
   const output = await channel.agentPool.runAgent(prompt, chatJid, {
     timeoutMs,
     onEvent: streamingHandler,
-    onTurnComplete: (turn) => {
+    onTurnComplete: (turn: { text: string; attachments: unknown[] }) => {
       // Intermediate turn completed (follow-up boundary) — store as threaded message.
       // Skip placeholder consumption: this is the original turn's output, not the
       // follow-up response. The placeholder should only be consumed by the follow-up
@@ -375,7 +376,7 @@ export async function processChat(
         storeAgentTurn(channel, emitter, {
           chatJid,
           text: turn.text,
-          attachments: turn.attachments,
+          attachments: turn.attachments as AttachmentInfo[],
           channelName,
           threadId: resolvedThreadRootId,
           skipPlaceholder: true,
@@ -441,7 +442,7 @@ export async function processChat(
     storeAgentTurn(channel, emitter, {
       chatJid,
       text: output.result || "",
-      attachments: finalAttachments,
+      attachments: finalAttachments as AttachmentInfo[],
       channelName,
       threadId: resolvedThreadRootId,
     });
