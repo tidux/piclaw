@@ -8,6 +8,7 @@ import type { AgentPool } from "../agent-pool.js";
 import { WebChannel } from "../channels/web.js";
 import { PushoverChannel } from "../channels/pushover.js";
 import { WhatsAppChannel } from "../channels/whatsapp.js";
+import { setMessagesPostFn } from "../extensions/messages-crud.js";
 import {
   DATA_DIR,
   PUSHOVER_APP_TOKEN,
@@ -46,6 +47,17 @@ export async function startWebChannel(queue: AgentQueue, agentPool: AgentPool): 
   const web = new WebChannel({ queue, agentPool });
   await web.start();
   web.recoverInflightRuns();
+
+  // Wire the messages tool post action to use the web channel for broadcast.
+  setMessagesPostFn((chatJid, content, isBot, mediaIds, contentBlocks) => {
+    const interaction = web.storeMessage(chatJid, content, isBot, mediaIds, {
+      contentBlocks,
+    });
+    if (!interaction) return null;
+    web.broadcastEvent("new_post", interaction);
+    return interaction.id;
+  });
+
   return web;
 }
 
