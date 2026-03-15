@@ -30,17 +30,19 @@ Using the wrapper script:
 /workspace/.pi/skills/twitter-summary/run <handle> [hours] [output.json]
 ```
 
+`<handle>` is required. No default user handle is configured in the scripts.
+
 Examples:
 
 ```bash
-# Fetch last 16 hours for @badlogicgames
-/workspace/.pi/skills/twitter-summary/run badlogicgames 16 /tmp/badlogic_fetch.json
+# Fetch last 16 hours for an explicit handle
+/workspace/.pi/skills/twitter-summary/run <handle> 16 /tmp/twitter_fetch.json
 
 # Direct Playwright invocation
-bun /workspace/.pi/skills/twitter-summary/playwright-twitter-summary.ts --handle=badlogicgames --hours=24
+bun /workspace/.pi/skills/twitter-summary/playwright-twitter-summary.ts --handle=<handle> --hours=24
 
 # Quick (no browser) invocation
-bun /workspace/.pi/skills/twitter-summary/quick-twitter-summary.ts --handle=badlogicgames --hours=12
+bun /workspace/.pi/skills/twitter-summary/quick-twitter-summary.ts --handle=<handle> --hours=12
 ```
 
 ## Output

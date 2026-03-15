@@ -5,14 +5,24 @@
  */
 import { chromium } from "playwright";
 
+function normalizeHandle(value: string | undefined): string {
+  const normalized = String(value || "").trim().replace(/^@+/, "");
+  if (!normalized) return "";
+  if (!/^[A-Za-z0-9_]{1,15}$/.test(normalized)) {
+    throw new Error("Invalid handle. Use a Twitter/X handle without @ (letters, numbers, underscore; max 15 chars).");
+  }
+  return normalized;
+}
+
 /** Main entry: scrape tweets via Playwright and output JSON summary. */
 async function run() {
 
 // --help support
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
-  console.log("Usage: bun playwright-twitter-summary.ts [options]");
+  console.log("Usage: bun playwright-twitter-summary.ts --handle=<user> [--hours=16] [--instances=https://nitter.net,...]");
   console.log("");
   console.log("  Fetch a user's recent tweets (tweets, replies, retweets) using Playwright + Nitter fallbacks and produce compact JSON/Markdown summaries.");
+  console.log("  --handle is required and no default user handle is baked in.");
   process.exit(0);
 }
   const args = process.argv.slice(2);
@@ -23,7 +33,11 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
     const [k, v] = a.slice(2).split("=");
     opts[k] = v === undefined ? "true" : v;
   }
-  const handle = opts.handle || opts.h || "badlogicgames";
+  const handle = normalizeHandle(opts.handle);
+  if (!handle) {
+    console.error("Missing required --handle option. Use --help for usage.");
+    process.exit(64);
+  }
   const hours = parseInt(opts.hours || opts.hrs || "16", 10) || 16;
   const instances = (opts.instances || "https://nitter.net,https://nitter.tiekoetter.com,https://nitter.snopyta.org,https://nitter.kavin.rocks,https://nitter.1d4.us").split(",").map(s => s.trim()).filter(Boolean);
   const cutoff = Date.now() - hours * 3600 * 1000;

@@ -5,6 +5,15 @@
  */
 import { parseHTML } from "linkedom";
 
+function normalizeHandle(value: string | undefined): string {
+  const normalized = String(value || "").trim().replace(/^@+/, "");
+  if (!normalized) return "";
+  if (!/^[A-Za-z0-9_]{1,15}$/.test(normalized)) {
+    throw new Error("Invalid handle. Use a Twitter/X handle without @ (letters, numbers, underscore; max 15 chars).");
+  }
+  return normalized;
+}
+
 /** Parse CLI flags (--key value) into a key-value object. */
 function parseArgs(argv: string[]) {
   const parsed: Record<string, string> = {};
@@ -75,13 +84,18 @@ async function tryFetch(url: string, timeout = 15000) {
 
 // --help support
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
-  console.log("Usage: bun quick-twitter-summary.ts [options]");
+  console.log("Usage: bun quick-twitter-summary.ts --handle=<user> [--hours=16] [--max=200] [--instances=https://nitter.net,...]");
   console.log("");
-  console.log("  Fetch a user's recent tweets (tweets, replies, retweets) using Playwright + Nitter fallbacks and produce compact JSON/Markdown summaries.");
+  console.log("  Fetch a user's recent tweets (tweets, replies, retweets) using Nitter fallbacks and produce compact JSON summaries.");
+  console.log("  --handle is required and no default user handle is baked in.");
   process.exit(0);
 }
   const opts = parseArgs(process.argv.slice(2));
-  const handle = opts.handle || opts.h || "badlogicgames";
+  const handle = normalizeHandle(opts.handle);
+  if (!handle) {
+    console.error("Missing required --handle option. Use --help for usage.");
+    process.exit(64);
+  }
   const hours = parseNumber(opts.hours || opts.hrs, 16);
   const maxTweets = parseNumber(opts.max || opts.limit, 200);
   const instances = (opts.instances || "https://nitter.net,https://nitter.snopyta.org,https://nitter.kavin.rocks,https://nitter.1d4.us").split(",").map((s) => s.trim()).filter(Boolean);
