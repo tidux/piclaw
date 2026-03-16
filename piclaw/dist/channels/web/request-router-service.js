@@ -32,6 +32,7 @@ import { handleContentPrimaryRoutes, handleContentSecondaryRoutes } from "./http
 import { handleMediaRoutes } from "./http/dispatch-media.js";
 import { handleShellRoutes } from "./http/dispatch-shell.js";
 import { handleWorkspaceRoutes } from "./http/dispatch-workspace.js";
+import { handleExtensionRoutes } from "./http/extension-routes.js";
 import { enforceRequestGuards } from "./http/request-guards.js";
 import { getRouteFlags } from "./http/route-flags.js";
 import { withSecurityHeaders } from "./http/security.js";
@@ -127,6 +128,10 @@ export class RequestRouterService {
         const mediaResponse = await handleMediaRoutes(this.channel, req, pathname);
         if (mediaResponse) {
             return mediaResponse;
+        }
+        const extensionRouteResponse = await handleExtensionRoutes(req, pathname);
+        if (extensionRouteResponse) {
+            return extensionRouteResponse;
         }
         return this.channel.json({ error: "Not found" }, 404);
     }

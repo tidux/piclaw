@@ -294,13 +294,29 @@ export async function handleAgentMessage(channel, req, pathname, chatJid, defaul
         broadcastNewPost();
         const commandTurnId = createUuid("turn");
         const commandTitle = content.trim().split(/\s+/, 1)[0] || "command";
-        emitCommandStatus({
-            thread_id: interaction.timestamp,
-            agent_id: agentId,
-            turn_id: commandTurnId,
-            type: "intent",
-            title: "Running " + commandTitle + "...",
-        });
+        const isCompactCommand = command.type === "compact";
+        if (isCompactCommand) {
+            // Compaction gets the timer affordance (same as auto-compaction)
+            emitCommandStatus({
+                thread_id: interaction.timestamp,
+                agent_id: agentId,
+                turn_id: commandTurnId,
+                type: "intent",
+                title: "Compacting context",
+                detail: "Manual compaction requested via /compact.",
+                intent_key: "compaction",
+                started_at: new Date().toISOString(),
+            });
+        }
+        else {
+            emitCommandStatus({
+                thread_id: interaction.timestamp,
+                agent_id: agentId,
+                turn_id: commandTurnId,
+                type: "intent",
+                title: "Running " + commandTitle + "...",
+            });
+        }
         const result = await channel.agentPool.applyControlCommand(chatJid, command);
         const formatted = formatOutbound(result.message, "web");
         const isQueueCommand = command.type === "queue" || command.type === "queue_all";

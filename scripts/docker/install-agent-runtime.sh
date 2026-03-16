@@ -78,8 +78,19 @@ sudo chmod -R a+rX "$BUN_INSTALL"
 sudo ln -sf "$BUN_INSTALL/bin/bun"  /usr/local/bin/bun
 sudo ln -sf "$BUN_INSTALL/bin/bunx" /usr/local/bin/bunx
 
-# Install pi-coding-agent globally (sudo so it writes to root-owned prefix)
-PI_CODING_AGENT_VERSION="${PI_CODING_AGENT_VERSION:-0.57.1}"
+# Install pi-coding-agent globally (sudo so it writes to root-owned prefix).
+# Prefer an explicit env override, otherwise derive the version from piclaw's
+# package.json so Docker builds, reloads, and local installs stay aligned.
+PI_CODING_AGENT_VERSION="${PI_CODING_AGENT_VERSION:-}"
+if [ -z "$PI_CODING_AGENT_VERSION" ]; then
+  for pkg in /tmp/piclaw-package.json "$HOME/piclaw/package.json"; do
+    if [ -f "$pkg" ]; then
+      PI_CODING_AGENT_VERSION="$(jq -r '.dependencies["@mariozechner/pi-coding-agent"] // empty' "$pkg")"
+      [ -n "$PI_CODING_AGENT_VERSION" ] && break
+    fi
+  done
+fi
+PI_CODING_AGENT_VERSION="${PI_CODING_AGENT_VERSION:-0.58.3}"
 sudo BUN_INSTALL="$BUN_INSTALL" "$BUN_INSTALL/bin/bun" add -g "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}"
 
 # Ensure world-readable after install

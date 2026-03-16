@@ -3,7 +3,7 @@ FROM debian:trixie-slim
 
 ARG HOMEBREW_BREW_GIT_REMOTES=""
 ARG HOMEBREW_CORE_GIT_REMOTES=""
-ARG PI_CODING_AGENT_VERSION="0.57.1"
+ARG PI_CODING_AGENT_VERSION=""
 
 # Environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -58,6 +58,7 @@ COPY supervisor/supervisord.workspace.conf /usr/local/share/piclaw/supervisor/su
 COPY supervisor/conf.d/ /usr/local/share/piclaw/supervisor/conf.d/
 COPY scripts/docker/install-agent-runtime.sh /tmp/install-agent-runtime.sh
 COPY scripts/docker/build-piclaw-package.sh /tmp/build-piclaw-package.sh
+COPY piclaw/package.json /tmp/piclaw-package.json
 RUN chmod +x /entrypoint.sh /usr/local/bin/run-piclaw.sh /tmp/install-agent-runtime.sh /tmp/build-piclaw-package.sh
 
 # Layer 4: Install Homebrew, Bun, and Pi Coding Agent globally

@@ -38,6 +38,7 @@ import { AgentBuffers } from "./web/agent-buffers.js";
 import { bindWebUiSessionBinder } from "./web/agent-pool-binder.js";
 import { handleHashtagRequest, handleSearchRequest, handleThoughtRequest, handleThreadRequest, handleTimelineRequest, } from "./web/content-endpoints.js";
 import { handleAgentsRequest, handleAvatarRequest, } from "./web/identity-endpoints.js";
+import { createAgentsEndpointContext } from "./web/endpoint-contexts.js";
 import { handleManifestRequest } from "./web/manifest.js";
 import { getThreadRootId as getThreadRootIdForChat, resumeChat as resumeWebChat, skipFailedOnModelSwitch as skipFailedOnModelSwitchForChat, } from "./web/chat-run-control.js";
 import { recoverInflightRuns as recoverWebInflightRuns, resumePendingChats as resumeWebPendingChats, } from "./web/recovery.js";
@@ -94,13 +95,13 @@ export class WebChannel {
         this.uiBridge = new UiBridge(this);
         this.remoteInterop = new RemoteInteropService(this.agentPool);
         this.agentStatusStore = new AgentStatusStore(this.state);
-        this.interactionBroadcaster = createInteractionBroadcaster(this, {
+        this.interactionBroadcaster = createInteractionBroadcaster(this, () => ({
             agentName: ASSISTANT_NAME,
             agentAvatar: resolveAvatarUrl("agent", ASSISTANT_AVATAR),
             userName: USER_NAME || null,
             userAvatar: resolveAvatarUrl("user", USER_AVATAR),
             userAvatarBackground: USER_AVATAR_BACKGROUND || null,
-        });
+        }));
         this.authGateway = new WebAuthGateway({
             passkeyMode: WEB_PASSKEY_MODE || "",
             totpSecret: WEB_TOTP_SECRET || "",
@@ -419,7 +420,20 @@ export class WebChannel {
         return this.requestRouter.handle(req);
     }
     async handleAgents() {
-        return await handleAgentsRequest(this.endpointContexts.agents());
+        // Read live identity values so /agent-name and /agent-avatar changes
+        // take effect immediately without a process restart.
+        const ctx = createAgentsEndpointContext({
+            agentPool: this.agentPool,
+            defaultChatJid: DEFAULT_CHAT_JID,
+            defaultAgentId: DEFAULT_AGENT_ID,
+            agentName: ASSISTANT_NAME,
+            agentAvatar: resolveAvatarUrl("agent", ASSISTANT_AVATAR),
+            userName: USER_NAME || null,
+            userAvatar: resolveAvatarUrl("user", USER_AVATAR),
+            userAvatarBackground: USER_AVATAR_BACKGROUND || null,
+            json: (payload, status = 200) => this.json(payload, status),
+        });
+        return await handleAgentsRequest(ctx);
     }
     async handleManifest(req) {
         return await handleManifestRequest(req, {
@@ -429,7 +443,12 @@ export class WebChannel {
         });
     }
     async handleAvatar(kind, req) {
-        return await handleAvatarRequest(kind, req, this.endpointContexts.avatar());
+        // Read live avatar values so /agent-avatar changes take effect immediately.
+        return await handleAvatarRequest(kind, req, {
+            assistantAvatar: ASSISTANT_AVATAR || null,
+            userAvatar: USER_AVATAR || null,
+            json: (payload, status = 200) => this.json(payload, status),
+        });
     }
     async handleWorkspaceVisibility(req) {
         return await handleWorkspaceVisibilityRequest(req, this.endpointContexts.ui());

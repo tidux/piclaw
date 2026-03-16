@@ -39,8 +39,14 @@ const SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    // Cross-origin isolation headers (COOP/COEP) are NOT set globally.
+    // COEP require-corp blocks cross-origin iframes that don't send CORP
+    // headers (e.g., draw.io embed, external widgets). Extensions needing
+    // SharedArrayBuffer (e.g., office-viewer for Emscripten pthreads)
+    // set their own COOP/COEP on their route responses.
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; " +
+        "frame-src 'self'; " +
         "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
 };
 /** Clone a response and append baseline security headers. */

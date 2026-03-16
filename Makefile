@@ -32,7 +32,7 @@ GHCR_IMAGE := $(REGISTRY)/$(GHCR_OWNER)/$(IMAGE):$(TAG)
 BUN_ROOT ?= $(or $(BUN_INSTALL),/usr/local/lib/bun)
 GLOBAL_PKG := $(BUN_ROOT)/install/global/package.json
 GLOBAL_LOCK := $(BUN_ROOT)/install/global/bun.lock
-PI_AGENT_VERSION ?= 0.58.3
+PI_AGENT_VERSION ?= $(shell jq -r '.dependencies["@mariozechner/pi-coding-agent"] // "0.58.3"' piclaw/package.json)
 
 .PHONY: help up down enter build build-piclaw build-web build-ts vendor update-mermaid-vendor pack \
         local-install restart lint test test-coverage \
