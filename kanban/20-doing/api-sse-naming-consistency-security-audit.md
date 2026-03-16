@@ -184,7 +184,17 @@ fixes or follow-up tickets.
   - removed stale client SSE listeners for `agent_request` and `agent_request_timeout`
   - removed those obsolete names from the chat-scoped SSE contract set in `src/channels/web/sse.ts`
   - added regression coverage in `test/channels/web/web-sse-client.test.ts`
-- Remaining work is still the broader endpoint inventory plus deeper payload-shape/documentation consistency across the surviving SSE event families.
+- Added a full HTTP route inventory artefact at `piclaw/piclaw/docs/web-api-endpoint-inventory.md`, covering:
+  - main web-router route families
+  - auth / CSRF / rate-limit posture per endpoint family
+  - remote-interop as a separate pre-router security domain
+  - current response-style and naming observations
+- That endpoint inventory surfaced/documented the next likely structural follow-ups:
+  - `/agents` sits outside the otherwise dominant `/agent/*` family
+  - `/reply` remains the main verb-style outlier beside noun-style content routes
+  - response envelopes are lightweight but not formally standardised
+  - `extension_ui_*` SSE is a likely end-to-end contract gap to audit next
+- Remaining work is still deeper payload-shape/documentation consistency across SSE families plus test-backed route-inventory coverage so new mutating routes do not skip classification.
 - This ticket remains the active umbrella for that work rather than being closed after incremental guardrail slices.
 
 ### 2026-03-15
