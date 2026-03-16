@@ -1,13 +1,14 @@
 ---
 id: compaction-warning-empty-before-fill
 title: Fix compaction warning blank state before warning text is populated
-status: doing
+status: done
 priority: high
 created: 2026-03-16
 updated: 2026-03-16
-target_release: next
+completed: 2026-03-16
+target_release: v1.4.0
 estimate: S
-risk: medium
+risk: low
 tags:
   - work-item
   - kanban
