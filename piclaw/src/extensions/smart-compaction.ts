@@ -65,7 +65,37 @@ function fileListsFromOps(fileOps: FileOperations): {
 } {
   const modified = new Set([...fileOps.written, ...fileOps.edited]);
   const readOnly = [...fileOps.read].filter((f) => !modified.has(f));
-  return { readFiles: readOnly, modifiedFiles: [...modified] };
+  return { readFiles: filterJunkPaths(readOnly), modifiedFiles: [...modified] };
+}
+
+/**
+ * Filter out paths that are noise rather than meaningful project context.
+ * These are temp files, device nodes, session logs, and similar paths that
+ * clutter the read-files list without helping the LLM understand the project.
+ */
+const JUNK_PATH_PATTERNS: RegExp[] = [
+  /^\/dev\//,                          // device nodes (/dev/stdin, /dev/null)
+  /^\/tmp\//,                          // temp files
+  /^\/var\/log\//,                     // log files
+  /^\/proc\//,                         // proc filesystem
+  /^\/sys\//,                          // sys filesystem
+  /\/\.cache\//,                       // cache dirs
+  /\/node_modules\//,                  // node_modules
+  /\.jsonl$/,                          // session log files
+  /\/\.pi\/agent\/sessions\//,         // pi session files
+  /\/\.pi\/agent\/models\.json$/,      // pi model config
+  /\/\.pi\/agent\/settings\.json$/,    // pi settings
+  /\/bun\.lock$/,                      // lockfiles
+  /\/package-lock\.json$/,
+  /\.wasm$/,                           // binary blobs
+  /\.map$/,                            // source maps
+  /\.min\.js$/,                        // minified bundles
+  /\.bundle\.(js|css)$/,               // bundles
+  /\.meta\.json$/,                     // meta files
+];
+
+function filterJunkPaths(paths: string[]): string[] {
+  return paths.filter((p) => !JUNK_PATH_PATTERNS.some((re) => re.test(p)));
 }
 
 function extractText(content: unknown): string {
