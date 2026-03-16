@@ -36,8 +36,11 @@ describe("web http content dispatch", () => {
     const postReq = new Request("https://example.com/post", { method: "POST" });
     expect(await (await handleContentPrimaryRoutes(channel, postReq, "/post", new URL(postReq.url)))?.text()).toBe("post");
 
-    const replyReq = new Request("https://example.com/reply", { method: "POST" });
-    expect(await (await handleContentPrimaryRoutes(channel, replyReq, "/reply", new URL(replyReq.url)))?.text()).toBe("reply");
+    const replyReq = new Request("https://example.com/post/reply", { method: "POST" });
+    expect(await (await handleContentPrimaryRoutes(channel, replyReq, "/post/reply", new URL(replyReq.url)))?.text()).toBe("reply");
+
+    const legacyReplyReq = new Request("https://example.com/reply", { method: "POST" });
+    expect(await (await handleContentPrimaryRoutes(channel, legacyReplyReq, "/reply", new URL(legacyReplyReq.url)))?.text()).toBe("reply");
 
     const patchReq = new Request("https://example.com/post/7", { method: "PATCH" });
     expect(await (await handleContentPrimaryRoutes(channel, patchReq, "/post/7", new URL(patchReq.url)))?.text()).toBe("patch:7");

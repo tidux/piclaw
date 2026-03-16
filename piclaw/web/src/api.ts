@@ -120,11 +120,13 @@ export async function createPost(content, mediaIds = [], chatJid = null) {
 }
 
 /**
- * Reply to a thread
+ * Reply to a thread.
+ * Uses the preferred resource-shaped `/post/reply` path while the legacy
+ * `/reply` endpoint remains supported for compatibility.
  */
 export async function createReply(threadId, content, mediaIds = [], chatJid = null) {
     const query = chatJid ? `?chat_jid=${encodeURIComponent(chatJid)}` : '';
-    return request(`/reply${query}`, {
+    return request(`/post/reply${query}`, {
         method: 'POST',
         body: JSON.stringify({ thread_id: threadId, content, media_ids: mediaIds }),
     });

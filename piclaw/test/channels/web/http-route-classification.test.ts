@@ -4,6 +4,7 @@ import { getRouteFlags, shouldSkipAuthCheck } from "../../../src/channels/web/ht
 
 const MUTATING_ROUTE_COVERAGE = [
   { method: "POST", pathname: "/post", coverage: "data/post" },
+  { method: "POST", pathname: "/post/reply", coverage: "data/reply" },
   { method: "POST", pathname: "/reply", coverage: "data/reply" },
   { method: "PATCH", pathname: "/post/123", coverage: "data/post_update" },
   { method: "DELETE", pathname: "/post/123", coverage: "data/delete_post" },
@@ -67,6 +68,7 @@ describe("web http route classification", () => {
 
   test("maps data rate-limit rules by method and pathname", () => {
     expect(getDataRateLimitRule("POST", "/post")?.bucket).toBe("data/post");
+    expect(getDataRateLimitRule("POST", "/post/reply")?.bucket).toBe("data/reply");
     expect(getDataRateLimitRule("PATCH", "/post/123")?.bucket).toBe("data/post_update");
     expect(getDataRateLimitRule("POST", "/agent/abc/message")?.bucket).toBe("data/agent_message");
     expect(getDataRateLimitRule("POST", "/agent/queue-remove")?.bucket).toBe("data/agent_queue");

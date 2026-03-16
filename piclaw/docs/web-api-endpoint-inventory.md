@@ -73,7 +73,8 @@ or `/workspace/*` route family.
 | GET | `/search` | `dispatch-content.ts` | authenticated | n/a | none | JSON search result payload |
 | GET | `/thread/:id` | `dispatch-content.ts` | authenticated | n/a | none | JSON thread payload |
 | POST | `/post` | `dispatch-content.ts` | authenticated | yes | `data/post` | created interaction |
-| POST | `/reply` | `dispatch-content.ts` | authenticated | yes | `data/reply` | created interaction |
+| POST | `/post/reply` | `dispatch-content.ts` | authenticated | yes | `data/reply` | preferred reply-creation route; created interaction |
+| POST | `/reply` | `dispatch-content.ts` | authenticated | yes | `data/reply` | legacy compatibility route for reply creation |
 | PATCH | `/post/:id` | `dispatch-content.ts` | authenticated | yes | `data/post_update` | updated interaction / status JSON |
 | DELETE | `/post/:id` | `dispatch-content.ts` | authenticated | yes | `data/delete_post` | status JSON |
 | POST | `/internal/post` | `dispatch-content.ts` | internal secret, not cookie auth | internal-only | no normal data bucket | internal bridge route |
@@ -177,7 +178,7 @@ web endpoint helpers (`ui-endpoints.ts`, `handlers/workspace.ts`).
    - examples: `PATCH /post/:id`, `POST /internal/post`
 4. **resource-creating mutations**
    - created entity / richer payload rather than a bare status
-   - examples: `/post`, `/reply`, `/media/upload`, `/agent/branch-fork`
+   - examples: `/post`, `/post/reply`, `/media/upload`, `/agent/branch-fork`
 5. **binary/streaming**
    - raw file/media/SSE/WebSocket
 
@@ -185,7 +186,7 @@ web endpoint helpers (`ui-endpoints.ts`, `handlers/workspace.ts`).
 
 These are not urgent breakages, but they are visible:
 
-- `/reply` is a verb-style sibling beside noun-style `/post`
+- `/reply` still exists as a legacy compatibility route, but the preferred reply path is now the more resource-shaped `/post/reply`
 - `/agents` is still present as a legacy compatibility route, but the preferred family path is now `/agent/roster`
 - `/workspace/file` multiplexes create/read/update/delete by method, while posts use separate resource/action paths
 - some mutations return `{ status: "ok" }`, some return `{ status: "ok", ok: true, ... }` for compatibility, and others return full resource payloads; that split is now documented but is still not fully unified
@@ -222,7 +223,7 @@ validation instead of cookie-auth + CSRF.
 
 ## Follow-up candidates
 
-1. Decide whether `/agents` should stay as-is or move under `/agent/*` in a future compatibility-preserving cleanup.
+1. Decide whether the legacy compatibility routes (`/agents`, `/reply`) should remain indefinitely or be retired in a future compatibility window.
 2. Decide whether response envelopes should be standardised further, or simply documented as the current lightweight resource-first style.
-3. Audit the `extension_ui_*` SSE family end-to-end against current web-client listeners; the server emits them, but the main web SSE client does not currently register listeners for those names.
-4. Keep route inventory coverage in tests so newly added mutating endpoints do not skip rate-limit classification.
+3. Continue evolving the `extension_ui_*` browser-event bridge into a richer first-class extension UI surface if needed.
+4. Keep route inventory coverage in tests so newly added mutating endpoints do not skip classification.

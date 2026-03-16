@@ -190,9 +190,13 @@ fixes or follow-up tickets.
   - remote-interop as a separate pre-router security domain
   - current response-style and naming observations
 - That endpoint inventory surfaced/documented the next likely structural follow-ups:
-  - `/reply` remains the main verb-style outlier beside noun-style content routes
   - response envelopes are lightweight but not formally standardised
   - `extension_ui_*` SSE is a likely end-to-end contract gap to audit next
+- Landed another compatibility-preserving naming cleanup from that inventory:
+  - added preferred `POST /post/reply`
+  - kept legacy `POST /reply` working
+  - switched the web client to use `/post/reply`
+  - extended rate-limit and dispatch coverage in tests
 - Landed one compatibility-preserving naming cleanup from that inventory:
   - added preferred `GET /agent/roster`
   - kept legacy `GET /agents` working
