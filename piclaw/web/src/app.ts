@@ -1222,13 +1222,16 @@ function MainApp({ locationParams }) {
         }
         // On reconnect: refresh timeline for any missed posts and restore
         // in-progress agent state (status + draft/thought buffers).
+        // Also refresh queue state so queued follow-ups submitted before
+        // the reconnect gap are restored in the compose stack.
         const { currentHashtag: activeHashtag, searchQuery: activeSearch } = viewStateRef.current;
         if (!activeHashtag && !activeSearch) {
             refreshTimeline();
         }
         refreshAgentStatus();
+        refreshQueueState();
         refreshContextUsage();
-    }, [clearAgentRunState, refreshTimeline, refreshAgentStatus, refreshContextUsage]);
+    }, [clearAgentRunState, refreshTimeline, refreshAgentStatus, refreshQueueState, refreshContextUsage]);
 
 
     // Handle hashtag click

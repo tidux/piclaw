@@ -869,6 +869,7 @@ export function ComposeBox({
                 const models = Array.isArray(payload?.models)
                     ? payload.models.filter((model) => typeof model === 'string' && model.trim().length > 0)
                     : [];
+                models.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
                 setModelOptions(models);
                 emitModelState(payload);
             })
