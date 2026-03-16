@@ -44,7 +44,7 @@ export function getDataRateLimitRule(method: string, pathname: string): DataRate
   if (method === "POST" && pathname === "/post") {
     return { bucket: "data/post", limit: DATA_POST_LIMIT, message: "Too many posts. Slow down." };
   }
-  if (method === "POST" && (pathname === "/post/reply" || pathname === "/reply")) {
+  if (method === "POST" && pathname === "/post/reply") {
     return { bucket: "data/reply", limit: DATA_REPLY_LIMIT, message: "Too many replies. Slow down." };
   }
   if (method === "PATCH" && pathname.startsWith("/post/")) {

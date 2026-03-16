@@ -121,8 +121,6 @@ export async function createPost(content, mediaIds = [], chatJid = null) {
 
 /**
  * Reply to a thread.
- * Uses the preferred resource-shaped `/post/reply` path while the legacy
- * `/reply` endpoint remains supported for compatibility.
  */
 export async function createReply(threadId, content, mediaIds = [], chatJid = null) {
     const query = chatJid ? `?chat_jid=${encodeURIComponent(chatJid)}` : '';
@@ -226,8 +224,6 @@ export async function sendPeerAgentMessage(sourceChatJid, targetChatOrName, cont
 
 /**
  * Get available agents / current agent roster.
- * Uses the newer `/agent/roster` family path while the legacy `/agents`
- * endpoint remains supported for compatibility.
  */
 export async function getAgents() {
     return request('/agent/roster');

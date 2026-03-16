@@ -47,8 +47,7 @@ or `/workspace/*` route family.
 | GET/HEAD | `/docs/...` | `dispatch-shell.ts` | authenticated | Authenticated docs/static docs assets. |
 | GET/HEAD | `/avatar/agent` | `dispatch-shell.ts` | public | Agent avatar endpoint. |
 | GET/HEAD | `/avatar/user` | `dispatch-shell.ts` | authenticated | Current user avatar endpoint. |
-| GET | `/agents` | `dispatch-shell.ts` | authenticated | Legacy compatibility endpoint for the current agent roster payload. |
-| GET | `/agent/roster` | `dispatch-agent.ts` | authenticated | Preferred current-agent roster endpoint; compatibility-preserving naming cleanup for the old `/agents` path. |
+| GET | `/agent/roster` | `dispatch-agent.ts` | authenticated | Current agent roster endpoint. |
 | GET | `/sse/stream` | `dispatch-shell.ts` | authenticated | SSE stream endpoint; accepts optional `chat_jid` subscription scope. |
 | GET | `/terminal/session` | `dispatch-shell.ts` | authenticated | Web terminal session metadata/bootstrap endpoint. |
 | WS upgrade | `/terminal/ws` | `web.ts` `handleFetch()` | authenticated + same-origin | WebSocket terminal transport; checked outside the normal request router. |
@@ -73,8 +72,7 @@ or `/workspace/*` route family.
 | GET | `/search` | `dispatch-content.ts` | authenticated | n/a | none | JSON search result payload |
 | GET | `/thread/:id` | `dispatch-content.ts` | authenticated | n/a | none | JSON thread payload |
 | POST | `/post` | `dispatch-content.ts` | authenticated | yes | `data/post` | created interaction |
-| POST | `/post/reply` | `dispatch-content.ts` | authenticated | yes | `data/reply` | preferred reply-creation route; created interaction |
-| POST | `/reply` | `dispatch-content.ts` | authenticated | yes | `data/reply` | legacy compatibility route for reply creation |
+| POST | `/post/reply` | `dispatch-content.ts` | authenticated | yes | `data/reply` | reply-creation route; created interaction |
 | PATCH | `/post/:id` | `dispatch-content.ts` | authenticated | yes | `data/post_update` | updated interaction / status JSON |
 | DELETE | `/post/:id` | `dispatch-content.ts` | authenticated | yes | `data/delete_post` | status JSON |
 | POST | `/internal/post` | `dispatch-content.ts` | internal secret, not cookie auth | internal-only | no normal data bucket | internal bridge route |
@@ -189,8 +187,6 @@ web endpoint helpers (`ui-endpoints.ts`, `handlers/workspace.ts`).
 
 These are not urgent breakages, but they are visible:
 
-- `/reply` still exists as a legacy compatibility route, but the preferred reply path is now the more resource-shaped `/post/reply`
-- `/agents` is still present as a legacy compatibility route, but the preferred family path is now `/agent/roster`
 - `/workspace/file` multiplexes create/read/update/delete by method, while posts use separate resource/action paths
 - some mutations return `{ status: "ok" }`, some return `{ status: "ok", ok: true, ... }` for compatibility, and others return full resource payloads; that split is now documented but is still not fully unified
 
@@ -244,8 +240,6 @@ validation instead of cookie-auth + CSRF.
 
 ## Follow-up candidates
 
-1. Decide whether the legacy compatibility routes (`/agents`, `/reply`) should remain indefinitely or be retired in a future compatibility window.
-   - ticket: `kanban/00-inbox/decide-legacy-web-api-compatibility-route-retirement.md`
-2. Continue evolving the `extension_ui_*` browser-event bridge into a richer first-class extension UI surface if needed.
+1. Continue evolving the `extension_ui_*` browser-event bridge into a richer first-class extension UI surface if needed.
    - ticket: `kanban/00-inbox/extension-ui-sse-client-contract-gap.md`
-3. Keep route inventory coverage in tests so newly added mutating endpoints do not skip classification.
+2. Keep route inventory coverage in tests so newly added mutating endpoints do not skip classification.

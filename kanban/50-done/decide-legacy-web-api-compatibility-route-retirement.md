@@ -1,7 +1,7 @@
 ---
 id: decide-legacy-web-api-compatibility-route-retirement
 title: Decide retirement policy for legacy web API compatibility routes
-status: inbox
+status: done
 priority: low
 created: 2026-03-16
 updated: 2026-03-16
@@ -45,16 +45,25 @@ What remains is a product and maintenance policy decision:
 
 ## Acceptance Criteria
 
-- [ ] Decide whether `/agents` and `/reply` are permanent compatibility routes or temporary aliases.
-- [ ] If temporary, define the deprecation/removal plan.
-- [ ] Document the policy in API docs/release notes if needed.
-- [ ] Add warnings/telemetry only if the extra complexity is justified.
+- [x] Decide whether `/agents` and `/reply` are permanent compatibility routes or temporary aliases.
+- [x] If temporary, define the deprecation/removal plan.
+- [x] Document the policy in API docs/release notes if needed.
+- [x] Add warnings/telemetry only if the extra complexity is justified.
 
 ## Updates
 
 ### 2026-03-16
 - Created as a follow-up from the API/SSE audit consolidation pass.
 - The preferred replacement routes are already landed; this ticket is only about the retirement policy for the legacy paths.
+- Decision: remove the legacy compatibility routes instead of keeping aliases.
+- Removed legacy routes:
+  - `GET /agents`
+  - `POST /reply`
+- Kept the canonical routes only:
+  - `GET /agent/roster`
+  - `POST /post/reply`
+- Updated dispatch, rate-limit classification, tests, and API docs to match.
+- Chose not to add deprecation warnings/telemetry because the aliases were already internal project cleanup paths and the extra churn was not justified.
 
 ## Links
 

@@ -4,8 +4,8 @@ import { handleMediaRoutes } from "../../../src/channels/web/http/dispatch-media
 describe("web http media dispatch", () => {
   test("returns null for non-media routes", async () => {
     const channel = {} as any;
-    const req = new Request("https://example.com/agents", { method: "GET" });
-    const response = await handleMediaRoutes(channel, req, "/agents");
+    const req = new Request("https://example.com/unknown", { method: "GET" });
+    const response = await handleMediaRoutes(channel, req, "/unknown");
     expect(response).toBeNull();
   });
 

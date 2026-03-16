@@ -10,14 +10,13 @@ describe("web http shell dispatch", () => {
     expect(response).toBeNull();
   });
 
-  test("dispatches index/manifest/static/docs/sse/terminal-session/agents", async () => {
+  test("dispatches index/manifest/static/docs/sse/terminal-session", async () => {
     const channel = {
       serveStatic: (rel: string) => new Response(`static:${rel}`),
       handleManifest: () => new Response("manifest"),
       serveDocsStatic: (rel: string) => new Response(`docs:${rel}`),
       handleSse: () => new Response("sse"),
       handleTerminalSession: () => new Response("terminal-session"),
-      handleAgents: async () => new Response("agents"),
       handleAvatar: async () => new Response("avatar", { status: 200 }),
     } as any;
 
@@ -37,7 +36,7 @@ describe("web http shell dispatch", () => {
 
     expect(await (await handleShellRoutes(channel, new Request("https://e/sse/stream", { method: "GET" }), "/sse/stream", buildRouteFlags(), async () => new Response()))?.text()).toBe("sse");
     expect(await (await handleShellRoutes(channel, new Request("https://e/terminal/session", { method: "GET" }), "/terminal/session", buildRouteFlags(), async () => new Response()))?.text()).toBe("terminal-session");
-    expect(await (await handleShellRoutes(channel, new Request("https://e/agents", { method: "GET" }), "/agents", buildRouteFlags(), async () => new Response()))?.text()).toBe("agents");
+    expect(await handleShellRoutes(channel, new Request("https://e/agents", { method: "GET" }), "/agents", buildRouteFlags(), async () => new Response())).toBeNull();
   });
 
   test("dispatches avatar routes and favicon/apple fallback", async () => {
@@ -49,7 +48,6 @@ describe("web http shell dispatch", () => {
       handleManifest: () => new Response("unused"),
       serveDocsStatic: (_rel: string) => new Response("unused"),
       handleSse: () => new Response("unused"),
-      handleAgents: async () => new Response("unused"),
     } as any;
 
     const faviconFlags = buildRouteFlags({ isFavicon: true });

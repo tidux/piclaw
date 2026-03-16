@@ -5,7 +5,6 @@ import { getRouteFlags, shouldSkipAuthCheck } from "../../../src/channels/web/ht
 const MUTATING_ROUTE_COVERAGE = [
   { method: "POST", pathname: "/post", coverage: "data/post" },
   { method: "POST", pathname: "/post/reply", coverage: "data/reply" },
-  { method: "POST", pathname: "/reply", coverage: "data/reply" },
   { method: "PATCH", pathname: "/post/123", coverage: "data/post_update" },
   { method: "DELETE", pathname: "/post/123", coverage: "data/delete_post" },
   { method: "POST", pathname: "/internal/post", coverage: "internal-secret" },

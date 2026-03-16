@@ -5,7 +5,7 @@ import { buildRouteFlags } from "./helpers/route-flags.js";
 describe("web http auth dispatch", () => {
   test("returns null when no auth route matches", async () => {
     const channel = {} as any;
-    const req = new Request("https://example.com/agents", { method: "GET" });
+    const req = new Request("https://example.com/unknown", { method: "GET" });
     const response = await handleAuthRoutes(channel, req, buildRouteFlags());
     expect(response).toBeNull();
   });

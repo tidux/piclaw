@@ -40,7 +40,7 @@ describe("web http content dispatch", () => {
     expect(await (await handleContentPrimaryRoutes(channel, replyReq, "/post/reply", new URL(replyReq.url)))?.text()).toBe("reply");
 
     const legacyReplyReq = new Request("https://example.com/reply", { method: "POST" });
-    expect(await (await handleContentPrimaryRoutes(channel, legacyReplyReq, "/reply", new URL(legacyReplyReq.url)))?.text()).toBe("reply");
+    expect(await handleContentPrimaryRoutes(channel, legacyReplyReq, "/reply", new URL(legacyReplyReq.url))).toBeNull();
 
     const patchReq = new Request("https://example.com/post/7", { method: "PATCH" });
     expect(await (await handleContentPrimaryRoutes(channel, patchReq, "/post/7", new URL(patchReq.url)))?.text()).toBe("patch:7");

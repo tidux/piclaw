@@ -1,7 +1,7 @@
 /**
  * web/handlers/agent.ts – HTTP handlers for agent-related API endpoints.
  *
- * Handles GET /agent/roster, GET /agents, GET /agent/status, GET /agent/thought,
+ * Handles GET /agent/roster, GET /agent/status, GET /agent/thought,
  * POST /agent/thought/visibility, avatar upload/retrieval, user profile,
  * and branding endpoints.
  *

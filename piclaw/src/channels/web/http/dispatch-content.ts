@@ -42,7 +42,7 @@ export async function handleContentPrimaryRoutes(
     return await channel.handlePost(req, false);
   }
 
-  if (req.method === "POST" && (pathname === "/post/reply" || pathname === "/reply")) {
+  if (req.method === "POST" && pathname === "/post/reply") {
     return await channel.handlePost(req, true);
   }
 

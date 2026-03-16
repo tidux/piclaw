@@ -4,16 +4,15 @@
  * Builds the response payload for the current-agent roster endpoints,
  * including the agent's name, avatar URL, current model, and thinking level.
  *
- * Current paths:
- *   - GET /agent/roster   (preferred)
- *   - GET /agents         (legacy compatibility)
+ * Current path:
+ *   - GET /agent/roster
  *
  * Consumers: web/handlers/agent.ts calls getAgentsResponse().
  */
 
 import type { AgentPool } from "../../agent-pool.js";
 
-/** Build the GET /agents response payload with agent profile and model info. */
+/** Build the GET /agent/roster response payload with agent profile and model info. */
 export async function getAgentsResponse(
   agentPool: AgentPool,
   options: {
