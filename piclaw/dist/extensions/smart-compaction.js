@@ -21,7 +21,7 @@
  *
  * Falls through to built-in compaction when:
  *   - conversation is short (< SELECTIVE_THRESHOLD messages)
- *   - no API key available
+ *   - no model/provider credentials are available in Pi Agent settings
  *   - LLM call fails or produces an inadequate summary
  */
 import { convertToLlm } from "@mariozechner/pi-coding-agent";
@@ -531,7 +531,7 @@ export const smartCompaction = (pi) => {
         }
         const apiKey = await ctx.modelRegistry.getApiKey(model);
         if (!apiKey) {
-            ctx.ui.notify("No API key for compaction model", "warning");
+            ctx.ui.notify("Compaction model is not configured in Pi Agent settings (run `pi /login`)", "warning");
             return;
         }
         const messages = [

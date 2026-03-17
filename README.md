@@ -69,9 +69,13 @@ docker exec -u agent -it pibox bash
 cd /workspace && pi
 ```
 
-### Setting up provider credentials
+### Setting up LLM access (Pi Agent settings)
 
-The easiest way to set up model/provider credentials is from the **terminal pane** in the web UI.
+PiClaw uses the Pi agent's own provider settings. Configure LLM access via **Pi Agent settings** (`pi /login`) from the web terminal.
+
+> [!IMPORTANT]
+> You do **not** need to set provider API keys directly in piclaw environment variables.
+> Configure providers in Pi Agent settings and piclaw will reuse those credentials automatically.
 
 > [!NOTE]
 > For security, the authenticated web terminal is **disabled by default**.
@@ -102,11 +106,11 @@ The easiest way to set up model/provider credentials is from the **terminal pane
 2. In the workspace sidebar header, use the **hamburger menu on the far left**.
 3. Choose either **Open terminal in tab** or **Show terminal dock**.
 4. Run `pi /login`.
-5. Follow the provider flow:
-   - for OAuth/device-login providers, complete the browser/device-code sign-in
-   - for API-key-based providers, enter or configure the required key/secret as prompted
+5. Follow the Pi Agent settings flow to enable your preferred provider/model.
 
-This stores credentials in the agent profile inside the container, so the web UI and tools can reuse them afterwards.
+This stores credentials in the agent profile inside the container, so the web UI and tools can reuse them afterwards without extra key setup in piclaw.
+
+If `/model` reports no available models, run `pi /login` and finish Pi Agent settings first.
 
 If you prefer, you can do the same via `docker exec` or `/shell <command>` in the web UI. See [docs/configuration.md](docs/configuration.md) for details.
 
@@ -125,7 +129,7 @@ The UI is single-user, mobile-friendly, and streams updates over SSE:
 - **Link previews** via server-side OpenGraph fetch
 - **Multi-turn threading** — subsequent turns are visually threaded under the first
 - **Themes + tinting** — presets plus `/theme` and `/tint` commands (Solarized auto light/dark)
-- **Terminal pane** — optional authenticated shell inside the container for setup tasks like running `pi /login` to add provider credentials; open it from the workspace header **hamburger menu (far left)** via **Open terminal in tab** or **Show terminal dock** (enable with `PICLAW_WEB_TERMINAL_ENABLED=1`)
+- **Terminal pane** — optional authenticated shell inside the container for setup tasks like running `pi /login` (Pi Agent settings) to enable LLM providers; no direct API-key wiring in piclaw is required. Open it from the workspace header **hamburger menu (far left)** via **Open terminal in tab** or **Show terminal dock** (enable with `PICLAW_WEB_TERMINAL_ENABLED=1`)
 - **Context usage indicator** — compose-footer pie indicator refreshes on reconnect and when returning to the tab, instead of lingering until the next poll cycle takes notice
 - **Mobile-first layout** with webapp manifest
 

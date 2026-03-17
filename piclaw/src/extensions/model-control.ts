@@ -183,7 +183,7 @@ export const modelControl: ExtensionFactory = (pi: ExtensionAPI) => {
       const success = await pi.setModel(selected);
       if (!success) {
         return {
-          content: [{ type: "text", text: `No API key for ${selected.provider}/${selected.id}.` }],
+          content: [{ type: "text", text: `Model ${selected.provider}/${selected.id} is not configured in Pi Agent settings yet. Run \`pi /login\` and try again.` }],
           details: { previous_model: previous },
         };
       }

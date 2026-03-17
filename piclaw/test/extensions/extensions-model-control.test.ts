@@ -310,11 +310,11 @@ describe("model-control extension", () => {
     expect(result.content[0].text).toContain("matches multiple providers");
   });
 
-  test("switch_model no API key", async () => {
+  test("switch_model reports missing provider config", async () => {
     fake.setSetModelResult(false);
     const ctx = fake.makeCtx();
     const result = await callTool(fake.tools, "switch_model", { model: "other/other-model" }, ctx);
-    expect(result.content[0].text).toContain("No API key");
+    expect(result.content[0].text).toContain("not configured in Pi Agent settings");
   });
 
   test("switch_model to reasoning model shows thinking level", async () => {

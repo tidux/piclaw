@@ -33,7 +33,7 @@ export async function handleModel(session, modelRegistry, command) {
         if (available.length === 0) {
             return {
                 status: "error",
-                message: "No models available. Configure API keys in your Pi settings, then try /model again.",
+                message: "No models available. Configure a provider in Pi Agent settings (run `pi /login`), then try /model again.",
             };
         }
         const uniqueModels = new Map();
