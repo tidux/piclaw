@@ -355,7 +355,7 @@ export function ConnectionStatus({ status }) {
 
     return html`
         <div class="connection-status ${status}">
-            ${status === 'disconnected' ? 'Reconnecting...' : status}
+            ${status === 'disconnected' ? 'Reconnecting' : status}
         </div>
     `;
 }
