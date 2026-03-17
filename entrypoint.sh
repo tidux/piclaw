@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # entrypoint.sh – Docker container entrypoint for the Pibox image.
 #
-# Initialises /home/agent from skel, syncs supervisor configs from
-# workspace defaults, and execs supervisord as PID 1.
+# Initialises /home/agent from skel, optionally remaps the runtime agent user to
+# PUID/PGID, syncs supervisor configs from workspace defaults, and execs
+# supervisord as PID 1.
 # Idempotent: uses a marker file to skip re-init on container restart.
 set -euo pipefail
 
@@ -13,6 +14,96 @@ DEFAULT_SUPERVISOR_CONF="/etc/supervisor/supervisord.conf"
 SUPERVISOR_CONF="${SUPERVISOR_CONF:-$DEFAULT_SUPERVISOR_CONF}"
 WORKSPACE_SUPERVISOR_DIR="/workspace/.piclaw/supervisor"
 SUPERVISOR_DEFAULTS_DIR="/usr/local/share/piclaw/supervisor"
+
+log() {
+    echo "[entrypoint] $*"
+}
+
+validate_numeric_id() {
+    local label="$1"
+    local value="$2"
+
+    if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+        echo "Invalid $label: $value (must be a numeric id)" >&2
+        exit 1
+    fi
+
+    if [ "$value" -lt 1 ]; then
+        echo "Invalid $label: $value (must be >= 1)" >&2
+        exit 1
+    fi
+}
+
+chown_if_exists() {
+    local path="$1"
+    if [ -e "$path" ]; then
+        chown -R agent:agent "$path" 2>/dev/null || true
+    fi
+}
+
+record_runtime_ids() {
+    if [ -d "$HOME_DIR" ]; then
+        echo "$(id -u agent):$(id -g agent)" > "$MARKER_FILE"
+        chown agent:agent "$MARKER_FILE" 2>/dev/null || true
+    fi
+}
+
+apply_puid_pgid_remap() {
+    local requested_uid="${PUID:-}"
+    local requested_gid="${PGID:-}"
+
+    if [ -z "$requested_uid" ] && [ -z "$requested_gid" ]; then
+        return
+    fi
+
+    local current_uid current_gid target_uid target_gid
+    current_uid="$(id -u agent)"
+    current_gid="$(id -g agent)"
+    target_uid="${requested_uid:-$current_uid}"
+    target_gid="${requested_gid:-$current_gid}"
+
+    validate_numeric_id "PUID" "$target_uid"
+    validate_numeric_id "PGID" "$target_gid"
+
+    if [ "$target_uid" = "$current_uid" ] && [ "$target_gid" = "$current_gid" ]; then
+        return
+    fi
+
+    log "Applying runtime uid/gid remap for agent: ${current_uid}:${current_gid} -> ${target_uid}:${target_gid}"
+
+    if [ "$target_gid" != "$current_gid" ]; then
+        local existing_group
+        existing_group="$(getent group "$target_gid" | cut -d: -f1 || true)"
+        if [ -n "$existing_group" ] && [ "$existing_group" != "agent" ]; then
+            echo "Cannot apply PGID=$target_gid: gid already belongs to group '$existing_group'" >&2
+            exit 1
+        fi
+        groupmod -o -g "$target_gid" agent
+    fi
+
+    if [ "$target_uid" != "$current_uid" ]; then
+        local existing_user
+        existing_user="$(getent passwd "$target_uid" | cut -d: -f1 || true)"
+        if [ -n "$existing_user" ] && [ "$existing_user" != "agent" ]; then
+            echo "Cannot apply PUID=$target_uid: uid already belongs to user '$existing_user'" >&2
+            exit 1
+        fi
+        usermod -o -u "$target_uid" agent
+    fi
+
+    # Reconcile ownership only for agent-managed paths. Avoid recursively chowning
+    # the entire /workspace bind mount, which may intentionally contain host-owned
+    # project files outside piclaw-managed state.
+    chown_if_exists "$HOME_DIR"
+    chown_if_exists /config
+    chown_if_exists /home/linuxbrew/.linuxbrew
+    chown_if_exists /var/log/piclaw
+    chown_if_exists /workspace/.piclaw
+    chown_if_exists /workspace/.pi
+    chown_if_exists /workspace/AGENTS.md
+
+    record_runtime_ids
+}
 
 ensure_config_link() {
     local item="$1"
@@ -53,8 +144,10 @@ ensure_config_link() {
     ln -sfn "$target" "$link"
 }
 
+apply_puid_pgid_remap
+
 if [ ! -f "$MARKER_FILE" ] || [ ! -f "$HOME_DIR/.bashrc" ]; then
-    echo "Initializing home directory..."
+    log "Initializing home directory..."
     if [ -d "$SKEL_DIR" ] && [ "$(ls -A "$SKEL_DIR" 2>/dev/null)" ]; then
         cp -a "$SKEL_DIR/." "$HOME_DIR/"
     fi
@@ -95,7 +188,7 @@ PROFILE
              "$HOME_DIR/.pi/agent/themes"
 
     chown -R agent:agent "$HOME_DIR"
-    echo "$(id -u agent):$(id -g agent)" > "$MARKER_FILE"
+    record_runtime_ids
 fi
 
 # Always reconcile persistent config links, even on restart with existing marker.
@@ -148,7 +241,7 @@ mkdir -p /var/log/piclaw /var/run/supervisor
 chown -R agent:agent /var/log/piclaw
 chmod 755 /usr/local/bin/run-piclaw.sh 2>/dev/null || true
 
-echo "=== PiClaw - Pi Coding Agent Sandbox ==="
+log "=== PiClaw - Pi Coding Agent Sandbox ==="
 
 if [ ! -f "$SUPERVISOR_CONF" ]; then
     echo "Missing supervisor config at $SUPERVISOR_CONF" >&2

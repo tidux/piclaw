@@ -199,3 +199,34 @@ Or override directly:
 ```bash
 WORKSPACE_PATH=/mnt/data/piclaw-workspace docker compose up -d
 ```
+
+## Container UID/GID remapping
+
+The compose stack passes `PUID` and `PGID` into the container. On startup,
+`/entrypoint.sh` now remaps the runtime `agent` user/group to those ids before
+it initializes the home directory and piclaw-managed persistent state.
+
+Typical usage:
+
+```bash
+PUID=$(id -u) PGID=$(id -g) docker compose up -d
+```
+
+Or in `.env`:
+
+```bash
+PUID=1000
+PGID=1000
+```
+
+Notes:
+
+- Remapping applies to piclaw-managed paths such as `/home/agent`, `/config`,
+  `/workspace/.piclaw`, and `/workspace/.pi`.
+- The entrypoint intentionally does **not** recursively chown the entire
+  `/workspace` bind mount, so existing project files outside piclaw-managed
+  state keep their host ownership.
+- If the requested uid/gid is already claimed by a different user/group inside
+  the container, startup aborts with a clear error instead of silently picking a
+  conflicting mapping.
+- Changing `PUID` / `PGID` requires restarting/recreating the container.

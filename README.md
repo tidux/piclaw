@@ -62,6 +62,13 @@ make build    # Build the local Docker image
 make up       # Start docker-compose stack (supervisord launches piclaw)
 ```
 
+By default, the compose stack also passes `PUID` / `PGID` (default `1000:1000`).
+To match the container's runtime `agent` user/group to your host user:
+
+```bash
+PUID=$(id -u) PGID=$(id -g) make up
+```
+
 With the default compose setup, the container name is `pibox`:
 
 ```bash
@@ -95,6 +102,8 @@ PiClaw uses the Pi agent's own provider settings. Configure LLM access via **Pi 
 >   --name piclaw \
 >   --restart unless-stopped \
 >   -p 8080:8080 \
+>   -e PUID="$(id -u)" \
+>   -e PGID="$(id -g)" \
 >   -e PICLAW_WEB_PORT=8080 \
 >   -e PICLAW_WEB_TERMINAL_ENABLED=1 \
 >   -v "$(pwd)/home:/config" \
