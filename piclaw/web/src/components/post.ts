@@ -27,7 +27,7 @@ function FileAttachment({ mediaId, onPreview }) {
     const filename = info.filename || 'file';
     const size = info.metadata?.size;
     const sizeStr = size ? formatFileSize(size) : '';
-    const previewKind = getAttachmentPreviewKind(info.content_type);
+    const previewKind = getAttachmentPreviewKind(info.content_type, info.filename);
     const previewLabel = previewKind === 'unsupported' ? 'Details' : 'Preview';
 
     return html`
@@ -80,7 +80,7 @@ function AttachmentPill({ attachment, onPreview }) {
 
     const filename = info?.filename || attachment.label || `attachment-${attachment.id}`;
     const downloadHref = Number.isFinite(mediaId) ? getMediaUrl(mediaId) : null;
-    const previewKind = getAttachmentPreviewKind(info?.content_type);
+    const previewKind = getAttachmentPreviewKind(info?.content_type, info?.filename || attachment?.label);
     const previewLabel = previewKind === 'unsupported' ? 'Details' : 'Preview';
 
     return html`

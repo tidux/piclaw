@@ -4924,6 +4924,16 @@ body {
     color: var(--text-secondary);
 }
 
+.attachment-preview-readonly-note {
+    margin: 0 var(--spacing-lg) var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    font-size: var(--font-size-sm);
+}
+
 .attachment-preview-image,
 .attachment-preview-frame {
     display: block;

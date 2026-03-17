@@ -81,24 +81,40 @@ function generateEditorPage(): string {
     text-align: center;
   }
   .loading.hidden { display: none; }
+  .readonly-lock {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: none;
+    cursor: not-allowed;
+    background: transparent;
+  }
+  .readonly-lock.active { display: block; }
 </style>
 </head>
 <body>
 <div id="loading" class="loading">Loading draw.io editor…</div>
+<div id="readonly-lock" class="readonly-lock" aria-hidden="true"></div>
 <iframe id="editor-frame" style="display:none"></iframe>
 <script>
 'use strict';
 
 var params = new URLSearchParams(location.search);
 var filePath = params.get('path') || '';
-var fileName = filePath.split('/').pop() || 'diagram.drawio';
+var mediaId = params.get('media') || '';
+var explicitName = params.get('name') || '';
+var readOnly = /^(1|true|yes)$/i.test(params.get('readonly') || '');
+var sourceName = explicitName || filePath || ('attachment-' + mediaId + '.drawio');
+var fileName = sourceName.split('/').pop() || 'diagram.drawio';
 var frame = document.getElementById('editor-frame');
 var loading = document.getElementById('loading');
+var readonlyLock = document.getElementById('readonly-lock');
+if (readOnly && readonlyLock) readonlyLock.classList.add('active');
 var DEFAULT_DRAWIO_XML = ${JSON.stringify(DEFAULT_DRAWIO_XML)};
 var xmlData = DEFAULT_DRAWIO_XML;
 var modified = false;
 var format = (function() {
-  var lower = String(filePath || '').toLowerCase();
+  var lower = String(sourceName || '').toLowerCase();
   if (lower.endsWith('.drawio.svg') || lower.endsWith('.svg')) return 'xmlsvg';
   if (lower.endsWith('.drawio.png') || lower.endsWith('.png')) return 'xmlpng';
   return 'xml';
@@ -197,21 +213,26 @@ function saveWorkspace(payload, acknowledge) {
   });
 }
 
-// Load the file contents from workspace
+// Load the file contents from workspace or media attachment
 function loadFile() {
-  if (!filePath) {
+  if (!filePath && !(/^\d+$/.test(mediaId) && Number(mediaId) > 0)) {
     xmlData = DEFAULT_DRAWIO_XML;
     startEditor();
     return;
   }
-  fetch('/workspace/raw?path=' + encodeURIComponent(filePath))
+
+  var sourceUrl = filePath
+    ? ('/workspace/raw?path=' + encodeURIComponent(filePath))
+    : ('/media/' + encodeURIComponent(mediaId));
+
+  fetch(sourceUrl)
     .then(function(r) {
       if (r.ok) {
         if (format === 'xmlsvg') return responseToDataUri(r, 'image/svg+xml');
         if (format === 'xmlpng') return responseToDataUri(r, 'image/png');
         return r.text();
       }
-      if (r.status === 404) return DEFAULT_DRAWIO_XML; // new file
+      if (r.status === 404 && filePath) return DEFAULT_DRAWIO_XML; // new workspace file
       throw new Error('HTTP ' + r.status);
     })
     .then(function(text) {
@@ -228,9 +249,13 @@ function startEditor() {
   var isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   var editorUrl = '${ROUTE_PREFIX}/index.html?embed=1&proto=json&spin=1&modified=0&noSaveBtn=1&noExitBtn=1&saveAndExit=0'
     + '&ui=dark&dark=' + (isDark ? '1' : '0');
+  if (readOnly) {
+    editorUrl += '&chrome=0&toolbar=0&layers=0&edit=0';
+  }
   frame.src = editorUrl;
   frame.style.display = 'block';
   frame.onload = function() {
+    if (readOnly) return;
     function tryPatch() {
       if (!frame.contentWindow) return;
       if (patchDrawioExportTarget(frame.contentWindow)) return;
@@ -256,7 +281,7 @@ window.addEventListener('message', function(e) {
       frame.contentWindow.postMessage(JSON.stringify({
         action: 'load',
         xml: format === 'xml' ? normalizeDrawioXml(xmlData) : xmlData,
-        autosave: 1,
+        autosave: readOnly ? 0 : 1,
         saveAndExit: '0',
         noSaveBtn: '1',
         noExitBtn: '1',
@@ -265,7 +290,7 @@ window.addEventListener('message', function(e) {
       break;
 
     case 'autosave':
-      if (!filePath || !msg.xml) break;
+      if (readOnly || !filePath || !msg.xml) break;
       modified = true;
       if (format === 'xml') {
         saveWorkspace({ xml: msg.xml, format: 'xml' }, false).catch(function(err) {
@@ -277,7 +302,7 @@ window.addEventListener('message', function(e) {
       break;
 
     case 'save':
-      if (!filePath || !msg.xml) break;
+      if (readOnly || !filePath || !msg.xml) break;
       modified = true;
       if (format === 'xml') {
         saveWorkspace({ xml: msg.xml, format: 'xml' }, true).catch(function(err) {
@@ -295,14 +320,14 @@ window.addEventListener('message', function(e) {
       break;
 
     case 'export':
-      if (!filePath || !msg.data) break;
+      if (readOnly || !filePath || !msg.data) break;
       saveWorkspace({ data: msg.data, format: format, xml: msg.xml }, true).catch(function(err) {
         console.error('[drawio] export save error:', err);
       });
       break;
 
     case 'workspace-export':
-      if (!filePath || !msg.data) break;
+      if (readOnly || !filePath || !msg.data) break;
       saveWorkspace({
         data: msg.data,
         xml: msg.xml,

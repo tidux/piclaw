@@ -1738,6 +1738,52 @@ test("processChat finalizes as no-op when no terminal output can be persisted", 
   expect(botMessages[0].data.content).toContain("hello");
 });
 
+test("processChat does not emit no-response notice when an earlier turn was already persisted", async () => {
+  const ws = createTempWorkspace("piclaw-web-channel-");
+  cleanupWorkspace = ws.cleanup;
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../../src/db.js");
+  db.initDatabase();
+  db.getDb().exec("DELETE FROM message_media; DELETE FROM messages; DELETE FROM chats; DELETE FROM chat_cursors; DELETE FROM chat_cursors;");
+  db.storeChatMetadata("web:default", new Date().toISOString(), "Web");
+
+  db.storeMessage({
+    id: `msg-${Math.random()}`,
+    chat_jid: "web:default",
+    sender: "user",
+    sender_name: "User",
+    content: "hello",
+    timestamp: new Date().toISOString(),
+    is_from_me: false,
+    is_bot_message: false,
+  });
+
+  const webMod = await import("../../../src/channels/web.js");
+  const web = new (webMod.WebChannel as any)({
+    queue: { enqueue: () => {} },
+    agentPool: {
+      setSessionBinder: () => {},
+      runAgent: async (_prompt: string, _chatJid: string, options: any) => {
+        options.onTurnComplete?.({ text: "response before compaction tail", attachments: [] });
+        return { status: "success", result: null, attachments: [] };
+      },
+      getContextUsageForChat: async () => null,
+    },
+  });
+
+  await web.processChat("web:default", "default");
+
+  const failedRun = db.getFailedRun("web:default");
+  expect(failedRun).toBeUndefined();
+
+  const timeline = db.getTimeline("web:default", 10);
+  const botMessages = timeline.filter((item: any) => item.data.type === "agent_response");
+  expect(botMessages.length).toBe(1);
+  expect(botMessages[0].data.content).toContain("response before compaction tail");
+  expect(botMessages[0].data.content).not.toContain("produced no response");
+});
+
 test("processChat drains queued follow-ups after a persisted timeout fallback", async () => {
   const ws = createTempWorkspace("piclaw-web-channel-");
   cleanupWorkspace = ws.cleanup;
