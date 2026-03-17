@@ -1,7 +1,7 @@
 ---
 id: pending-user-turns-after-reload-not-fully-handled
 title: Pending user turns after reload are still not fully handled
-status: doing
+status: review
 priority: high
 created: 2026-03-14
 updated: 2026-03-17
@@ -102,6 +102,12 @@ Potential remaining failure modes include:
 - [ ] `bun run quality` passes
 
 ## Updates
+
+### 2026-03-17 (kanban triage)
+- Lane change: `20-doing` → `40-review` via Adaptive Card triage submission (`kind: kanban-triage`, `board: piclaw`, `lane: 20-doing`, `ticket: pending-user-turns-after-reload-not-fully-handled`, `decision: move-review`).
+- Review focus: confirm the shipped restart/recovery fixes match the remaining user-visible behavior, especially queue/backlog ordering after reconnect/reload.
+- Evidence in ticket already includes implementation notes, regression coverage, and `bun run quality` passing for the latest tranche.
+- Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 1)
 
 ### 2026-03-17 (implementation tranche)
 - Explicitly captured user-visible symptom: queued items were not reliably picked up after reload/restart in deferred-only/backlog paths.
