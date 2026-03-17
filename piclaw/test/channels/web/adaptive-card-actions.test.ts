@@ -89,7 +89,7 @@ describe("adaptive card action helpers", () => {
 
   test("detects built-in submit failure simulation for test cards only", () => {
     expect(getAdaptiveCardTestFailure("test-card-submit-error-abc", { __test_error: "submit" })).toBe(
-      "Simulated /test-card submit failure.",
+      "Simulated adaptive-card test submit failure.",
     );
     expect(getAdaptiveCardTestFailure("card-1", { __test_error: "submit" })).toBeNull();
   });

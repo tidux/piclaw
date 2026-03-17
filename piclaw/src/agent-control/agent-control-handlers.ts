@@ -32,7 +32,6 @@ import {
   handleSearchWorkspace,
   handleState,
   handleStats,
-  handleTestCard,
 } from "./handlers/info.js";
 import {
   handleCycleModel,
@@ -76,8 +75,6 @@ export async function applyControlCommand(
       return handleQueue(session, command);
     case "state":
       return handleState(session, command);
-    case "test_card":
-      return handleTestCard(session, command);
     case "stats":
       return handleStats(session, command);
     case "context":

@@ -119,7 +119,7 @@ export function getAdaptiveCardTestFailure(cardId, data) {
         ? String(data.__test_error).trim().toLowerCase()
         : "";
     if (mode === "submit")
-        return "Simulated /test-card submit failure.";
+        return "Simulated adaptive-card test submit failure.";
     return null;
 }
 export function markAdaptiveCardState(contentBlocks, cardId, nextState, submittedAt, submission) {

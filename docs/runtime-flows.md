@@ -126,7 +126,7 @@ The web UI can render `adaptive_card` content blocks inline in timeline posts an
   - cards with `submit_behavior: "keep_active"` remain interactive after submit
 - Completed/cancelled/failed cards are re-rendered from the original card payload with the last submitted values hydrated back into the inputs.
 - Finished cards then lock those inputs read-only, hide action buttons, and show a concise theme-consistent status banner rather than echoing the full submission in banner text.
-- Built-in `/test-card` variants exist specifically to validate these paths, including bad URL handling, submit errors, keep-active cards, and terminal-state transitions.
+- Validation cards can be posted through the internal `send_adaptive_card` tool, including cases that exercise bad URL handling, submit errors, keep-active cards, and terminal-state transitions.
 
 ## Side prompts / Phase 3 groundwork
 

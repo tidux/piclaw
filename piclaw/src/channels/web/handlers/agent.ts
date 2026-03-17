@@ -26,7 +26,6 @@ import {
   storeAgentUserMessage,
 } from "../agent-message-service.js";
 import { handleUiThemeCommand } from "../ui-theme-commands.js";
-import { handleAdaptiveCardTestCommand } from "../adaptive-card-test-command.js";
 import {
   beginChatRun,
   endChatRun,
@@ -112,7 +111,6 @@ export async function handleAgentMessage(
   const command = parseControlCommand(content, TRIGGER_PATTERN);
   const trimmed = content.trim();
   const themeCommand = handleUiThemeCommand(trimmed);
-  const testCardCommand = handleAdaptiveCardTestCommand(trimmed);
   const isStreaming = typeof channel.agentPool.isStreaming === "function"
     ? channel.agentPool.isStreaming(chatJid)
     : false;
@@ -216,7 +214,6 @@ export async function handleAgentMessage(
   const shouldDeferQueuedFollowup =
     !command &&
     !themeCommand &&
-    !testCardCommand &&
     (isActive || hasQueuedBacklog) &&
     (requestMode === "queue" || requestMode === "auto");
 
@@ -271,26 +268,6 @@ export async function handleAgentMessage(
     return channel.json(
       { thread_id: null, command: themeCommand, ui_only: true },
       200
-    );
-  }
-
-  if (testCardCommand) {
-    if (testCardCommand.status === "error") {
-      return channel.json({ thread_id: null, command: testCardCommand }, 400);
-    }
-
-    if (testCardCommand.emit === false) {
-      return channel.json({ thread_id: null, command: testCardCommand, emitted: false }, 200);
-    }
-
-    await channel.sendMessage(chatJid, testCardCommand.content, {
-      forceRoot: true,
-      contentBlocks: testCardCommand.contentBlocks,
-    });
-
-    return channel.json(
-      { thread_id: null, command: testCardCommand, emitted: true },
-      201
     );
   }
 

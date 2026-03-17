@@ -2672,7 +2672,7 @@ test("web channel strips internal submit metadata before persisting completion s
   });
 });
 
-test("web channel rejects simulated /test-card submit failures without completing the card", async () => {
+test("web channel rejects simulated adaptive-card test submit failures without completing the card", async () => {
   const db = await import("../../../src/db.js");
   db.initDatabase();
   db.getDb().exec("DELETE FROM message_media; DELETE FROM messages; DELETE FROM chats; DELETE FROM chat_cursors;");
@@ -2726,7 +2726,7 @@ test("web channel rejects simulated /test-card submit failures without completin
 
   const res = await (web as any).handleRequest(req);
   expect(res.status).toBe(422);
-  expect(await res.json()).toEqual({ error: "Simulated /test-card submit failure." });
+  expect(await res.json()).toEqual({ error: "Simulated adaptive-card test submit failure." });
 
   const updated = db.getMessageByRowId("web:default", sourceRowId);
   expect((updated?.data.content_blocks?.[0] as any)?.state).toBe("active");

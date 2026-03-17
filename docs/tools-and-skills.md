@@ -124,7 +124,6 @@ Direct commands (no LLM round-trip):
 | `/search <query>` | Search notes and skills in the workspace |
 | `/restart` | Restart the agent and stop subprocesses |
 | `/commands` | List available commands |
-| `/test-card [variant]` | Emit a built-in Adaptive Card validation message in the web UI (`/test-card list` shows variants) |
 | `/btw <question>` | Open a side-conversation panel in the web UI and stream an answer without interrupting the main chat |
 | `/tasks [filter]` | List scheduled tasks (via extension) |
 | `/scheduled [filter]` | Alias for `/tasks` |
@@ -145,7 +144,7 @@ Direct commands (no LLM round-trip):
 Supported flags: `--scope notes|skills|all`, `--limit`, `--offset`, `--refresh`, `--no-refresh`, `--max-kb`.
 
 Adaptive Card and side-conversation helpers are intentionally explicit web-facing affordances:
-- `/test-card` is a local web command for validating built-in Adaptive Card variants (`basic`, `choices`, `approval`, terminal-state cases, and error paths) without involving a normal LLM turn.
+- `send_adaptive_card` is the preferred internal tool for posting agent-owned Adaptive Cards in the web UI without routing through a local slash command.
 - card submissions are persisted as structured `adaptive_card_submission` blocks, so the timeline can render compact receipt UI and finished cards can display their submitted values read-only.
 - `/btw` is currently a thin consumer of the side-prompt substrate: it streams a side answer in the web panel, reseeds from current main-chat context, and only injects back into the main chat when explicitly requested.
 - `/btw` currently reuses the chat's model/thinking context but is still prompt-only rather than a full side tool-using agent loop.

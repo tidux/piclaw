@@ -153,7 +153,7 @@ export function getAdaptiveCardTestFailure(cardId: string, data: unknown): strin
   const mode = typeof (data as Record<string, unknown>).__test_error === "string"
     ? String((data as Record<string, unknown>).__test_error).trim().toLowerCase()
     : "";
-  if (mode === "submit") return "Simulated /test-card submit failure.";
+  if (mode === "submit") return "Simulated adaptive-card test submit failure.";
   return null;
 }
 

@@ -70,15 +70,6 @@ export function parseThinking(args, raw) {
         raw,
     };
 }
-/** Parse /test-card arguments: optional variant name. */
-export function parseTestCard(args, raw) {
-    const variant = args.split(/\s+/).filter(Boolean)[0];
-    return {
-        type: "test_card",
-        variant: variant || undefined,
-        raw,
-    };
-}
 /** Parse /shell arguments: optional command string. */
 export function parseShell(args, raw) {
     return {
@@ -441,7 +432,6 @@ export function parseSearch(args, raw) {
 export const COMMAND_PARSERS = {
     "/model": parseModel,
     "/thinking": parseThinking,
-    "/test-card": parseTestCard,
     "/commands": simple("commands"),
     "/restart": simple("restart"),
     "/exit": simple("exit"),
