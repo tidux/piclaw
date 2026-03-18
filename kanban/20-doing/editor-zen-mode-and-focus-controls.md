@@ -99,12 +99,12 @@ need the same immersive behavior.
 
 ## Refinement questions
 
-- What exactly should hide in zen mode vs merely shrink?
-- Should chat remain visible as a narrow column, or disappear entirely?
-- Should the terminal dock auto-close when entering zen mode?
-- Should the tab strip remain visible, or collapse to a minimal single-line header?
-- Should zen mode be available only when an editor tab is active?
-- Do we want a matching command (e.g. `/zen`) or UI-only toggle first?
+- ~~What exactly should hide in zen mode vs merely shrink?~~ → **Hide everything** (full immersive)
+- ~~Should chat remain visible as a narrow column, or disappear entirely?~~ → **Disappear entirely**
+- ~~Should the terminal dock auto-close when entering zen mode?~~ → **Yes, auto-close + restore on exit**
+- ~~Should the tab strip remain visible, or collapse to a minimal single-line header?~~ → **Hidden until hover**
+- ~~Should zen mode be available only when an editor tab is active?~~ → TBD (likely yes)
+- ~~Do we want a matching command (e.g. `/zen`) or UI-only toggle first?~~ → **Keyboard shortcut + button first; Esc exits**
 
 ## Test Plan
 
@@ -121,6 +121,30 @@ need the same immersive behavior.
   - `cd /workspace/piclaw/piclaw && bun run quality`
 
 ## Updates
+
+### 2026-03-18 — Refinement batch 1–5 answered
+
+Answers from adaptive card submission (row 11724):
+
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | What hides vs shrinks | **Hide everything except editor** (full immersive) |
+| 2 | Chat visibility | **Completely hidden** |
+| 3 | Terminal dock behavior | **Auto-close, restore on exit** |
+| 4 | Tab strip | **Hidden until hover / mouse-near-top** |
+| 5 | Toggle method | **Keyboard shortcut + button** |
+| — | Exit shortcut | **Esc also exits zen mode** (user clarification) |
+
+Design summary:
+- Zen mode = full-screen editor only. Chat, sidebar, terminal, tab strip all hidden.
+- Tab strip reveals on hover near top edge.
+- Terminal auto-closes on enter, auto-restores on exit.
+- Enter via: keyboard shortcut (TBD, e.g. Ctrl+Shift+Z) or button in tab strip.
+- Exit via: same shortcut, same button (hover-reveals with tab strip), or Esc.
+- State is ephemeral (session UI state, not persisted).
+
+Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 1)
+- Gap: deps score stays 1 until implementation verifies no editor-extension resize issues.
 
 ### 2026-03-14
 - Ticket created from user request for “editor zen mode and co”.
