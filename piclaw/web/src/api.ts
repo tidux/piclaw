@@ -651,6 +651,44 @@ export class SSEClient {
         this.reconnectAttempts = 0;
         this.cooldownUntil = 0;
         this.connecting = false;
+        this.lastActivityAt = 0;
+        this.staleCheckTimer = null;
+        this.staleThresholdMs = 70000;
+    }
+
+    markActivity() {
+        this.lastActivityAt = Date.now();
+    }
+
+    clearStaleMonitor() {
+        if (this.staleCheckTimer) {
+            clearInterval(this.staleCheckTimer);
+            this.staleCheckTimer = null;
+        }
+    }
+
+    startStaleMonitor() {
+        this.clearStaleMonitor();
+        this.staleCheckTimer = setInterval(() => {
+            if (this.status !== 'connected') return;
+            if (!this.lastActivityAt) return;
+            if (Date.now() - this.lastActivityAt <= this.staleThresholdMs) return;
+            console.warn('SSE connection went stale; forcing reconnect');
+            this.forceReconnect();
+        }, 15000);
+    }
+
+    forceReconnect() {
+        this.connecting = false;
+        if (this.eventSource) {
+            this.eventSource.close();
+            this.eventSource = null;
+        }
+        this.clearStaleMonitor();
+        this.status = 'disconnected';
+        this.onStatusChange('disconnected');
+        this.reconnectAttempts += 1;
+        this.scheduleReconnect();
     }
     
     connect() {
@@ -660,9 +698,17 @@ export class SSEClient {
         if (this.eventSource) {
             this.eventSource.close();
         }
+        this.clearStaleMonitor();
         
         const query = this.chatJid ? `?chat_jid=${encodeURIComponent(this.chatJid)}` : '';
         this.eventSource = new EventSource(API_BASE + '/sse/stream' + query);
+
+        const bindJsonEvent = (eventType) => {
+            this.eventSource.addEventListener(eventType, (e) => {
+                this.markActivity();
+                this.onEvent(eventType, JSON.parse(e.data));
+            });
+        };
         
         this.eventSource.onopen = () => {
             this.connecting = false;
@@ -670,11 +716,14 @@ export class SSEClient {
             this.reconnectAttempts = 0;
             this.cooldownUntil = 0;
             this.status = 'connected';
+            this.markActivity();
+            this.startStaleMonitor();
             this.onStatusChange('connected');
         };
         
         this.eventSource.onerror = () => {
             this.connecting = false;
+            this.clearStaleMonitor();
             this.status = 'disconnected';
             this.onStatusChange('disconnected');
             this.reconnectAttempts += 1;
@@ -683,53 +732,32 @@ export class SSEClient {
         
         // Event handlers
         this.eventSource.addEventListener('connected', () => {
+            this.markActivity();
             console.log('SSE connected');
             this.onEvent('connected', {});
         });
-        
-        this.eventSource.addEventListener('new_post', (e) => {
-            this.onEvent('new_post', JSON.parse(e.data));
-        });
-        
-        this.eventSource.addEventListener('new_reply', (e) => {
-            this.onEvent('new_reply', JSON.parse(e.data));
+
+        this.eventSource.addEventListener('heartbeat', () => {
+            this.markActivity();
         });
         
-        this.eventSource.addEventListener('agent_response', (e) => {
-            this.onEvent('agent_response', JSON.parse(e.data));
-        });
-        
-        this.eventSource.addEventListener('interaction_updated', (e) => {
-            this.onEvent('interaction_updated', JSON.parse(e.data));
-        });
-
-        this.eventSource.addEventListener('interaction_deleted', (e) => {
-            this.onEvent('interaction_deleted', JSON.parse(e.data));
-        });
-        
-        this.eventSource.addEventListener('agent_status', (e) => {
-            this.onEvent('agent_status', JSON.parse(e.data));
-        });
-
-        this.eventSource.addEventListener('agent_steer_queued', (e) => {
-            this.onEvent('agent_steer_queued', JSON.parse(e.data));
-        });
-
-        this.eventSource.addEventListener('agent_followup_queued', (e) => {
-            this.onEvent('agent_followup_queued', JSON.parse(e.data));
-        });
-
-        this.eventSource.addEventListener('agent_followup_consumed', (e) => {
-            this.onEvent('agent_followup_consumed', JSON.parse(e.data));
-        });
-
-        this.eventSource.addEventListener('agent_followup_removed', (e) => {
-            this.onEvent('agent_followup_removed', JSON.parse(e.data));
-        });
-
-        this.eventSource.addEventListener('workspace_update', (e) => {
-            this.onEvent('workspace_update', JSON.parse(e.data));
-        });
+        bindJsonEvent('new_post');
+        bindJsonEvent('new_reply');
+        bindJsonEvent('agent_response');
+        bindJsonEvent('interaction_updated');
+        bindJsonEvent('interaction_deleted');
+        bindJsonEvent('agent_status');
+        bindJsonEvent('agent_steer_queued');
+        bindJsonEvent('agent_followup_queued');
+        bindJsonEvent('agent_followup_consumed');
+        bindJsonEvent('agent_followup_removed');
+        bindJsonEvent('workspace_update');
+        bindJsonEvent('agent_draft');
+        bindJsonEvent('agent_draft_delta');
+        bindJsonEvent('agent_thought');
+        bindJsonEvent('agent_thought_delta');
+        bindJsonEvent('model_changed');
+        bindJsonEvent('ui_theme');
 
         [
             'extension_ui_request',
@@ -741,35 +769,7 @@ export class SSEClient {
             'extension_ui_title',
             'extension_ui_editor_text',
             'extension_ui_error',
-        ].forEach((eventType) => {
-            this.eventSource.addEventListener(eventType, (e) => {
-                this.onEvent(eventType, JSON.parse(e.data));
-            });
-        });
-
-        this.eventSource.addEventListener('agent_draft', (e) => {
-            this.onEvent('agent_draft', JSON.parse(e.data));
-        });
-
-        this.eventSource.addEventListener('agent_draft_delta', (e) => {
-            this.onEvent('agent_draft_delta', JSON.parse(e.data));
-        });
-
-        this.eventSource.addEventListener('agent_thought', (e) => {
-            this.onEvent('agent_thought', JSON.parse(e.data));
-        });
-
-        this.eventSource.addEventListener('agent_thought_delta', (e) => {
-            this.onEvent('agent_thought_delta', JSON.parse(e.data));
-        });
-
-        this.eventSource.addEventListener('model_changed', (e) => {
-            this.onEvent('model_changed', JSON.parse(e.data));
-        });
-
-        this.eventSource.addEventListener('ui_theme', (e) => {
-            this.onEvent('ui_theme', JSON.parse(e.data));
-        });
+        ].forEach(bindJsonEvent);
     }
     
     scheduleReconnect() {
@@ -798,8 +798,13 @@ export class SSEClient {
     }
 
     reconnectIfNeeded() {
-        if (this.status === 'connected') return;
         const now = Date.now();
+        if (this.status === 'connected') {
+            if (this.lastActivityAt && now - this.lastActivityAt > this.staleThresholdMs) {
+                this.forceReconnect();
+            }
+            return;
+        }
         if (this.cooldownUntil && now < this.cooldownUntil) return;
         if (this.reconnectTimeout) {
             clearTimeout(this.reconnectTimeout);
@@ -810,6 +815,7 @@ export class SSEClient {
     
     disconnect() {
         this.connecting = false;
+        this.clearStaleMonitor();
         if (this.eventSource) {
             this.eventSource.close();
             this.eventSource = null;

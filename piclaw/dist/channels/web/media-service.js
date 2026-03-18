@@ -3,8 +3,7 @@
  *
  * Wraps db/media.ts operations with validation:
  *   - File size limit (10 MB) — returns 413 if exceeded
- *   - Content-type whitelist — returns 415 for disallowed types
- *     (falls back to allowing any image/* or text/* prefix)
+ *   - Content-type normalization (non-image types are served as downloads)
  *
  * Consumers: web/handlers/media.ts delegates to MediaService methods.
  */
@@ -18,46 +17,12 @@ import { createMedia, getMediaById, getMediaInfoById } from "../../db.js";
  */
 const MAX_MEDIA_UPLOAD_BYTES = 10 * 1024 * 1024;
 /**
- * Content types explicitly allowed for media uploads.
- * Types not in this set can still pass if they match image/* or text/*
- * prefixes (for uncommon but valid subtypes like image/tiff).
- */
-const ALLOWED_MEDIA_TYPES = new Set([
-    "image/png",
-    "image/jpeg",
-    "image/gif",
-    "image/webp",
-    "image/svg+xml",
-    "image/bmp",
-    "image/x-icon",
-    "video/mp4",
-    "video/webm",
-    "audio/mpeg",
-    "audio/ogg",
-    "audio/wav",
-    "audio/webm",
-    "application/pdf",
-    "text/plain",
-    "text/markdown",
-    "text/csv",
-    "text/html",
-    "text/xml",
-    "application/json",
-    "application/xml",
-    "application/zip",
-    "application/gzip",
-]);
-/**
  * File upload/download service wrapping db/media.ts operations.
- * Validates size and content type before persisting to the database.
+ * Validates size and normalizes content type before persisting.
  */
 const normalizeContentType = (value, fallback) => {
     const type = (value || fallback || "application/octet-stream").toLowerCase();
     return type || "application/octet-stream";
-};
-const isAllowedMediaType = (contentType) => {
-    const normalized = contentType.toLowerCase();
-    return ALLOWED_MEDIA_TYPES.has(normalized) || normalized.startsWith("image/") || normalized.startsWith("text/");
 };
 const EXTENSION_MEDIA_TYPES = {
     ".png": "image/png",
@@ -97,7 +62,6 @@ export class MediaService {
     /**
      * Validate and store an uploaded file.
      * Returns 413 if file exceeds MAX_MEDIA_UPLOAD_BYTES.
-     * Returns 415 if content type is not in the allowlist.
      */
     async createFromFile(file) {
         // Size check — reject before reading the full body into memory
@@ -107,11 +71,7 @@ export class MediaService {
                 body: { error: `File too large (max ${MAX_MEDIA_UPLOAD_BYTES / 1024 / 1024} MB)` },
             };
         }
-        // Content-type check — allow explicit whitelist plus any image/* or text/*
-        const contentType = normalizeContentType(file.type, "application/octet-stream");
-        if (!isAllowedMediaType(contentType)) {
-            return { status: 415, body: { error: `Unsupported media type: ${contentType}` } };
-        }
+        const contentType = normalizeContentType(file.type, inferContentTypeFromPath(file.name || "upload"));
         const arrayBuffer = await file.arrayBuffer();
         const data = new Uint8Array(arrayBuffer);
         const mediaId = createMedia(file.name || "upload", contentType, data, null, { size: file.size });
@@ -120,7 +80,6 @@ export class MediaService {
     /**
      * Validate and store a file by filesystem path.
      * Returns 413 if file exceeds MAX_MEDIA_UPLOAD_BYTES.
-     * Returns 415 if content type is not in the allowlist.
      * Returns 404 if the file does not exist.
      */
     async createFromPath(filePath, contentTypeOverride, filenameOverride) {
@@ -141,9 +100,6 @@ export class MediaService {
             };
         }
         const contentType = normalizeContentType(contentTypeOverride, inferContentTypeFromPath(filePath));
-        if (!isAllowedMediaType(contentType)) {
-            return { status: 415, body: { error: `Unsupported media type: ${contentType}` } };
-        }
         let data;
         try {
             data = new Uint8Array(readFileSync(filePath));

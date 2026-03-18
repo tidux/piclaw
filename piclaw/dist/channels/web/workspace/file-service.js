@@ -121,7 +121,7 @@ export class WorkspaceFileService {
                 return { status: 400, body: "Path is a directory" };
             const contentType = contentTypeForPath(targetPath);
             const file = Bun.file(targetPath);
-            return { status: 200, body: file, contentType };
+            return { status: 200, body: file, contentType, filePath: targetPath, size: stats.size };
         }
         catch {
             return { status: 404, body: "Not found" };

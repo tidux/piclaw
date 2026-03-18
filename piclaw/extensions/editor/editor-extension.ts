@@ -25,6 +25,7 @@ import {
     javascript,
     python,
     markdown,
+    markdownLanguage,
     go,
     json,
     css,
@@ -53,9 +54,12 @@ import {
     indentationMarkers,
     githubLight,
     githubDark,
-} from '/editor-vendor/codemirror.js';
+} from './vendor/codemirror.js';
 import { getWorkspaceBranch, getWorkspaceFile, updateWorkspaceFile } from '../../web/src/api.js';
 import type { WebPaneExtension, PaneContext, PaneInstance, PaneCapability } from '../../web/src/panes/pane-types.js';
+import { frontmatterExtension } from './markdown/frontmatter.js';
+import { footnoteExtension } from './markdown/footnote.js';
+import { hashtagExtension } from './markdown/tag.js';
 
 // ── Constants ───────────────────────────────────────────────────
 
@@ -98,7 +102,10 @@ function languageForPath(path: string) {
     if (lower.endsWith('.py')) return python();
     if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return javascript({ typescript: true, jsx: lower.endsWith('.tsx') });
     if (lower.endsWith('.js') || lower.endsWith('.jsx')) return javascript({ jsx: lower.endsWith('.jsx') });
-    if (lower.endsWith('.md') || lower.endsWith('.markdown')) return markdown();
+    if (lower.endsWith('.md') || lower.endsWith('.markdown')) return markdown({
+        base: markdownLanguage,
+        extensions: [frontmatterExtension, footnoteExtension, hashtagExtension],
+    });
     if (lower.endsWith('.go')) return go();
     if (lower.endsWith('.json') || lower.endsWith('.jsonl')) return json();
     if (lower.endsWith('.css') || lower.endsWith('.scss')) return css();
@@ -172,6 +179,8 @@ export class StandaloneEditorInstance implements PaneInstance {
     private themeCompartment = new Compartment();
     private accentCompartment = new Compartment();
     private whitespaceCompartment = new Compartment();
+    private livePreviewCompartment = new Compartment();
+    private wrappingCompartment = new Compartment();
 
     // State
     private path: string;
@@ -182,6 +191,7 @@ export class StandaloneEditorInstance implements PaneInstance {
     private disposed = false;
     private vimEnabled: boolean;
     private showWhitespace: boolean;
+    private livePreviewEnabled: boolean;
     private vimEnabledRef: { current: boolean };
 
     // Callbacks (PaneInstance contract)
@@ -196,6 +206,7 @@ export class StandaloneEditorInstance implements PaneInstance {
 
         this.vimEnabled = getLocalBool('piclaw_vim_mode', false);
         this.showWhitespace = getLocalBool('piclaw_show_whitespace', true);
+        this.livePreviewEnabled = getLocalBool('piclaw_md_live_preview', true);
         this.vimEnabledRef = { current: this.vimEnabled };
 
         // Build DOM
@@ -276,6 +287,14 @@ export class StandaloneEditorInstance implements PaneInstance {
         wsBtn.addEventListener('click', () => this.toggleWhitespace());
         this._wsBtn = wsBtn;
 
+        const lpBtn = document.createElement('button');
+        lpBtn.className = `editor-status-button${this.livePreviewEnabled ? ' active' : ''}`;
+        lpBtn.title = 'Toggle live preview (Alt+P)';
+        lpBtn.textContent = 'Live Preview';
+        lpBtn.style.display = this.isMarkdownFile() ? '' : 'none';
+        lpBtn.addEventListener('click', () => this.toggleLivePreview());
+        this._lpBtn = lpBtn;
+
         const vimBtn = document.createElement('button');
         vimBtn.className = `editor-status-button${this.vimEnabled ? ' active' : ''}`;
         vimBtn.title = 'Toggle Vim mode (Alt+V)';
@@ -291,16 +310,20 @@ export class StandaloneEditorInstance implements PaneInstance {
         this._saveBtn = saveBtn;
 
         actionsDiv.appendChild(wsBtn);
+        actionsDiv.appendChild(lpBtn);
         actionsDiv.appendChild(vimBtn);
         actionsDiv.appendChild(saveBtn);
         row.appendChild(meta);
         row.appendChild(actionsDiv);
+
+        this.updateWhitespaceControlState();
         return row;
     }
     private _branchHint: HTMLElement | null = null;
     private _branchLabel: HTMLElement | null = null;
     private _statusText: HTMLElement | null = null;
     private _wsBtn: HTMLButtonElement | null = null;
+    private _lpBtn: HTMLButtonElement | null = null;
     private _vimBtn: HTMLButtonElement | null = null;
     private _saveBtn: HTMLButtonElement | null = null;
     private branchRequestToken = 0;
@@ -383,7 +406,8 @@ export class StandaloneEditorInstance implements PaneInstance {
             highlightActiveLine(),
             highlightActiveLineGutter(),
             this.whitespaceCompartment.of(this.showWhitespace ? highlightWhitespace() : []),
-            EditorView.lineWrapping,
+            this.livePreviewCompartment.of([]), // populated async for .md files
+            this.wrappingCompartment.of(EditorView.lineWrapping),
             scrollPastEnd(),
             indentOnInput(),
             closeBrackets(),
@@ -428,8 +452,88 @@ export class StandaloneEditorInstance implements PaneInstance {
         this.view = new EditorView({ state, parent: this.cmHost });
         this.setDirty(false);
 
+        if (this._lpBtn) {
+            this._lpBtn.style.display = this.isMarkdownFile() ? '' : 'none';
+            this._lpBtn.classList.toggle('active', this.livePreviewEnabled);
+        }
+        this.updateWhitespaceControlState();
+
         // Update gutter width CSS var
         this.updateGutterWidth();
+
+        // If this is a Markdown file and live preview is enabled, load it
+        if (this.isMarkdownFile() && this.livePreviewEnabled) {
+            this.applyLivePreview(true);
+        }
+    }
+
+    /** Check if current file is Markdown. */
+    private isMarkdownFile(): boolean {
+        const lower = (this.path || '').toLowerCase();
+        return lower.endsWith('.md') || lower.endsWith('.markdown');
+    }
+
+    /** Lazy-load and apply/remove markdown live preview extensions. */
+    private async applyLivePreview(enabled: boolean): Promise<void> {
+        if (!this.view || this.disposed) return;
+        const wrapEffect = this.wrappingCompartment.reconfigure(
+            enabled && this.isMarkdownFile() ? [] : EditorView.lineWrapping,
+        );
+
+        if (enabled) {
+            try {
+                const { markdownLivePreview } = await import('./markdown/index.js');
+                if (this.disposed || !this.view) return;
+                this.view.dispatch({
+                    effects: [
+                        this.livePreviewCompartment.reconfigure(markdownLivePreview),
+                        wrapEffect,
+                    ],
+                });
+            } catch (err) {
+                console.error('[editor] Failed to load markdown live preview:', err);
+            }
+        } else {
+            this.view.dispatch({
+                effects: [
+                    this.livePreviewCompartment.reconfigure([]),
+                    wrapEffect,
+                ],
+            });
+        }
+    }
+
+    /**
+     * Toggle live preview mode. Called from tab context menu.
+     * Only meaningful for Markdown files.
+     */
+    toggleLivePreview(): void {
+        if (!this.isMarkdownFile()) return;
+        this.livePreviewEnabled = !this.livePreviewEnabled;
+        setLocalBool('piclaw_md_live_preview', this.livePreviewEnabled);
+        this.applyLivePreview(this.livePreviewEnabled);
+        if (this._lpBtn) {
+            this._lpBtn.classList.toggle('active', this.livePreviewEnabled);
+        }
+        this.updateWhitespaceControlState();
+    }
+
+    /** Whether live preview is currently on. */
+    isLivePreview(): boolean {
+        return this.livePreviewEnabled && this.isMarkdownFile();
+    }
+
+    private isWhitespaceDisabledInCurrentMode(): boolean {
+        return this.isLivePreview();
+    }
+
+    private updateWhitespaceControlState(): void {
+        if (!this._wsBtn) return;
+        const disabled = this.isWhitespaceDisabledInCurrentMode();
+        this._wsBtn.disabled = disabled;
+        this._wsBtn.title = disabled
+            ? 'Whitespace is unavailable in Live Preview'
+            : 'Toggle whitespace (Alt+W)';
     }
 
     /** Compare content to baseline and update dirty state. */
@@ -460,6 +564,10 @@ export class StandaloneEditorInstance implements PaneInstance {
     }
 
     private toggleWhitespace(): void {
+        if (this.isWhitespaceDisabledInCurrentMode()) {
+            this.updateStatusText('Whitespace is disabled in Live Preview');
+            return;
+        }
         this.showWhitespace = !this.showWhitespace;
         setLocalBool('piclaw_show_whitespace', this.showWhitespace);
         if (this._wsBtn) this._wsBtn.className = `editor-status-button${this.showWhitespace ? ' active' : ''}`;
@@ -528,6 +636,12 @@ export class StandaloneEditorInstance implements PaneInstance {
             e.preventDefault();
             e.stopPropagation();
             this.toggleVim();
+            return;
+        }
+        if (isAltOnly && (e.key === 'p' || e.key === 'P')) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.toggleLivePreview();
             return;
         }
         if (isAltOnly && (e.key === 'q' || e.key === 'Q')) {
@@ -718,6 +832,10 @@ export class StandaloneEditorInstance implements PaneInstance {
     /** Update the file path (after rename). */
     setPath(newPath: string): void {
         this.path = newPath;
+        if (this._lpBtn) {
+            this._lpBtn.style.display = this.isMarkdownFile() ? '' : 'none';
+        }
+        this.updateWhitespaceControlState();
         void this.refreshBranchHint();
     }
 }

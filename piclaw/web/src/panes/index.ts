@@ -15,6 +15,7 @@ export { officeViewerPaneExtension } from './office-viewer-pane.js';
 export { csvViewerPaneExtension } from './csv-viewer-pane.js';
 export { pdfViewerPaneExtension } from './pdf-viewer-pane.js';
 export { imageViewerPaneExtension } from './image-viewer-pane.js';
+export { videoViewerPaneExtension } from './video-viewer-pane.js';
 export { drawioPaneExtension } from './drawio-pane.js';
 export type { TabState, TabViewState } from './tab-store.js';
 export { tabStore } from './tab-store.js';

@@ -7,7 +7,7 @@
  *
  * Consumers: web/posts-service.ts, web/agent-message-service.ts.
  */
-import { attachMediaToMessage, clampWebContent, createMedia, getDb, getMessageByRowId, storeChatMetadata, storeMessage, } from "../../db.js";
+import { attachMediaToMessage, clampWebContent, createMedia, getDb, getMediaInfoById, getMessageByRowId, storeChatMetadata, storeMessage, } from "../../db.js";
 import { getWebPreviewMaxChars, shouldPreviewWebContent } from "../../db/web-content.js";
 import { scheduleLinkPreviews } from "./link-previews.js";
 import { createUuid } from "../../utils/ids.js";
@@ -18,10 +18,20 @@ export function storeWebMessage(channel, params, options = {}) {
         ? [...options.contentBlocks]
         : undefined;
     const allMediaIds = [...params.mediaIds];
+    if (!contentBlocks && params.mediaIds.length > 0) {
+        contentBlocks = params.mediaIds.map((mediaId) => {
+            const info = getMediaInfoById(mediaId);
+            const mimeType = typeof info?.content_type === "string" ? info.content_type : "application/octet-stream";
+            const filename = typeof info?.filename === "string" ? info.filename : null;
+            const isImage = mimeType.toLowerCase().startsWith("image/");
+            return {
+                type: isImage ? "image" : "file",
+                ...(filename ? { name: filename, filename } : {}),
+                ...(mimeType ? { mime_type: mimeType } : {}),
+            };
+        });
+    }
     if (shouldPreviewWebContent(params.content)) {
-        if (!contentBlocks && params.mediaIds.length > 0) {
-            contentBlocks = params.mediaIds.map(() => ({ type: "image" }));
-        }
         const maxChars = getWebPreviewMaxChars();
         const filename = `message-${messageId}.md`;
         const data = new TextEncoder().encode(params.content);

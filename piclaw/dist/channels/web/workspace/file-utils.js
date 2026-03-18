@@ -62,6 +62,16 @@ export function contentTypeForPath(filePath) {
             return "image/gif";
         case ".webp":
             return "image/webp";
+        case ".mp4":
+            return "video/mp4";
+        case ".m4v":
+            return "video/x-m4v";
+        case ".mov":
+            return "video/quicktime";
+        case ".webm":
+            return "video/webm";
+        case ".ogv":
+            return "video/ogg";
         default:
             return "application/octet-stream";
     }

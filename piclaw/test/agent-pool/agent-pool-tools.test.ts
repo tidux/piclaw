@@ -63,6 +63,7 @@ describe("builtin extension factories", () => {
     expect(fake.tools.has("list_internal_tools")).toBe(true);
     expect(fake.tools.has("keychain")).toBe(true);
     expect(fake.tools.has("introspect_sql")).toBe(true);
+    expect(fake.tools.has("send_adaptive_card")).toBe(true);
 
     // Commands from scheduled-tasks + ui-theme extensions
     expect(fake.commands.has("tasks")).toBe(true);
@@ -72,6 +73,6 @@ describe("builtin extension factories", () => {
   });
 
   test("factories array has expected length", () => {
-    expect(builtinExtensionFactories.length).toBe(10);
+    expect(builtinExtensionFactories.length).toBe(11);
   });
 });

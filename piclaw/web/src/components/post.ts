@@ -470,7 +470,8 @@ function extractAttachmentRefs(content) {
     const lines = normalized.split('\n');
     let start = -1;
     for (let i = 0; i < lines.length; i += 1) {
-        if (lines[i].trim() === 'Images:' && lines[i + 1] && /^\s*-\s+/.test(lines[i + 1])) {
+        const header = lines[i].trim();
+        if ((header === 'Images:' || header === 'Attachments:') && lines[i + 1] && /^\s*-\s+/.test(lines[i + 1])) {
             start = i;
             break;
         }
@@ -712,9 +713,15 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
             }
         });
     } else if (mediaIds.length > 0) {
-        mediaIds.forEach((id) => {
-            imageItems.push({ id, annotations: null });
-            attachmentEntries.push({ id, name: null });
+        const treatAsFiles = attachments.length > 0;
+        mediaIds.forEach((id, index) => {
+            const ref = attachments[index] || null;
+            attachmentEntries.push({ id, name: ref?.label || null });
+            if (treatAsFiles) {
+                fileIds.push(id);
+            } else {
+                imageItems.push({ id, annotations: null });
+            }
         });
     }
 

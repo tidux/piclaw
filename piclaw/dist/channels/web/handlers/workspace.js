@@ -6,6 +6,7 @@
  *
  * Consumers: web/http/dispatch-workspace.ts routes workspace paths here.
  */
+import { closeSync, openSync, readSync } from "fs";
 import { errorJson, jsonResponse } from "../http/http-utils.js";
 import { WorkspaceService } from "../workspace/service.js";
 const workspaceService = new WorkspaceService();
@@ -62,11 +63,75 @@ export function handleWorkspaceRaw(req) {
             },
         });
     }
-    return new Response(result.body, {
+    const contentType = result.contentType || "application/octet-stream";
+    const file = result.body;
+    const filePath = result.filePath || null;
+    const fileSize = typeof result.size === "number" ? result.size : (typeof file?.size === "number" ? file.size : 0);
+    const baseHeaders = {
+        "Content-Type": contentType,
+        "Accept-Ranges": "bytes",
+        "X-Frame-Options": "SAMEORIGIN",
+        "Content-Security-Policy": "default-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'",
+    };
+    const readRangeChunk = (start, chunkSize) => {
+        if (!filePath || chunkSize <= 0)
+            return null;
+        const buffer = new Uint8Array(chunkSize);
+        let fd = null;
+        try {
+            fd = openSync(filePath, "r");
+            const bytesRead = readSync(fd, buffer, 0, chunkSize, start);
+            return bytesRead === chunkSize ? buffer : buffer.subarray(0, Math.max(0, bytesRead));
+        }
+        catch {
+            return null;
+        }
+        finally {
+            if (fd !== null) {
+                try {
+                    closeSync(fd);
+                }
+                catch { }
+            }
+        }
+    };
+    // Handle Range requests (required for <video>/<audio> playback)
+    const rangeHeader = req.headers.get("range");
+    if (rangeHeader && fileSize > 0) {
+        const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/);
+        if (match) {
+            const start = parseInt(match[1], 10);
+            const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+            const clampedEnd = Math.min(end, fileSize - 1);
+            if (start >= fileSize || start > clampedEnd) {
+                return new Response("Range Not Satisfiable", {
+                    status: 416,
+                    headers: {
+                        "Content-Range": `bytes */${fileSize}`,
+                        ...baseHeaders,
+                    },
+                });
+            }
+            const chunkSize = clampedEnd - start + 1;
+            const chunk = readRangeChunk(start, chunkSize);
+            if (!chunk) {
+                return new Response("Failed to read file", { status: 500, headers: baseHeaders });
+            }
+            const chunkBody = new Blob([Uint8Array.from(chunk)], { type: contentType });
+            return new Response(chunkBody, {
+                status: 206,
+                headers: {
+                    ...baseHeaders,
+                    "Content-Range": `bytes ${start}-${clampedEnd}/${fileSize}`,
+                    "Content-Length": String(chunk.length),
+                },
+            });
+        }
+    }
+    return new Response(file, {
         headers: {
-            "Content-Type": result.contentType || "application/octet-stream",
-            "X-Frame-Options": "SAMEORIGIN",
-            "Content-Security-Policy": "default-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'",
+            ...baseHeaders,
+            ...(fileSize > 0 ? { "Content-Length": String(fileSize) } : {}),
         },
     });
 }

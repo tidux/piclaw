@@ -1,4 +1,4 @@
-export { EditorState, Compartment } from "@codemirror/state";
+export { EditorState, Compartment, RangeSetBuilder, RangeSet, Prec } from "@codemirror/state";
 export {
   EditorView,
   keymap,
@@ -9,11 +9,14 @@ export {
   highlightWhitespace,
   scrollPastEnd,
   showPanel,
+  Decoration,
+  ViewPlugin,
+  WidgetType,
 } from "@codemirror/view";
 export { minimalSetup } from "codemirror";
 export { javascript } from "@codemirror/lang-javascript";
 export { python } from "@codemirror/lang-python";
-export { markdown } from "@codemirror/lang-markdown";
+export { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 export { go } from "@codemirror/lang-go";
 export { json } from "@codemirror/lang-json";
 export { css } from "@codemirror/lang-css";
@@ -21,7 +24,7 @@ export { html } from "@codemirror/lang-html";
 export { yaml } from "@codemirror/lang-yaml";
 export { sql } from "@codemirror/lang-sql";
 export { xml } from "@codemirror/lang-xml";
-export { StreamLanguage, HighlightStyle, syntaxHighlighting, indentOnInput, indentUnit } from "@codemirror/language";
+export { StreamLanguage, HighlightStyle, syntaxHighlighting, syntaxTree, indentOnInput, indentUnit } from "@codemirror/language";
 export { tags, classHighlighter } from "@lezer/highlight";
 export { shell } from "@codemirror/legacy-modes/mode/shell";
 export { indentWithTab } from "@codemirror/commands";

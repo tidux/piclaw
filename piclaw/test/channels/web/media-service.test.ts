@@ -48,15 +48,18 @@ test("createFromPath returns 404 for unreadable missing file", async () => {
   expect(res.status).toBe(404);
 });
 
-test("createFromPath rejects unsupported content type", async () => {
+test("createFromPath stores general file attachments", async () => {
   const mediaPath = join(process.env.PICLAW_DATA || "/tmp", `media-${Date.now()}.bin`);
   writeFileSync(mediaPath, "not media");
 
   const service = new MediaService();
   const res = await service.createFromPath(mediaPath, "application/x-msdownload");
 
-  expect(res.status).toBe(415);
-  expect((res.body as { error?: string }).error).toContain("Unsupported media type");
+  expect(res.status).toBe(200);
+  const body = res.body as { id?: number; filename?: string; contentType?: string };
+  expect(typeof body.id).toBe("number");
+  expect(body.filename).toContain("media-");
+  expect(body.contentType).toBe("application/x-msdownload");
 
   unlinkSync(mediaPath);
 });

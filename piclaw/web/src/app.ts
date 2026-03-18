@@ -23,7 +23,7 @@ import { Timeline } from './components/timeline.js';
 import { WorkspaceExplorer } from './components/workspace-explorer.js';
 import { TabStrip } from './components/tab-strip.js';
 import { MarkdownPreview } from './components/markdown-preview.js';
-import { paneRegistry, editorPaneExtension, preloadEditorBundle, terminalPaneExtension, terminalTabPaneExtension, TERMINAL_TAB_PATH, workspacePreviewPaneExtension, workspaceMarkdownPreviewPaneExtension, officeViewerPaneExtension, csvViewerPaneExtension, pdfViewerPaneExtension, imageViewerPaneExtension, drawioPaneExtension, tabStore } from './panes/index.js';
+import { paneRegistry, editorPaneExtension, preloadEditorBundle, terminalPaneExtension, terminalTabPaneExtension, TERMINAL_TAB_PATH, workspacePreviewPaneExtension, workspaceMarkdownPreviewPaneExtension, officeViewerPaneExtension, csvViewerPaneExtension, pdfViewerPaneExtension, imageViewerPaneExtension, videoViewerPaneExtension, drawioPaneExtension, tabStore } from './panes/index.js';
 import { getLocalStorageBoolean, getLocalStorageItem, getLocalStorageNumber, setLocalStorageItem } from './utils/storage.js';
 import { useSseConnection } from './ui/use-sse-connection.js';
 import { useNotifications } from './ui/use-notifications.js';
@@ -134,6 +134,7 @@ paneRegistry.register(officeViewerPaneExtension);
 paneRegistry.register(csvViewerPaneExtension);
 paneRegistry.register(pdfViewerPaneExtension);
 paneRegistry.register(imageViewerPaneExtension);
+paneRegistry.register(videoViewerPaneExtension);
 paneRegistry.register(drawioPaneExtension);
 // Preload the editor bundle in the background so first file open is instant
 preloadEditorBundle();
@@ -344,12 +345,14 @@ function MainApp({ locationParams }) {
         document.addEventListener('csv-viewer:open-tab', handler);
         document.addEventListener('pdf-viewer:open-tab', handler);
         document.addEventListener('image-viewer:open-tab', handler);
+        document.addEventListener('video-viewer:open-tab', handler);
         return () => {
             document.removeEventListener('office-viewer:open-tab', handler);
             document.removeEventListener('drawio:open-tab', handler);
             document.removeEventListener('csv-viewer:open-tab', handler);
             document.removeEventListener('pdf-viewer:open-tab', handler);
             document.removeEventListener('image-viewer:open-tab', handler);
+            document.removeEventListener('video-viewer:open-tab', handler);
         };
     }, [openEditor]);
 
@@ -392,7 +395,7 @@ function MainApp({ locationParams }) {
     const thoughtThrottleRef = useRef(0);
     const agentsRef = useRef({});
     const userProfileRef = useRef({ name: null, avatar_url: null });
-    const viewStateRef = useRef({ currentHashtag: null, searchQuery: null });
+    const viewStateRef = useRef({ currentHashtag: null, searchQuery: null, searchOpen: false });
     const timelineRef = useRef(null);
     const appShellRef = useRef(null);
     const sidebarWidthRef = useRef(0);
@@ -934,8 +937,8 @@ function MainApp({ locationParams }) {
             mutate?.();
             return;
         }
-        const { currentHashtag: activeHashtag, searchQuery: activeSearch } = viewStateRef.current || {};
-        const reverseTimeline = !(activeSearch && !activeHashtag);
+        const { currentHashtag: activeHashtag, searchQuery: activeSearch, searchOpen: activeSearchOpen } = viewStateRef.current || {};
+        const reverseTimeline = !((activeSearch || activeSearchOpen) && !activeHashtag);
         const anchor = reverseTimeline
             ? container.scrollHeight - container.scrollTop
             : container.scrollTop;
@@ -1075,8 +1078,8 @@ function MainApp({ locationParams }) {
     }, [setCurrentTurnId]);
 
     useEffect(() => {
-        viewStateRef.current = { currentHashtag, searchQuery };
-    }, [currentHashtag, searchQuery]);
+        viewStateRef.current = { currentHashtag, searchQuery, searchOpen };
+    }, [currentHashtag, searchQuery, searchOpen]);
 
 
     const refreshQueueState = useCallback(() => {
@@ -1134,8 +1137,8 @@ function MainApp({ locationParams }) {
                 // If the agent just transitioned active → idle, refresh the timeline
                 // to catch any final response that arrived while SSE was gapped.
                 if (wasAgentActiveRef.current) {
-                    const { currentHashtag: ah, searchQuery: sq } = viewStateRef.current || {};
-                    if (!ah && !sq) refreshTimeline();
+                    const { currentHashtag: ah, searchQuery: sq, searchOpen: so } = viewStateRef.current || {};
+                    if (!ah && !sq && !so) refreshTimeline();
                 }
                 wasAgentActiveRef.current = false;
                 clearAgentRunState();
@@ -1197,8 +1200,8 @@ function MainApp({ locationParams }) {
         probe.turnId = activeTurnId;
 
         try {
-            const { currentHashtag: activeHashtag, searchQuery: activeSearch } = viewStateRef.current || {};
-            if (!activeHashtag && !activeSearch) {
+            const { currentHashtag: activeHashtag, searchQuery: activeSearch, searchOpen: activeSearchOpen } = viewStateRef.current || {};
+            if (!activeHashtag && !activeSearch && !activeSearchOpen) {
                 await refreshTimeline();
             }
             await refreshQueueState();
@@ -1266,9 +1269,17 @@ function MainApp({ locationParams }) {
         }
         if (!hasConnectedOnceRef.current) {
             hasConnectedOnceRef.current = true;
-            // On initial page load, fetch agent status immediately so any
-            // in-progress turn (e.g. auto-compaction) is shown right away.
+            // On initial page load, restore current turn + queue state and do
+            // one immediate timeline resync. Reloads can land between the
+            // initial timeline fetch and SSE attach, which leaves already-
+            // persisted pending/follow-up messages invisible until a later
+            // user action triggers another refresh.
+            const { currentHashtag: activeHashtag, searchQuery: activeSearch, searchOpen: activeSearchOpen } = viewStateRef.current || {};
+            if (!activeHashtag && !activeSearch && !activeSearchOpen) {
+                refreshTimeline();
+            }
             refreshAgentStatus();
+            refreshQueueState();
             refreshContextUsage();
             return;
         }
@@ -1276,8 +1287,8 @@ function MainApp({ locationParams }) {
         // in-progress agent state (status + draft/thought buffers).
         // Also refresh queue state so queued follow-ups submitted before
         // the reconnect gap are restored in the compose stack.
-        const { currentHashtag: activeHashtag, searchQuery: activeSearch } = viewStateRef.current;
-        if (!activeHashtag && !activeSearch) {
+        const { currentHashtag: activeHashtag, searchQuery: activeSearch, searchOpen: activeSearchOpen } = viewStateRef.current;
+        if (!activeHashtag && !activeSearch && !activeSearchOpen) {
             refreshTimeline();
         }
         refreshAgentStatus();
@@ -1334,6 +1345,8 @@ function MainApp({ locationParams }) {
     }, [loadPosts]);
 
     const navigateToSearchResult = useCallback(() => {}, []);
+
+    const isMainTimelineView = !currentHashtag && !searchQuery && !searchOpen;
 
     const handleDeletePost = useCallback(async (post) => {
         if (!post) return;
@@ -1833,8 +1846,8 @@ function MainApp({ locationParams }) {
     }, [currentChatJid, refreshAgentStatus, refreshContextUsage, refreshQueueState, restoreChatPaneState, snapshotCurrentChatPaneState]);
 
     const refreshCurrentView = useCallback(() => {
-        const { currentHashtag: activeHashtag, searchQuery: activeSearch } = viewStateRef.current || {};
-        if (!activeHashtag && !activeSearch) {
+        const { currentHashtag: activeHashtag, searchQuery: activeSearch, searchOpen: activeSearchOpen } = viewStateRef.current || {};
+        if (!activeHashtag && !activeSearch && !activeSearchOpen) {
             refreshTimeline();
         }
         refreshModelAndQueueState();
@@ -1901,8 +1914,8 @@ function MainApp({ locationParams }) {
                 .catch((err) => {
                     console.warn('Failed to fetch agent status:', err);
                 });
-            const { currentHashtag: activeHashtag, searchQuery: activeSearch } = viewStateRef.current || {};
-            if (!activeHashtag && !activeSearch) {
+            const { currentHashtag: activeHashtag, searchQuery: activeSearch, searchOpen: activeSearchOpen } = viewStateRef.current || {};
+            if (!activeHashtag && !activeSearch && !activeSearchOpen) {
                 // One immediate timeline resync on SSE connect closes the race
                 // where the client restores draft/status state after a restart
                 // but misses already-persisted assistant posts from the same turn.
@@ -1928,8 +1941,8 @@ function MainApp({ locationParams }) {
                     notifyForFinalResponse(turnId || currentTurnIdRef.current);
                     // Refresh timeline to surface any final response that arrived
                     // during an SSE gap (agent_response event may have been missed).
-                    const { currentHashtag: ah, searchQuery: sq } = viewStateRef.current || {};
-                    if (!ah && !sq) refreshTimeline();
+                    const { currentHashtag: ah, searchQuery: sq, searchOpen: so } = viewStateRef.current || {};
+                    if (!ah && !sq && !so) refreshTimeline();
                     // Update context usage indicator from the done event payload
                     if (data.context_usage) setContextUsage(data.context_usage);
                 }
@@ -2021,7 +2034,10 @@ function MainApp({ locationParams }) {
             void refreshQueueState();
             // Refresh timeline so the replaced placeholder (now the real response)
             // appears immediately — it was filtered out while queued.
-            void refreshTimeline();
+            const { currentHashtag: activeHashtag, searchQuery: activeSearch, searchOpen: activeSearchOpen } = viewStateRef.current || {};
+            if (!activeHashtag && !activeSearch && !activeSearchOpen) {
+                void refreshTimeline();
+            }
             return;
         }
 
@@ -2182,7 +2198,7 @@ function MainApp({ locationParams }) {
         }
 
         // Add new posts/replies to timeline (only when on main timeline) - append at end for chat style
-        const { currentHashtag: activeHashtag, searchQuery: activeSearch } = viewStateRef.current;
+        const { currentHashtag: activeHashtag, searchQuery: activeSearch, searchOpen: activeSearchOpen } = viewStateRef.current;
         if (eventType === 'agent_response') {
             if (!isCurrentChatEvent) return;
             removeStalledPost();
@@ -2191,7 +2207,7 @@ function MainApp({ locationParams }) {
                 turnId: currentTurnIdRef.current,
             };
         }
-        if (!activeHashtag && !activeSearch && isCurrentChatEvent && (eventType === 'new_post' || eventType === 'new_reply' || eventType === 'agent_response')) {
+        if (!activeHashtag && !activeSearch && !activeSearchOpen && isCurrentChatEvent && (eventType === 'new_post' || eventType === 'new_reply' || eventType === 'agent_response')) {
             setPosts((prev) => {
                 if (!prev) return [data];
                 if (prev.some((post) => post.id === data.id)) return prev;
@@ -2200,8 +2216,10 @@ function MainApp({ locationParams }) {
             scrollToBottomRef.current?.();
         }
         // Update existing post (e.g., when link previews are fetched)
+        // Skip during search/hashtag views to avoid mutating search results.
         if (eventType === 'interaction_updated') {
             if (!isCurrentChatEvent) return;
+            if (activeHashtag || activeSearch || activeSearchOpen) return;
             setPosts(prev => {
                 if (!prev) return prev;
                 if (!prev.some((p) => p.id === data.id)) return prev;
@@ -2210,13 +2228,13 @@ function MainApp({ locationParams }) {
         }
         if (eventType === 'interaction_deleted') {
             if (!isCurrentChatEvent) return;
+            if (activeHashtag || activeSearch || activeSearchOpen) return;
             const ids = data?.ids || [];
             if (ids.length) {
                 preserveTimelineScrollTop(() => {
                     setPosts(prev => prev ? prev.filter(p => !ids.includes(p.id)) : prev);
                 });
-                const { currentHashtag: activeHashtag, searchQuery: activeSearch } = viewStateRef.current;
-                if (hasMoreRef.current && !activeHashtag && !activeSearch) {
+                if (hasMoreRef.current) {
                     loadMoreRef.current?.({ preserveScroll: true, preserveMode: 'top' });
                 }
             }
@@ -2288,8 +2306,8 @@ function MainApp({ locationParams }) {
         if (connectionStatus !== 'connected') return;
         const intervalMs = isAgentActive ? 15000 : 60000;
         const interval = setInterval(() => {
-            const { currentHashtag: activeHashtag, searchQuery: activeSearch } = viewStateRef.current || {};
-            const onMainTimeline = !activeHashtag && !activeSearch;
+            const { currentHashtag: activeHashtag, searchQuery: activeSearch, searchOpen: activeSearchOpen } = viewStateRef.current || {};
+            const onMainTimeline = !activeHashtag && !activeSearch && !activeSearchOpen;
 
             if (isAgentActive) {
                 // Active turns still need an occasional timeline resync. This
@@ -2719,8 +2737,8 @@ function MainApp({ locationParams }) {
                 `}
                 <${Timeline}
                     posts=${posts}
-                    hasMore=${hasMore}
-                    onLoadMore=${loadMore}
+                    hasMore=${isMainTimelineView ? hasMore : false}
+                    onLoadMore=${isMainTimelineView ? loadMore : undefined}
                     timelineRef=${timelineRef}
                     onHashtagClick=${handleHashtagClick}
                     onMessageRef=${addMessageRef}
@@ -2731,7 +2749,7 @@ function MainApp({ locationParams }) {
                     emptyMessage=${currentHashtag ? `No posts with #${currentHashtag}` : searchQuery ? `No results for "${searchQuery}"` : undefined}
                     agents=${agents}
                     user=${userProfile}
-                    reverse=${!(searchQuery && !currentHashtag)}
+                    reverse=${isMainTimelineView}
                     removingPostIds=${removingPostIds}
                     searchQuery=${searchQuery}
                 />
@@ -2753,7 +2771,10 @@ function MainApp({ locationParams }) {
                     onInject=${handleBtwInject}
                 />
                 <${ComposeBox}
-                    onPost=${() => { loadPosts(); scrollToBottom(); }}
+                    onPost=${() => {
+                        const { searchQuery: sq, searchOpen: so } = viewStateRef.current || {};
+                        if (!sq && !so) { loadPosts(); scrollToBottom(); }
+                    }}
                     onFocus=${scrollToBottom}
                     searchMode=${searchOpen}
                     searchScope=${searchScope}

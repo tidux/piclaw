@@ -1492,6 +1492,17 @@ body {
     border-color: var(--accent-color);
 }
 
+.editor-status-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+}
+
+.editor-status-button:disabled:hover {
+    border-color: var(--border-color);
+}
+
 .editor-save-btn {
     border-color: var(--accent-color);
     color: var(--accent-color);

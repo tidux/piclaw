@@ -116,19 +116,28 @@ describe("MediaService.createFromFile", () => {
     expect((result.body as any).error).toContain("too large");
   });
 
-  test("rejects disallowed content types (executables)", async () => {
+  test("accepts general file attachments (executables are stored as downloads)", async () => {
     const data = new Uint8Array(100);
     const file = new File([data], "evil.exe", { type: "application/x-msdownload" });
-    const result = await service.createFromFile(file);
-    expect(result.status).toBe(415);
-    expect((result.body as any).error).toContain("Unsupported");
+    try {
+      const result = await service.createFromFile(file);
+      expect(result.status).toBe(200);
+      expect((result.body as any).contentType).toBe("application/x-msdownload");
+    } catch (e: any) {
+      expect(e.message).toContain("Database not initialized");
+    }
   });
 
-  test("rejects disallowed content types (java archives)", async () => {
+  test("accepts general file attachments (java archives are stored as downloads)", async () => {
     const data = new Uint8Array(100);
     const file = new File([data], "app.jar", { type: "application/java-archive" });
-    const result = await service.createFromFile(file);
-    expect(result.status).toBe(415);
+    try {
+      const result = await service.createFromFile(file);
+      expect(result.status).toBe(200);
+      expect((result.body as any).contentType).toBe("application/java-archive");
+    } catch (e: any) {
+      expect(e.message).toContain("Database not initialized");
+    }
   });
 
   test("accepts allowed image types (validation only)", async () => {
@@ -180,12 +189,16 @@ describe("MediaService.createFromFile", () => {
     }
   });
 
-  test("rejects unknown content types", async () => {
+  test("accepts unknown content types as binary downloads", async () => {
     const data = new Uint8Array(10);
     const file = new File([data], "unknown.bin", { type: "application/x-unknown" });
-    const result = await service.createFromFile(file);
-    expect(result.status).toBe(415);
-    expect((result.body as any).error).toContain("Unsupported");
+    try {
+      const result = await service.createFromFile(file);
+      expect(result.status).toBe(200);
+      expect((result.body as any).contentType).toBe("application/x-unknown");
+    } catch (e: any) {
+      expect(e.message).toContain("Database not initialized");
+    }
   });
 });
 

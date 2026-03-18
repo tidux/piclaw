@@ -62,6 +62,7 @@ export function handleSse(channel, req) {
             const heartbeat = setInterval(() => {
                 try {
                     controller.enqueue(encoder.encode(": heartbeat\n\n"));
+                    controller.enqueue(encoder.encode(`event: heartbeat\ndata: ${JSON.stringify({ ts: Date.now(), ...(chatJid ? { chat_jid: chatJid } : {}) })}\n\n`));
                 }
                 catch {
                     clearInterval(heartbeat);

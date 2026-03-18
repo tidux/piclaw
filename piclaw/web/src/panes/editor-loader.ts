@@ -29,10 +29,20 @@ interface EditorBundleModule {
 let editorModulePromise: Promise<EditorBundleModule> | null = null;
 let editorModuleCache: EditorBundleModule | null = null;
 
+function getEditorBundleUrl(): string {
+    try {
+        const currentUrl = new URL(import.meta.url);
+        const query = currentUrl.search || '';
+        return `/static/dist/editor.bundle.js${query}`;
+    } catch {
+        return '/static/dist/editor.bundle.js';
+    }
+}
+
 function loadEditorModule(): Promise<EditorBundleModule> {
     if (editorModuleCache) return Promise.resolve(editorModuleCache);
     if (!editorModulePromise) {
-        editorModulePromise = import('/static/dist/editor.bundle.js')
+        editorModulePromise = import(getEditorBundleUrl())
             .then((mod) => {
                 editorModuleCache = mod;
                 return mod;

@@ -13,6 +13,7 @@ import {
   clampWebContent,
   createMedia,
   getDb,
+  getMediaInfoById,
   getMessageByRowId,
   storeChatMetadata,
   storeMessage,
@@ -54,10 +55,21 @@ export function storeWebMessage(
     : undefined;
   const allMediaIds = [...params.mediaIds];
 
+  if (!contentBlocks && params.mediaIds.length > 0) {
+    contentBlocks = params.mediaIds.map((mediaId) => {
+      const info = getMediaInfoById(mediaId);
+      const mimeType = typeof info?.content_type === "string" ? info.content_type : "application/octet-stream";
+      const filename = typeof info?.filename === "string" ? info.filename : null;
+      const isImage = mimeType.toLowerCase().startsWith("image/");
+      return {
+        type: isImage ? "image" : "file",
+        ...(filename ? { name: filename, filename } : {}),
+        ...(mimeType ? { mime_type: mimeType } : {}),
+      };
+    });
+  }
+
   if (shouldPreviewWebContent(params.content)) {
-    if (!contentBlocks && params.mediaIds.length > 0) {
-      contentBlocks = params.mediaIds.map(() => ({ type: "image" }));
-    }
     const maxChars = getWebPreviewMaxChars();
     const filename = `message-${messageId}.md`;
     const data = new TextEncoder().encode(params.content);
