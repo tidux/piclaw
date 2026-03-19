@@ -119,7 +119,7 @@ PACK_DIR ?= /tmp/piclaw-pack
 pack: build-piclaw ## Pack piclaw into a .tgz (outside the repo)
 	rm -rf $(PACK_DIR) && mkdir -p $(PACK_DIR)
 	cd piclaw && bun pm pack --destination $(PACK_DIR)
-	@ls -lh $(PACK_DIR)/piclaw-*.tgz
+	@ls -lh $(PACK_DIR)/piclaw-runtime-*.tgz
 
 restart: ## Restart piclaw (auto-detects supervisor or systemd)
 	@if command -v supervisorctl >/dev/null 2>&1 && \
@@ -141,10 +141,10 @@ restart: ## Restart piclaw (auto-detects supervisor or systemd)
 local-install: pack ## Pack, install globally, and restart piclaw
 	@set -e; \
 	VERSION=$$(jq -r .version piclaw/package.json); \
-	TGZ="$$(ls -t $(PACK_DIR)/piclaw-*.tgz | head -1)"; \
+	TGZ="$$(ls -t $(PACK_DIR)/piclaw-runtime-*.tgz | head -1)"; \
 	if [ -z "$$TGZ" ]; then echo "[local-install] No package tarball found in $(PACK_DIR)"; exit 1; fi; \
 	echo "[local-install] Installing v$${VERSION} globally..."; \
-	printf '{"dependencies":{"@mariozechner/pi-coding-agent":"$(PI_AGENT_VERSION)","piclaw":"%s"}}\n' \
+	printf '{"dependencies":{"@mariozechner/pi-coding-agent":"$(PI_AGENT_VERSION)","piclaw-runtime":"%s"}}\n' \
 		"$$TGZ" | sudo tee $(GLOBAL_PKG) >/dev/null; \
 	sudo rm -f $(GLOBAL_LOCK); \
 	sudo BUN_INSTALL=$(BUN_ROOT) BUN_INSTALL_CACHE_DIR=/tmp/bun-cache \
@@ -152,9 +152,12 @@ local-install: pack ## Pack, install globally, and restart piclaw
 		--registry https://registry.npmjs.org; \
 	sudo chmod -R a+rX $(BUN_ROOT); \
 	rm -f "$$TGZ"; \
-	DEST=$(BUN_ROOT)/install/global/node_modules/piclaw; \
-	if [ -d "$$DEST/extensions" ] && [ -d "$$DEST/node_modules" ]; then \
-		sudo ln -sfn "$$DEST/node_modules" "$$DEST/extensions/node_modules" 2>/dev/null || true; \
+	DEST_REAL=$(BUN_ROOT)/install/global/node_modules/piclaw-runtime; \
+	DEST_COMPAT=$(BUN_ROOT)/install/global/node_modules/piclaw; \
+	sudo rm -rf "$$DEST_COMPAT"; \
+	sudo ln -sfn "$$DEST_REAL" "$$DEST_COMPAT"; \
+	if [ -d "$$DEST_REAL/extensions" ] && [ -d "$$DEST_REAL/node_modules" ]; then \
+		sudo ln -sfn "$$DEST_REAL/node_modules" "$$DEST_REAL/extensions/node_modules" 2>/dev/null || true; \
 	fi; \
 	echo "[local-install] Restarting piclaw..."; \
 	$(MAKE) restart; \

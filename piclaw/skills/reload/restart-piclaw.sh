@@ -10,7 +10,10 @@
 #   CMD          command to run (fallback only; default: piclaw --port 8080)
 #
 # ⚠️ Container admonition:
-#   Runtime installs must live under /usr/local/lib/bun/install/global/node_modules/piclaw.
+#   The real runtime package lives under:
+#     /usr/local/lib/bun/install/global/node_modules/piclaw-runtime
+#   with a compatibility symlink at:
+#     /usr/local/lib/bun/install/global/node_modules/piclaw
 #   If piclaw resolves from /home/agent/.bun, you're likely restarting the wrong build.
 #
 # Detection order (first match wins):

@@ -1,5 +1,5 @@
 {
-  "name": "piclaw",
+  "name": "piclaw-runtime",
   "version": "1.5.7",
   "description": "Personal pi coding agent assistant. Lightweight nanoclaw-style orchestrator using Bun and pi.",
   "type": "module",

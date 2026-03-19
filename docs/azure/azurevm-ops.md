@@ -62,8 +62,8 @@ Global installs:
 # pi CLI
 sudo /usr/local/bun/bin/bun add -g @mariozechner/pi-coding-agent
 
-# piclaw from workspace
-sudo /usr/local/bun/bin/bun add -g --no-save file:/workspace/piclaw/piclaw
+# piclaw from workspace repo root
+sudo /usr/local/bun/bin/bun add -g --no-save file:/workspace/piclaw
 
 # ensure wrapper is reachable
 sudo ln -sf /usr/local/bun/bin/piclaw /usr/local/bin/piclaw

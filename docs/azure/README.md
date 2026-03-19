@@ -40,9 +40,11 @@ Clone your Piclaw repo into `/workspace/piclaw`.
 cd /workspace/piclaw && make build-piclaw
 cd /workspace/piclaw/piclaw
 bun pm pack --destination /tmp
-TARBALL=$(ls -t /tmp/piclaw-*.tgz | head -1)
+TARBALL=$(ls -t /tmp/piclaw-runtime-*.tgz | head -1)
 sudo BUN_INSTALL=/usr/local/lib/bun bun add -g "$TARBALL"
 sudo chmod -R a+rX /usr/local/lib/bun
+sudo rm -rf /usr/local/lib/bun/install/global/node_modules/piclaw
+sudo ln -sfn /usr/local/lib/bun/install/global/node_modules/piclaw-runtime /usr/local/lib/bun/install/global/node_modules/piclaw
 rm -f "$TARBALL"
 
 # Symlink piclaw into PATH

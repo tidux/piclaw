@@ -10,7 +10,8 @@ Reinstall the piclaw package from workspace source and restart the running proce
 immediately. The new process takes over on the same port.
 
 > ⚠️ **Important (container runtime):**
-> Always install to `/usr/local/lib/bun/install/global/node_modules/piclaw`.
+> The real runtime package now lives at `/usr/local/lib/bun/install/global/node_modules/piclaw-runtime`.
+> Keep the compatibility symlink `/usr/local/lib/bun/install/global/node_modules/piclaw` pointing at it.
 > Do **not** deploy to `/home/agent/.bun/...` in this container, or Supervisor may keep running an older build.
 
 ## Steps
@@ -28,15 +29,17 @@ cd /workspace/piclaw && make build-piclaw
 # 2. Pack and install to the active global runtime path (real files, not symlinks)
 cd /workspace/piclaw/piclaw
 bun pm pack --destination /tmp
-TARBALL=$(ls -t /tmp/piclaw-*.tgz | head -1)
-DEST="$BUN_INSTALL/install/global/node_modules/piclaw"
-sudo rm -rf "$DEST"
-sudo mkdir -p "$DEST"
-sudo tar -xzf "$TARBALL" -C "$DEST" --strip-components=1
+TARBALL=$(ls -t /tmp/piclaw-runtime-*.tgz | head -1)
+DEST_REAL="$BUN_INSTALL/install/global/node_modules/piclaw-runtime"
+DEST_COMPAT="$BUN_INSTALL/install/global/node_modules/piclaw"
+sudo rm -rf "$DEST_REAL" "$DEST_COMPAT"
+sudo mkdir -p "$DEST_REAL"
+sudo tar -xzf "$TARBALL" -C "$DEST_REAL" --strip-components=1
 rm -f "$TARBALL"
-cd "$DEST" && sudo BUN_INSTALL_CACHE_DIR=/tmp/bun-cache bun install --production || true
-if [ -d "$DEST/extensions" ] && [ -d "$DEST/node_modules" ]; then
-  sudo ln -sfn "$DEST/node_modules" "$DEST/extensions/node_modules" 2>/dev/null || true
+cd "$DEST_REAL" && sudo BUN_INSTALL_CACHE_DIR=/tmp/bun-cache bun install --production || true
+sudo ln -sfn "$DEST_REAL" "$DEST_COMPAT"
+if [ -d "$DEST_REAL/extensions" ] && [ -d "$DEST_REAL/node_modules" ]; then
+  sudo ln -sfn "$DEST_REAL/node_modules" "$DEST_REAL/extensions/node_modules" 2>/dev/null || true
 fi
 
 # 3. Quick sanity check: show where piclaw resolves from
