@@ -2387,24 +2387,29 @@ function MainApp({ locationParams }) {
 
     const handleRenameCurrentBranch = useCallback(async () => {
         if (typeof window === 'undefined' || !currentBranchRecord?.chat_jid) return;
-        const currentHandle = currentBranchRecord.agent_name || '';
-        const currentDisplayName = currentBranchRecord.display_name || '';
-        const nextDisplayName = window.prompt('Branch display name', currentDisplayName);
-        if (nextDisplayName === null) return;
-        const nextAgentName = window.prompt('Agent handle (without @)', currentHandle);
-        if (nextAgentName === null) return;
+        const currentDisplayName = currentBranchRecord.display_name || currentBranchRecord.agent_name || '';
+        const nextName = window.prompt('Agent name', currentDisplayName);
+        if (nextName === null) return;
+        const trimmed = nextName.trim();
+        // Derive the agent handle from the display name (same logic as backend normalizeAgentHandlePart)
+        const nextAgentName = trimmed
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .replace(/-{2,}/g, '-') || currentBranchRecord.agent_name || '';
 
         try {
             const response = await renameChatBranch(currentBranchRecord.chat_jid, {
-                displayName: nextDisplayName,
+                displayName: trimmed,
                 agentName: nextAgentName,
             });
             await Promise.allSettled([
                 refreshActiveChatAgents(),
                 refreshCurrentChatBranches(),
             ]);
-            const savedHandle = response?.branch?.agent_name || String(nextAgentName || '').trim() || currentHandle;
-            showIntentToast('Branch renamed', `This chat is now @${savedHandle}.`, 'info', 3500);
+            const savedHandle = response?.branch?.agent_name || nextAgentName || currentBranchRecord.agent_name || '';
+            const savedDisplay = response?.branch?.display_name || trimmed || savedHandle;
+            showIntentToast('Branch renamed', `${savedDisplay} (@${savedHandle})`, 'info', 3500);
         } catch (error) {
             const rawMessage = error instanceof Error ? error.message : String(error || 'Could not rename branch.');
             const message = /already in use/i.test(rawMessage || '')

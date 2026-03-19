@@ -959,10 +959,11 @@ export class WebChannel {
             data: sanitizedSubmissionData,
             submittedAt,
         });
-        // ── Provider-auth cards: handle without agent ─────────────
+        // ── Login flow cards: handle without agent ────────────────
         const submissionData = sanitizedSubmissionData;
-        const isProviderAuth = submissionData?.intent === "provider-auth" || submissionData?.intent === "provider-auth-execute";
-        if (submissionData && isProviderAuth) {
+        const loginIntents = new Set(["login-step1", "login-step1-method", "login-step2", "login-step3"]);
+        const isLoginFlow = submissionData && typeof submissionData.intent === "string" && loginIntents.has(submissionData.intent);
+        if (isLoginFlow) {
             // Update the source card to completed state (no separate user message needed)
             const updatedCardInteraction = submitBehavior === "keep_active"
                 ? null
@@ -974,29 +975,17 @@ export class WebChannel {
             if (updatedCardInteraction) {
                 this.interactionBroadcaster.broadcastInteractionUpdated(updatedCardInteraction);
             }
-            // Get authStorage via control command routing
-            let authResult;
-            if (submissionData.intent === "provider-auth") {
-                // Card 1 → show Card 2
-                const providerId = String(submissionData.provider || "").trim();
-                const action = String(submissionData.action || "").trim();
-                const pickerResult = await this.agentPool.applyControlCommand(chatJid, {
-                    type: "login",
-                    provider: `__picker__ ${providerId} ${action}`,
-                    raw: `/login __picker__ ${providerId} ${action}`,
-                });
-                authResult = pickerResult;
-            }
-            else {
-                // Card 2 → execute
-                const executeResult = await this.agentPool.applyControlCommand(chatJid, {
-                    type: "login",
-                    provider: `__execute__ ${JSON.stringify(submissionData)}`,
-                    raw: `/login __execute__`,
-                });
-                authResult = executeResult;
-            }
-            // Post result — with or without cards
+            // Route through applyControlCommand to access authStorage/modelRegistry
+            const routePrefix = submissionData.intent === "login-step1" ? "__step1 "
+                : submissionData.intent === "login-step1-method" ? "__step1method "
+                    : submissionData.intent === "login-step2" ? "__step2 "
+                        : "__step3 ";
+            const authResult = await this.agentPool.applyControlCommand(chatJid, {
+                type: "login",
+                provider: `${routePrefix}${JSON.stringify(submissionData)}`,
+                raw: `/login ${routePrefix}`,
+            });
+            // Post result — with or without follow-up cards
             const sendOpts = { threadId };
             if (authResult.contentBlocks?.length) {
                 sendOpts.contentBlocks = authResult.contentBlocks;

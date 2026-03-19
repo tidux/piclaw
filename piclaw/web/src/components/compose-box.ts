@@ -1514,6 +1514,13 @@ export function ComposeBox({
                         <${ContextPie} usage=${contextUsage} />
                     `}
                     ${showSessionSwitcherButton && html`
+                        ${currentSessionAgent?.agent_name && html`
+                            <span
+                                class="compose-current-agent-label"
+                                title=${currentSessionAgent.chat_jid || currentChatJid}
+                                onClick=${toggleSessionPopup}
+                            >@${currentSessionAgent.agent_name}</span>
+                        `}
                         <button
                             ref=${sessionButtonRef}
                             type="button"

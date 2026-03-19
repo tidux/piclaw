@@ -2880,6 +2880,26 @@ body {
     padding: var(--spacing-xs);
 }
 
+.compose-current-agent-label {
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    line-height: 1;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 2px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: min(28vw, 180px);
+    opacity: 0.85;
+    transition: color var(--ui-transition-fast), opacity var(--ui-transition-fast);
+}
+
+.compose-current-agent-label:hover {
+    color: var(--accent-color);
+    opacity: 1;
+}
+
 .compose-mention-btn {
     padding: var(--spacing-xs);
     border: 1px solid var(--border-color);

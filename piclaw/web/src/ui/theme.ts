@@ -3,6 +3,7 @@ import { getLocalStorageItem, setLocalStorageItem } from '../utils/storage.js';
 
 const THEME_STORAGE_KEY = 'piclaw_theme';
 const TINT_STORAGE_KEY = 'piclaw_tint';
+const CHAT_THEMES_STORAGE_KEY = 'piclaw_chat_themes';
 
 const DEFAULT_LIGHT = {
     bgPrimary: '#ffffff',
@@ -557,6 +558,44 @@ function emitThemeChange() {
     window.dispatchEvent(new CustomEvent('piclaw-theme-change', { detail }));
 }
 
+function getChatThemeMap() {
+    try {
+        const raw = getLocalStorageItem(CHAT_THEMES_STORAGE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return typeof parsed === 'object' && parsed !== null ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function setChatTheme(chatJid, theme, tint) {
+    const map = getChatThemeMap();
+    if (!theme && !tint) {
+        delete map[chatJid];
+    } else {
+        map[chatJid] = { theme: theme || 'default', tint: tint || null };
+    }
+    setLocalStorageItem(CHAT_THEMES_STORAGE_KEY, JSON.stringify(map));
+}
+
+function getChatTheme(chatJid) {
+    if (!chatJid) return null;
+    const map = getChatThemeMap();
+    return map[chatJid] || null;
+}
+
+function resolveCurrentChatJid() {
+    if (typeof window === 'undefined') return 'web:default';
+    try {
+        const params = new URL(window.location.href).searchParams;
+        const raw = params.get('chat_jid');
+        return raw && raw.trim() ? raw.trim() : 'web:default';
+    } catch {
+        return 'web:default';
+    }
+}
+
 function applyThemeState(nextTheme, options = {}) {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
     const themeName = normalizeThemeName(nextTheme?.theme || 'default');
@@ -604,9 +643,16 @@ function handleSystemThemeChange() {
 export function initTheme() {
     if (typeof window === 'undefined') return () => {};
 
-    const storedTheme = normalizeThemeName(getLocalStorageItem(THEME_STORAGE_KEY) || 'default');
-    const storedTintRaw = getLocalStorageItem(TINT_STORAGE_KEY);
-    const storedTint = storedTintRaw ? storedTintRaw.trim() : null;
+    // Resolve per-chat theme override first, fall back to global
+    const chatJid = resolveCurrentChatJid();
+    const chatOverride = getChatTheme(chatJid);
+
+    const storedTheme = chatOverride
+        ? normalizeThemeName(chatOverride.theme || 'default')
+        : normalizeThemeName(getLocalStorageItem(THEME_STORAGE_KEY) || 'default');
+    const storedTint = chatOverride
+        ? (chatOverride.tint ? String(chatOverride.tint).trim() : null)
+        : (() => { const raw = getLocalStorageItem(TINT_STORAGE_KEY); return raw ? raw.trim() : null; })();
 
     applyThemeState({ theme: storedTheme, tint: storedTint }, { persist: false });
 
@@ -633,10 +679,14 @@ export function initTheme() {
 
 export function applyThemeFromEvent(payload) {
     if (!payload || typeof payload !== 'object') return;
-    const chatJid = payload.chat_jid || payload.chatJid;
-    if (chatJid && chatJid !== 'web:default') return;
+    const chatJid = payload.chat_jid || payload.chatJid || resolveCurrentChatJid();
     const theme = payload.theme ?? payload.name ?? payload.colorTheme;
     const tint = payload.tint ?? null;
+
+    // Store per-chat override
+    setChatTheme(chatJid, theme || 'default', tint);
+
+    // Also update global fallback
     applyThemeState({ theme: theme || 'default', tint }, { persist: true });
 }
 
