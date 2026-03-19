@@ -55,6 +55,7 @@ const envConfig = readEnvFile([
   "PICLAW_WEB_INTERNAL_SECRET",
   "PICLAW_WEB_PASSKEY_MODE",
   "PICLAW_WEB_TERMINAL_ENABLED",
+  "PICLAW_DEBUG_CARD_SUBMISSIONS",
   "PICLAW_TRUST_PROXY",
   "PICLAW_SESSION_MAX_SIZE_MB",
   "PICLAW_SESSION_AUTO_ROTATE",
@@ -441,6 +442,11 @@ const webTerminalEnabled = pickBoolean(piclawConfig, ["webTerminalEnabled", "PIC
 const envWebTerminalEnabled = pickBoolean({ PICLAW_WEB_TERMINAL_ENABLED: process.env.PICLAW_WEB_TERMINAL_ENABLED ?? envConfig.PICLAW_WEB_TERMINAL_ENABLED }, ["PICLAW_WEB_TERMINAL_ENABLED"]);
 /** Enable the experimental authenticated web terminal backend (default false). */
 export const WEB_TERMINAL_ENABLED = envWebTerminalEnabled ?? webTerminalEnabled ?? false;
+
+const debugCards = pickBoolean(piclawConfig, ["debugCardSubmissions", "PICLAW_DEBUG_CARD_SUBMISSIONS"]);
+const envDebugCards = pickBoolean({ PICLAW_DEBUG_CARD_SUBMISSIONS: process.env.PICLAW_DEBUG_CARD_SUBMISSIONS ?? envConfig.PICLAW_DEBUG_CARD_SUBMISSIONS }, ["PICLAW_DEBUG_CARD_SUBMISSIONS"]);
+/** When true, card submissions are posted as visible user messages in the timeline. Default false. */
+export const DEBUG_CARD_SUBMISSIONS = envDebugCards ?? debugCards ?? false;
 
 const envTrustProxyRaw = process.env.PICLAW_TRUST_PROXY ?? envConfig.PICLAW_TRUST_PROXY;
 const envTrustProxy = pickBoolean({ PICLAW_TRUST_PROXY: envTrustProxyRaw }, ["PICLAW_TRUST_PROXY"]);

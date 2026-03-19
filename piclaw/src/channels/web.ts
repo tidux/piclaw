@@ -34,6 +34,7 @@ import {
   WEB_INTERNAL_SECRET,
   WEB_PASSKEY_MODE,
   WEB_TERMINAL_ENABLED,
+  DEBUG_CARD_SUBMISSIONS,
 } from "../core/config.js";
 import { startWorkspaceWatcher } from "./web/handlers/workspace.js";
 import type { WebChannelLike } from "./web/web-channel-contracts.js";
@@ -1235,16 +1236,7 @@ export class WebChannel implements WebChannelLike {
     const submissionData = sanitizedSubmissionData as Record<string, unknown> | null;
     const isProviderAuth = submissionData?.intent === "provider-auth" || submissionData?.intent === "provider-auth-execute";
     if (submissionData && isProviderAuth) {
-      // Store the user submission message
-      const userInteraction = this.storeMessage(chatJid, submissionText, false, [], {
-        threadId,
-        contentBlocks: [submissionBlock],
-      });
-      if (userInteraction) {
-        this.interactionBroadcaster.broadcastInteractionUpdated(userInteraction);
-      }
-
-      // Update the source card to completed state
+      // Update the source card to completed state (no separate user message needed)
       const updatedCardInteraction = submitBehavior === "keep_active"
         ? null
         : replaceMessageContent(chatJid, normalized.postId, sourceInteraction.data?.content || "", {
@@ -1308,6 +1300,17 @@ export class WebChannel implements WebChannelLike {
     const forwardRes = await handleAgentMessageRequest(this, forwardReq, `/agent/${DEFAULT_AGENT_ID}/message`, chatJid, DEFAULT_AGENT_ID);
     if (!forwardRes.ok) {
       return forwardRes;
+    }
+
+    // When debug card submissions is off, remove the visible "Card submission: ..."
+    // user message from the timeline. The submission data is preserved in the
+    // source card's last_submission and content_blocks.
+    if (!DEBUG_CARD_SUBMISSIONS) {
+      const forwardBody = await forwardRes.clone().json().catch(() => null);
+      const submissionPostId = (forwardBody as Record<string, unknown>)?.id;
+      if (typeof submissionPostId === "number" && submissionPostId > 0) {
+        this.broadcastEvent("interaction_deleted", { chat_jid: chatJid, ids: [submissionPostId] });
+      }
     }
 
     const updatedInteraction = submitBehavior === "keep_active"
