@@ -212,6 +212,44 @@ export async function handleAgentMessage(channel, req, pathname, chatJid, defaul
         }
         return channel.json({ thread_id: null, command: themeCommand, ui_only: true }, 200);
     }
+    // Model/thinking commands: execute without writing to the timeline.
+    const MODEL_COMMAND_TYPES = new Set(["model", "thinking", "cycle_model", "cycle_thinking"]);
+    if (command && MODEL_COMMAND_TYPES.has(command.type)) {
+        const result = await channel.agentPool.applyControlCommand(chatJid, command);
+        // Broadcast model state so the UI hint updates immediately
+        let nextModel = result.model_label ?? null;
+        let thinkingLevel = result.thinking_level ?? null;
+        let supportsThinking = undefined;
+        try {
+            const modelState = await channel.agentPool.getAvailableModels(chatJid);
+            if (!nextModel)
+                nextModel = modelState.current ?? null;
+            if (thinkingLevel == null)
+                thinkingLevel = modelState.thinking_level ?? null;
+            supportsThinking = modelState.supports_thinking;
+        }
+        catch {
+            if (typeof channel.agentPool.getCurrentModelLabel === "function") {
+                nextModel = await channel.agentPool.getCurrentModelLabel(chatJid).catch(() => null);
+            }
+        }
+        if (result.status === "success") {
+            channel.broadcastEvent("model_changed", {
+                chat_jid: chatJid,
+                model: nextModel ?? null,
+                thinking_level: thinkingLevel ?? null,
+                supports_thinking: supportsThinking,
+            });
+            if (command.type === "model" || command.type === "cycle_model") {
+                channel.skipFailedOnModelSwitch(chatJid);
+            }
+        }
+        return channel.json({
+            thread_id: null,
+            command: { ...result, model_label: nextModel, thinking_level: thinkingLevel, supports_thinking: supportsThinking },
+            ui_only: true,
+        }, 200);
+    }
     const interaction = storeAgentUserMessage(channel, chatJid, {
         content,
         mediaIds: normalized.mediaIds,

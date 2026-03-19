@@ -66,6 +66,12 @@ Leave this disabled for direct/non-proxied deployments.
 | `PICLAW_BACKGROUND_AGENT_TIMEOUT` | `0` | Max background invocation time (ms; `0` disables) |
 | `PICLAW_ASSISTANT_NAME` | `PiClaw` | Display name in the web UI |
 | `PICLAW_ASSISTANT_AVATAR` | _(empty)_ | Avatar URL for the web UI |
+| `PICLAW_USER_NAME` | _(empty)_ | Display name for the human user in the web UI |
+| `PICLAW_USER_AVATAR` | _(empty)_ | Avatar URL for the human user |
+| `PICLAW_USER_AVATAR_BACKGROUND` | _(empty)_ | CSS background colour for the user avatar circle |
+| `PICLAW_SESSION_MAX_SIZE_MB` | `100` | Session file size threshold (MB) for auto-rotation warnings |
+| `PICLAW_SESSION_AUTO_ROTATE` | `0` | Automatically rotate oversized session files before the next prompt |
+| `PICLAW_WHATSAPP_PHONE` | _(empty)_ | Alias for `WHATSAPP_PHONE` |
 | `PICLAW_TOOL_OUTPUT_RETENTION_DAYS` | `30` | Days to retain stored tool outputs |
 | `PICLAW_TOOL_OUTPUT_CLEANUP_INTERVAL_MS` | `43200000` | Cleanup interval (ms) |
 
@@ -230,3 +236,15 @@ Notes:
   the container, startup aborts with a clear error instead of silently picking a
   conflicting mapping.
 - Changing `PUID` / `PGID` requires restarting/recreating the container.
+
+## Cross-instance interop
+
+Optional settings for multi-instance communication. See [cross-instance-ipc.md](cross-instance-ipc.md) for details.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PICLAW_REMOTE_INTEROP_ENABLED` | `0` | Enable cross-instance interop endpoints |
+| `PICLAW_REMOTE_INTEROP_ALLOW_HTTP` | `0` | Allow `http://` callback URLs (not just `https://`) |
+| `PICLAW_REMOTE_SHORT_CIRCUIT_ENABLED` | `0` | Enable short-circuit execution mode |
+| `PICLAW_REMOTE_INSTANCE_NAME` | _(empty)_ | Display name for this instance in interop metadata |
+| `PICLAW_REMOTE_INTEROP_DECISION_MODEL` | _(empty)_ | Model label for interop mediation (metadata only) |

@@ -26,6 +26,11 @@
 | `webauthn_credentials` | Stored passkeys (credential public keys + counters) |
 | `webauthn_enrollments` | One‑time enrolment tokens for passkey registration |
 | `web_sessions` | Persistent web UI sessions (TOTP + passkey logins) |
+| `chat_branches` | Branch/session registry for parallel web chat sessions |
+| `remote_peers` | Cross-instance interop peer registry |
+| `remote_pair_requests` | Pending pairing requests for cross-instance interop |
+| `remote_requests` | Tracked cross-instance request state |
+| `remote_audit_logs` | Audit trail for cross-instance operations |
 
 Attachments, Adaptive Card blocks, submission receipts, and link previews are stored on the message record (`content_blocks`, `link_previews`). In practice, `content_blocks` can now contain persisted `adaptive_card` and `adaptive_card_submission` payloads in addition to other structured message content. Token usage rows include `model`, `provider`, and `api` fields to support per-model tracking.
 

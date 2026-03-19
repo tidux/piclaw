@@ -76,6 +76,12 @@ Each skill keeps its script alongside its `SKILL.md` for portability. Current se
 | `extension-design` | Design and audit Pi extensions safely |
 | `extension-troubleshoot` | Diagnose and fix extension issues (imports, DB init, watcher perms) |
 | `kanban-management` | Manage kanban board: ideation, triage, quality scoring, definition-of-done tracking |
+| `adaptive-cards-authoring` | Author Adaptive Cards for structured web interactions |
+| `close-of-day` | End-of-day sweep: situate, backup, timeline cleanup, daily-notes summarisation |
+| `export-timeline-pdf` | Export a chat timeline to PDF via Playwright |
+| `feature-refinement-flow` | Structured 20-question refinement flow before implementation |
+| `situate-daily-notes` | Situation report and Obsidian-style daily summary notes |
+| `timeline-cleanup` | Delete low-value timeline messages by keyword patterns |
 
 ## Web extension UI note
 

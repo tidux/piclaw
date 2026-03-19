@@ -256,6 +256,7 @@ PiClaw works with any OCI-compliant runtime.
 - [Keychain](docs/keychain.md)
 - [WhatsApp](docs/whatsapp.md)
 - [Turn mechanism audit](docs/turn-mechanism-audit.md)
+- [Cross-instance interop](docs/cross-instance-ipc.md)
 
 ## Credits
 

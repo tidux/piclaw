@@ -460,15 +460,7 @@ export class AgentPool {
   async applyControlCommand(chatJid: string, command: AgentControlCommand): Promise<AgentControlResult> {
     const session = await this.getOrCreate(chatJid);
     const channel = detectChannel(chatJid);
-    const result = await withChatContext(chatJid, channel, () => applyControlCommand(session, this.modelRegistry, command));
-
-    const shouldPersistModel = result.status === "success"
-      && (command.type === "cycle_model" || (command.type === "model" && (command.modelId || command.provider)));
-    if (shouldPersistModel) {
-      this.persistDefaultModel(session);
-    }
-
-    return result;
+    return await withChatContext(chatJid, channel, () => applyControlCommand(session, this.modelRegistry, command));
   }
 
   async getCurrentModelLabel(chatJid: string): Promise<string | null> {
@@ -1267,8 +1259,10 @@ export class AgentPool {
     const modelId = this.settingsManager.getDefaultModel();
     if (!provider || !modelId) return;
 
+    // Preserve each session's restored/inherited model. Only apply the shared
+    // default when a session has no model at all yet.
     const current = session.model;
-    if (current && current.provider === provider && current.id === modelId) return;
+    if (current) return;
 
     const sessionRegistry = (session as AgentSession & { modelRegistry?: ModelRegistry }).modelRegistry ?? this.modelRegistry;
     const resolved = sessionRegistry.find(provider, modelId);
@@ -1282,12 +1276,6 @@ export class AgentPool {
     } catch (err) {
       console.warn(`[agent-pool] Failed to restore model ${provider}/${modelId}:`, err);
     }
-  }
-
-  private persistDefaultModel(session: AgentSession): void {
-    const model = session.model;
-    if (!model) return;
-    this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
   }
 
   private createTurnTracker(

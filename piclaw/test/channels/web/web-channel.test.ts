@@ -149,13 +149,16 @@ test("web channel handles /model command without queueing agent", async () => {
   });
 
   const res = await (web as any).handleRequest(req);
-  expect(res.status).toBe(201);
+  expect(res.status).toBe(200);
   expect(commandHandled).toBe(true);
   expect(queued).toBe(false);
 
+  const body = await res.json();
+  expect(body?.ui_only).toBe(true);
+  expect(body?.command?.status).toBe("success");
+
   const timeline = db.getTimeline("web:default", 10);
-  expect(timeline.length).toBeGreaterThanOrEqual(2);
-  expect(timeline[timeline.length - 1].data.content).toContain("Model set to openai/gpt-test.");
+  expect(timeline.length).toBe(0);
 });
 
 test("web channel relays peer messages into another active chat", async () => {
@@ -2623,13 +2626,17 @@ test("web channel reports /model errors without queueing agent", async () => {
   });
 
   const res = await (web as any).handleRequest(req);
-  expect(res.status).toBe(201);
+  expect(res.status).toBe(200);
   expect(commandHandled).toBe(true);
   expect(queued).toBe(false);
 
+  const body = await res.json();
+  expect(body?.ui_only).toBe(true);
+  expect(body?.command?.status).toBe("error");
+  expect(body?.command?.message).toContain("Model not found");
+
   const timeline = db.getTimeline("web:default", 10);
-  const last = timeline[timeline.length - 1];
-  expect(last.data.content).toContain("Model not found");
+  expect(timeline.length).toBe(0);
 });
 
 test("web channel handles adaptive card submit actions", async () => {
