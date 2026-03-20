@@ -26,9 +26,14 @@ workspaces/
 !skel/
 !skel/**
 
-# Include piclaw
-!piclaw/
-!piclaw/**
+# Include runtime subtree and root packaging/docs files needed by Docker
+!runtime/
+!runtime/**
+!README.md
+!LICENSE
+!package.json
+!bun.lock
+!docs/install-from-repo.md
 
 # Keep the repo-local kanban board out of Docker build context
 kanban/
