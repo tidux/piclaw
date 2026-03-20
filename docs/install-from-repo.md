@@ -11,6 +11,11 @@ bun add -g github:rcarmo/piclaw
 This is the intended **Docker-free** install path for people who want the
 packaged PiClaw CLI and web assets without building from source manually.
 
+One reason this path exists is to support people who want to run PiClaw on
+low-end ARM SBCs, lightweight VMs, or other sandboxed environments where
+Docker is not the best fit or is not available. That said, this is still an
+experimental path and not a generally supported deployment target.
+
 The repository root is the package/install boundary for this flow. The nested
 `runtime/` directory is an implementation detail that contains the runtime
 sources, web app, extensions, vendored assets, and skills.
