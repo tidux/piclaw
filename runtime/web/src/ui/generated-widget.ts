@@ -66,6 +66,15 @@ function readOptionalString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function escapeJsonForInlineScript(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
 export function buildGeneratedWidgetPayload(block: any, post?: any): GeneratedWidgetPayload | null {
   if (!block || block.type !== "generated_widget") return null;
   const artifact = getArtifact(block);
@@ -133,6 +142,29 @@ export function getGeneratedWidgetSessionKey(widget: any): string | null {
   return null;
 }
 
+export function isInteractiveGeneratedWidget(widget: any): boolean {
+  const artifact = widget?.artifact || {};
+  const kind = artifact.kind || widget?.kind || null;
+  return widget?.source === 'live' && kind === 'html';
+}
+
+export function getGeneratedWidgetIframeSandbox(widget: any): string {
+  return isInteractiveGeneratedWidget(widget)
+    ? 'allow-downloads allow-scripts'
+    : 'allow-downloads';
+}
+
+export function getGeneratedWidgetInitPayload(widget: any): Record<string, unknown> {
+  return {
+    title: readOptionalString(widget?.title) || 'Generated widget',
+    widgetId: readOptionalString(widget?.widgetId) || readOptionalString(widget?.widget_id),
+    toolCallId: readOptionalString(widget?.toolCallId) || readOptionalString(widget?.tool_call_id),
+    turnId: readOptionalString(widget?.turnId) || readOptionalString(widget?.turn_id),
+    source: widget?.source === 'live' ? 'live' : 'timeline',
+    status: readOptionalString(widget?.status) || 'final',
+  };
+}
+
 export function getGeneratedWidgetEmptyStateMessage(widget: any): string {
   const status = readOptionalString(widget?.status);
   if (status === 'loading' || status === 'streaming') {
@@ -144,6 +176,53 @@ export function getGeneratedWidgetEmptyStateMessage(widget: any): string {
   return 'Widget artifact is missing or unsupported.';
 }
 
+function buildWidgetBootstrapScript(widget: any): string {
+  const meta = getGeneratedWidgetInitPayload(widget);
+  const safeMeta = escapeJsonForInlineScript(meta);
+  return `<script>
+(function () {
+  const meta = ${safeMeta};
+  function post(kind, payload) {
+    try {
+      window.parent.postMessage({
+        __piclawGeneratedWidget: true,
+        kind,
+        widgetId: meta.widgetId || null,
+        toolCallId: meta.toolCallId || null,
+        turnId: meta.turnId || null,
+        payload: payload || {}
+      }, '*');
+    } catch {}
+  }
+
+  window.piclawWidget = {
+    meta,
+    ready(payload) { post('widget.ready', payload); },
+    close(payload) { post('widget.close', payload); },
+    requestRefresh(payload) { post('widget.request_refresh', payload); },
+    submit(payload) { post('widget.submit', payload); },
+  };
+
+  window.addEventListener('message', function (event) {
+    const data = event && event.data;
+    if (!data || data.__piclawGeneratedWidgetHost !== true) return;
+    if ((data.widgetId || null) !== (meta.widgetId || null)) return;
+    window.dispatchEvent(new CustomEvent('piclaw:widget-message', { detail: data }));
+  });
+
+  function announceReady() {
+    post('widget.ready', { title: document.title || meta.title || 'Generated widget' });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', announceReady, { once: true });
+  } else {
+    announceReady();
+  }
+})();
+</script>`;
+}
+
 export function buildWidgetSrcDoc(widget: any): string {
   const artifact = widget?.artifact || {};
   const kind = artifact.kind || widget?.kind || null;
@@ -153,6 +232,7 @@ export function buildWidgetSrcDoc(widget: any): string {
   const content = kind === 'svg' ? rawSvg : rawHtml;
   if (!content) return '';
 
+  const interactive = isInteractiveGeneratedWidget(widget);
   const csp = [
     "default-src 'none'",
     "img-src data: blob: https: http:",
@@ -161,7 +241,7 @@ export function buildWidgetSrcDoc(widget: any): string {
     "media-src data: blob: https: http:",
     "connect-src 'none'",
     "frame-src 'none'",
-    "script-src 'none'",
+    interactive ? "script-src 'unsafe-inline'" : "script-src 'none'",
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
@@ -170,6 +250,7 @@ export function buildWidgetSrcDoc(widget: any): string {
   const body = kind === 'svg'
     ? `<div class="widget-svg-shell">${content}</div>`
     : content;
+  const bootstrap = interactive ? buildWidgetBootstrapScript(widget) : '';
 
   return `<!doctype html>
 <html>
@@ -204,6 +285,7 @@ body {
   height: auto;
 }
 </style>
+${bootstrap}
 </head>
 <body>${body}</body>
 </html>`;

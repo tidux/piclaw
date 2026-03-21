@@ -4,7 +4,10 @@ import {
   buildWidgetSrcDoc,
   canRenderGeneratedWidget,
   getGeneratedWidgetEmptyStateMessage,
+  getGeneratedWidgetIframeSandbox,
+  getGeneratedWidgetInitPayload,
   getGeneratedWidgetSessionKey,
+  isInteractiveGeneratedWidget,
   normalizeLiveGeneratedWidgetPayload,
 } from "../../web/src/ui/generated-widget.js";
 
@@ -123,6 +126,53 @@ describe("generated widget helpers", () => {
 
     expect(srcdoc).toContain('<div class="widget-svg-shell"><svg id="demo"></svg></div>');
     expect(srcdoc).toContain("widget-svg-shell svg");
+  });
+
+  test("live html widgets enable the bounded script runtime and bridge bootstrap", () => {
+    const widget = normalizeLiveGeneratedWidgetPayload({
+      chat_jid: "web:default",
+      tool_call_id: "tool-live-1",
+      title: "Interactive widget",
+      artifact: {
+        kind: "html",
+        html: "<script>window.demo = true;</script><div>hello</div>",
+      },
+    });
+
+    expect(widget).not.toBeNull();
+    expect(isInteractiveGeneratedWidget(widget)).toBe(true);
+    expect(getGeneratedWidgetIframeSandbox(widget)).toBe("allow-downloads allow-scripts");
+    expect(getGeneratedWidgetInitPayload(widget)).toEqual({
+      title: "Interactive widget",
+      widgetId: "tool-live-1",
+      toolCallId: "tool-live-1",
+      turnId: null,
+      source: "live",
+      status: "streaming",
+    });
+
+    const srcdoc = buildWidgetSrcDoc(widget);
+    expect(srcdoc).toContain("script-src 'unsafe-inline'");
+    expect(srcdoc).toContain("window.piclawWidget");
+    expect(srcdoc).toContain("widget.ready");
+  });
+
+  test("timeline widgets keep the stricter no-script sandbox", () => {
+    const widget = buildGeneratedWidgetPayload({
+      type: "generated_widget",
+      title: "Static widget",
+      artifact: {
+        kind: "html",
+        html: "<script>window.bad = true;</script><div>safe</div>",
+      },
+    });
+
+    expect(widget).not.toBeNull();
+    expect(isInteractiveGeneratedWidget(widget)).toBe(false);
+    expect(getGeneratedWidgetIframeSandbox(widget)).toBe("allow-downloads");
+    const srcdoc = buildWidgetSrcDoc(widget);
+    expect(srcdoc).toContain("script-src 'none'");
+    expect(srcdoc).not.toContain("window.piclawWidget");
   });
 
   test("live widget empty-state messaging reflects loading and error status", () => {

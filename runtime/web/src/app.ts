@@ -2706,6 +2706,35 @@ function MainApp({ locationParams }) {
         });
     }, []);
 
+    const handleFloatingWidgetEvent = useCallback((event, widget) => {
+        const kind = typeof event?.kind === 'string' ? event.kind : '';
+        const sessionKey = getGeneratedWidgetSessionKey(widget);
+        if (!kind || !sessionKey) return;
+
+        if (kind === 'widget.close') {
+            handleCloseFloatingWidget();
+            return;
+        }
+
+        if (kind === 'widget.ready' || kind === 'widget.submit' || kind === 'widget.request_refresh') {
+            setFloatingWidget((current) => {
+                const currentKey = getGeneratedWidgetSessionKey(current);
+                if (!current || currentKey !== sessionKey) return current;
+                return {
+                    ...current,
+                    runtimeState: {
+                        ...(current.runtimeState || {}),
+                        lastEventKind: kind,
+                        lastEventPayload: event?.payload || null,
+                        ...(kind === 'widget.ready' ? { readyAt: new Date().toISOString() } : {}),
+                        ...(kind === 'widget.submit' ? { lastSubmitAt: new Date().toISOString() } : {}),
+                        ...(kind === 'widget.request_refresh' ? { lastRefreshRequestAt: new Date().toISOString() } : {}),
+                    },
+                };
+            });
+        }
+    }, [handleCloseFloatingWidget]);
+
     useEffect(() => {
         dismissedLiveWidgetKeysRef.current.clear();
         setFloatingWidget(null);
@@ -3023,6 +3052,7 @@ function MainApp({ locationParams }) {
                 <${FloatingWidgetPane}
                     widget=${floatingWidget}
                     onClose=${handleCloseFloatingWidget}
+                    onWidgetEvent=${handleFloatingWidgetEvent}
                 />
                 <${ComposeBox}
                     onPost=${() => {

@@ -1,8 +1,16 @@
 // @ts-nocheck
-import { html, useEffect, useMemo } from '../vendor/preact-htm.js';
-import { buildWidgetSrcDoc, getGeneratedWidgetEmptyStateMessage } from '../ui/generated-widget.js';
+import { html, useEffect, useMemo, useRef } from '../vendor/preact-htm.js';
+import {
+    buildWidgetSrcDoc,
+    getGeneratedWidgetEmptyStateMessage,
+    getGeneratedWidgetIframeSandbox,
+    getGeneratedWidgetInitPayload,
+    getGeneratedWidgetSessionKey,
+} from '../ui/generated-widget.js';
 
-export function FloatingWidgetPane({ widget, onClose }) {
+export function FloatingWidgetPane({ widget, onClose, onWidgetEvent }) {
+    const frameRef = useRef(null);
+
     useEffect(() => {
         if (!widget) return undefined;
         const handleEsc = (e) => {
@@ -11,6 +19,50 @@ export function FloatingWidgetPane({ widget, onClose }) {
         document.addEventListener('keydown', handleEsc);
         return () => document.removeEventListener('keydown', handleEsc);
     }, [widget, onClose]);
+
+    useEffect(() => {
+        if (!widget) return undefined;
+        const iframe = frameRef.current;
+        if (!iframe) return undefined;
+
+        const sendInit = () => {
+            try {
+                iframe.contentWindow?.postMessage({
+                    __piclawGeneratedWidgetHost: true,
+                    type: 'widget.init',
+                    widgetId: widget?.widgetId || null,
+                    toolCallId: widget?.toolCallId || null,
+                    turnId: widget?.turnId || null,
+                    payload: getGeneratedWidgetInitPayload(widget),
+                }, '*');
+            } catch {}
+        };
+
+        iframe.addEventListener('load', sendInit);
+        return () => iframe.removeEventListener('load', sendInit);
+    }, [widget]);
+
+    useEffect(() => {
+        if (!widget) return undefined;
+        const handleMessage = (event) => {
+            const iframe = frameRef.current;
+            if (!iframe?.contentWindow || event.source !== iframe.contentWindow) return;
+            const data = event?.data;
+            if (!data || data.__piclawGeneratedWidget !== true) return;
+
+            const incomingKey = getGeneratedWidgetSessionKey({
+                widgetId: data.widgetId,
+                toolCallId: data.toolCallId,
+            });
+            const currentKey = getGeneratedWidgetSessionKey(widget);
+            if (incomingKey && currentKey && incomingKey !== currentKey) return;
+
+            onWidgetEvent?.(data, widget);
+        };
+
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, [widget, onWidgetEvent]);
 
     const srcDoc = useMemo(() => buildWidgetSrcDoc(widget), [widget]);
     if (!widget) return null;
@@ -27,6 +79,7 @@ export function FloatingWidgetPane({ widget, onClose }) {
     const description = typeof widget?.description === 'string' && widget.description.trim() ? widget.description.trim() : '';
     const emptyState = !srcDoc;
     const emptyMessage = getGeneratedWidgetEmptyStateMessage(widget);
+    const sandbox = getGeneratedWidgetIframeSandbox(widget);
 
     return html`
         <div class="floating-widget-backdrop" onClick=${() => onClose?.()}>
@@ -58,9 +111,10 @@ export function FloatingWidgetPane({ widget, onClose }) {
                         ? html`<div class="floating-widget-empty">${emptyMessage}</div>`
                         : html`
                             <iframe
+                                ref=${frameRef}
                                 class="floating-widget-frame"
                                 title=${title}
-                                sandbox="allow-downloads"
+                                sandbox=${sandbox}
                                 referrerpolicy="no-referrer"
                                 srcdoc=${srcDoc}
                             ></iframe>
