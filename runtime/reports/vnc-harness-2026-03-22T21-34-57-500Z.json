@@ -1,0 +1,125 @@
+{
+  "startedAt": "2026-03-22T21:34:56.593Z",
+  "finishedAt": "2026-03-22T21:34:57.586Z",
+  "baseUrl": "http://127.0.0.1:8791",
+  "args": {
+    "target": "192.168.1.10:5917",
+    "password": "***len:8***",
+    "host": "127.0.0.1",
+    "port": 8791,
+    "liveWaitMs": 8000,
+    "encodings": ""
+  },
+  "synthetic": {
+    "at": "2026-03-22T21:34:56.991Z",
+    "cases": [
+      {
+        "name": "raw",
+        "pass": true,
+        "detail": "1x1 raw red pixel decoded"
+      },
+      {
+        "name": "rre",
+        "pass": true,
+        "detail": "RRE background + subrect decoded"
+      },
+      {
+        "name": "copyrect",
+        "pass": true,
+        "detail": "CopyRect copied 2x2 block"
+      },
+      {
+        "name": "hextile",
+        "pass": true,
+        "detail": "Hextile background + single subrect decoded"
+      },
+      {
+        "name": "zrle",
+        "pass": true,
+        "detail": "ZRLE decoded compressed tile (13 byte payload)"
+      },
+      {
+        "name": "desktop-size",
+        "pass": true,
+        "detail": "DesktopSize resized framebuffer to 3x4"
+      }
+    ],
+    "summary": {
+      "total": 6,
+      "passed": 6,
+      "failed": 0
+    }
+  },
+  "snapshot": {
+    "target": "192.168.1.10:5917",
+    "connectedAt": "2026-03-22T21:34:56.983Z",
+    "firstDisplayInitAt": "2026-03-22T21:34:56.988Z",
+    "firstFramebufferAt": null,
+    "lastError": "unexpected EOF",
+    "protocolState": "connected",
+    "stats": {
+      "startedAt": "2026-03-22T21:34:56.915Z",
+      "bytesIn": 186827,
+      "bytesOut": 103,
+      "frames": 0,
+      "rects": 0,
+      "clipboardEvents": 0,
+      "bellEvents": 0,
+      "protocolEvents": {
+        "protocol-version": 1,
+        "security-types": 1,
+        "security-selected": 1,
+        "security-result": 1,
+        "display-init": 1
+      },
+      "logs": [
+        "[2026-03-22T21:34:56.915Z] Harness booted. target=192.168.1.10:5917 ws=/bridge",
+        "[2026-03-22T21:34:56.924Z] Connecting websocket to ws://127.0.0.1:8791/bridge",
+        "[2026-03-22T21:34:56.983Z] websocket.open",
+        "[2026-03-22T21:34:56.984Z] control.vnc.connected target=192.168.1.10:5917",
+        "[2026-03-22T21:34:56.985Z] protocol-version server=RFB 003.008 client=RFB 003.008",
+        "[2026-03-22T21:34:56.986Z] control.pong",
+        "[2026-03-22T21:34:56.986Z] security-types [2]",
+        "[2026-03-22T21:34:56.986Z] security-selected VNC Authentication",
+        "[2026-03-22T21:34:56.988Z] security-result ok=true",
+        "[2026-03-22T21:34:56.988Z] display-init width=1280 height=1024 name=QEMU (winagent)",
+        "[2026-03-22T21:34:56.991Z] synthetic-suite done 6/6 passed",
+        "[2026-03-22T21:34:57.023Z] protocol.error unexpected EOF"
+      ]
+    },
+    "syntheticResults": [
+      {
+        "name": "raw",
+        "pass": true,
+        "detail": "1x1 raw red pixel decoded"
+      },
+      {
+        "name": "rre",
+        "pass": true,
+        "detail": "RRE background + subrect decoded"
+      },
+      {
+        "name": "copyrect",
+        "pass": true,
+        "detail": "CopyRect copied 2x2 block"
+      },
+      {
+        "name": "hextile",
+        "pass": true,
+        "detail": "Hextile background + single subrect decoded"
+      },
+      {
+        "name": "zrle",
+        "pass": true,
+        "detail": "ZRLE decoded compressed tile (13 byte payload)"
+      },
+      {
+        "name": "desktop-size",
+        "pass": true,
+        "detail": "DesktopSize resized framebuffer to 3x4"
+      }
+    ]
+  },
+  "consoleLines": [],
+  "screenshotPath": "/workspace/piclaw/runtime/reports/vnc-harness-2026-03-22T21-34-57-500Z.png"
+}

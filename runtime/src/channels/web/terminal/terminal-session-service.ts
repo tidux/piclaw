@@ -12,6 +12,10 @@ export interface TerminalSessionOwner {
   userId: string;
 }
 
+export interface TerminalSocketData extends TerminalSessionOwner {
+  kind: "terminal";
+}
+
 export interface TerminalClientMessageInput {
   type: "input";
   data: string;
@@ -24,8 +28,6 @@ export interface TerminalClientMessageResize {
 }
 
 export type TerminalClientMessage = TerminalClientMessageInput | TerminalClientMessageResize;
-
-export type TerminalSocketData = TerminalSessionOwner;
 
 interface TerminalProcessLike {
   stdin: { write(chunk: string | Uint8Array): void; end?(): void };
@@ -189,15 +191,15 @@ export class TerminalSessionService {
     this.spawnProcess = options.spawnProcess ?? defaultSpawnProcess;
   }
 
-  resolveOwnerFromRequest(req: Request, allowUnauthenticated = false): TerminalSessionOwner | null {
+  resolveOwnerFromRequest(req: Request, allowUnauthenticated = false): TerminalSocketData | null {
     const token = getSessionTokenFromRequest(req);
     if (token) {
       const session = getWebSession(token);
       if (session) {
-        return { token, userId: session.user_id };
+        return { kind: "terminal", token, userId: session.user_id };
       }
     }
-    return allowUnauthenticated ? { ...FALLBACK_TERMINAL_OWNER } : null;
+    return allowUnauthenticated ? { kind: "terminal", ...FALLBACK_TERMINAL_OWNER } : null;
   }
 
   getSessionInfo(owner: TerminalSessionOwner) {

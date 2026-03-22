@@ -133,6 +133,7 @@ export interface WebChannelLike
   handleAvatar(kind: "agent" | "user", req: Request): Promise<Response>;
   handleSse(req: Request): Response;
   handleTerminalSession(req: Request): Response;
+  handleVncSession(req: Request): Response;
   handleAgents(): Promise<Response>;
 
   handleWorkspaceVisibility(req: Request): Promise<Response>;

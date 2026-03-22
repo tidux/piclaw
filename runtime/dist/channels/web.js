@@ -50,6 +50,7 @@ import { createWebChannelEndpointContexts, } from "./web/channel-endpoint-contex
 import { createInteractionBroadcaster } from "./web/interaction-broadcaster.js";
 import { WebAuthGateway } from "./web/auth-gateway.js";
 import { TerminalSessionService } from "./web/terminal/terminal-session-service.js";
+import { VncSessionService } from "./web/vnc/vnc-session-service.js";
 import { RemoteInteropService } from "../remote/service.js";
 const DEFAULT_CHAT_JID = "web:default";
 const DEFAULT_AGENT_ID = "default";
@@ -65,7 +66,6 @@ function parseSidePromptPayload(payload) {
         chatJid: typeof payload.chat_jid === "string" && payload.chat_jid.trim() ? payload.chat_jid.trim() : DEFAULT_CHAT_JID,
     };
 }
-/** Web channel: HTTP/SSE server, API endpoints, and agent event bridge. */
 export class WebChannel {
     queue;
     agentPool;
@@ -91,6 +91,7 @@ export class WebChannel {
     agentBuffers = new AgentBuffers();
     authGateway;
     terminalService = new TerminalSessionService();
+    vncService = new VncSessionService();
     linkPreviewCachePurgeTimer = null;
     constructor(opts) {
         this.queue = opts.queue;
@@ -149,9 +150,27 @@ export class WebChannel {
             maxRequestBodySize: 512 * 1024 * 1024, // 512 MB hard cap
             fetch: (req, server) => this.handleFetch(req, server),
             websocket: {
-                open: (ws) => this.terminalService.attachClient(ws),
-                message: (ws, message) => this.terminalService.handleMessage(ws, message),
-                close: (ws) => this.terminalService.detachClient(ws),
+                open: (ws) => {
+                    if (ws.data?.kind === "vnc") {
+                        this.vncService.attachClient(ws);
+                        return;
+                    }
+                    this.terminalService.attachClient(ws);
+                },
+                message: (ws, message) => {
+                    if (ws.data?.kind === "vnc") {
+                        this.vncService.handleMessage(ws, message);
+                        return;
+                    }
+                    this.terminalService.handleMessage(ws, message);
+                },
+                close: (ws) => {
+                    if (ws.data?.kind === "vnc") {
+                        this.vncService.detachClient(ws);
+                        return;
+                    }
+                    this.terminalService.detachClient(ws);
+                },
             },
             ...(tls ? { tls } : {}),
         });
@@ -171,6 +190,7 @@ export class WebChannel {
         this.sse.closeAll();
         this.uiBridge.stop();
         this.terminalService.shutdown();
+        this.vncService.shutdown();
         if (this.linkPreviewCachePurgeTimer) {
             clearInterval(this.linkPreviewCachePurgeTimer);
             this.linkPreviewCachePurgeTimer = null;
@@ -417,6 +437,9 @@ export class WebChannel {
         if (pathname === "/terminal/ws") {
             return this.handleTerminalWebSocketUpgrade(req, server);
         }
+        if (pathname === "/vnc/ws") {
+            return this.handleVncWebSocketUpgrade(req, server);
+        }
         return this.handleRequest(req);
     }
     handleTerminalWebSocketUpgrade(req, server) {
@@ -433,6 +456,28 @@ export class WebChannel {
         const owner = this.terminalService.resolveOwnerFromRequest(req, !authEnabled);
         if (!owner) {
             return this.json({ error: "Unauthorized" }, 401);
+        }
+        if (!server?.upgrade(req, { data: owner })) {
+            return this.json({ error: "WebSocket upgrade failed" }, 400);
+        }
+        return undefined;
+    }
+    handleVncWebSocketUpgrade(req, server) {
+        const url = new URL(req.url);
+        const targetId = url.searchParams.get("target")?.trim() || "";
+        if (!targetId) {
+            return this.json({ error: "Missing VNC target." }, 400);
+        }
+        const authEnabled = this.authGateway.isAuthEnabled();
+        if (authEnabled && !this.authGateway.isAuthenticated(req)) {
+            return this.json({ error: "Unauthorized" }, 401);
+        }
+        if (!checkCsrfOrigin(req)) {
+            return this.json({ error: "Origin not allowed" }, 403);
+        }
+        const owner = this.vncService.resolveOwnerFromRequest(req, targetId, !authEnabled);
+        if (!owner) {
+            return this.json({ error: "Unauthorized or unknown/disallowed VNC target" }, 401);
         }
         if (!server?.upgrade(req, { data: owner })) {
             return this.json({ error: "WebSocket upgrade failed" }, 400);
@@ -535,6 +580,18 @@ export class WebChannel {
             return this.json({ error: "Unauthorized" }, 401);
         }
         return this.json(this.terminalService.getSessionInfo(owner));
+    }
+    handleVncSession(req) {
+        const url = new URL(req.url);
+        const targetId = url.searchParams.get("target")?.trim() || "";
+        const authEnabled = this.authGateway.isAuthEnabled();
+        if (authEnabled && !this.authGateway.isAuthenticated(req)) {
+            return this.json({ error: "Unauthorized" }, 401);
+        }
+        if (targetId && !this.vncService.resolveTargetReference(targetId)) {
+            return this.json({ error: "Unknown or disallowed VNC target", ...this.vncService.getSessionInfo() }, 404);
+        }
+        return this.json(this.vncService.getSessionInfo(targetId || null), 200);
     }
     broadcastEvent(eventType, data) {
         this.sse.broadcast(eventType, data);

@@ -24,7 +24,7 @@ import { Timeline } from './components/timeline.js';
 import { WorkspaceExplorer } from './components/workspace-explorer.js';
 import { TabStrip } from './components/tab-strip.js';
 import { MarkdownPreview } from './components/markdown-preview.js';
-import { paneRegistry, editorPaneExtension, preloadEditorBundle, terminalPaneExtension, terminalTabPaneExtension, TERMINAL_TAB_PATH, workspacePreviewPaneExtension, workspaceMarkdownPreviewPaneExtension, officeViewerPaneExtension, csvViewerPaneExtension, pdfViewerPaneExtension, imageViewerPaneExtension, videoViewerPaneExtension, drawioPaneExtension, tabStore } from './panes/index.js';
+import { paneRegistry, editorPaneExtension, preloadEditorBundle, terminalPaneExtension, terminalTabPaneExtension, TERMINAL_TAB_PATH, vncPaneExtension, VNC_TAB_PREFIX, workspacePreviewPaneExtension, workspaceMarkdownPreviewPaneExtension, officeViewerPaneExtension, csvViewerPaneExtension, pdfViewerPaneExtension, imageViewerPaneExtension, videoViewerPaneExtension, drawioPaneExtension, tabStore } from './panes/index.js';
 import { getLocalStorageBoolean, getLocalStorageItem, getLocalStorageNumber, setLocalStorageItem } from './utils/storage.js';
 import { useSseConnection } from './ui/use-sse-connection.js';
 import { useNotifications } from './ui/use-notifications.js';
@@ -49,9 +49,11 @@ import { parseBtwCommand, buildBtwInjectionText, resolveBtwChatJid } from './ui/
 import {
     buildBranchLoaderUrl,
     buildChatWindowUrl,
+    buildPanePopoutUrl,
     closeProvisionalChatWindow,
     describeBranchOpenError,
     getChatWindowOpenOptions,
+    getPaneWindowOpenOptions,
     navigateProvisionalChatWindow,
     openProvisionalChatWindow,
     isStandaloneWebAppMode,
@@ -164,6 +166,7 @@ paneRegistry.register(pdfViewerPaneExtension);
 paneRegistry.register(imageViewerPaneExtension);
 paneRegistry.register(videoViewerPaneExtension);
 paneRegistry.register(drawioPaneExtension);
+paneRegistry.register(vncPaneExtension);
 // Preload the editor bundle in the background so first file open is instant
 preloadEditorBundle();
 
@@ -180,6 +183,18 @@ function MainApp({ locationParams, navigate }) {
     const chatOnlyMode = useMemo(() => {
         const raw = (locationParams.get('chat_only') || locationParams.get('chat-only') || '').trim().toLowerCase();
         return raw === '1' || raw === 'true' || raw === 'yes';
+    }, [locationParams]);
+    const panePopoutMode = useMemo(() => {
+        const raw = (locationParams.get('pane_popout') || '').trim().toLowerCase();
+        return raw === '1' || raw === 'true' || raw === 'yes';
+    }, [locationParams]);
+    const panePopoutPath = useMemo(() => {
+        const raw = locationParams.get('pane_path');
+        return raw && raw.trim() ? raw.trim() : '';
+    }, [locationParams]);
+    const panePopoutLabel = useMemo(() => {
+        const raw = locationParams.get('pane_label');
+        return raw && raw.trim() ? raw.trim() : '';
     }, [locationParams]);
     const branchLoaderMode = useMemo(() => {
         const raw = (locationParams.get('branch_loader') || '').trim().toLowerCase();
@@ -298,7 +313,30 @@ function MainApp({ locationParams, navigate }) {
     const openTerminalTab = useCallback(() => {
         openEditor(TERMINAL_TAB_PATH, { label: 'Terminal' });
     }, [openEditor]);
-    const showEditorPaneContainer = !chatOnlyMode && (editorOpen || (hasDockPanes && dockVisible));
+    const openVncTab = useCallback(() => {
+        openEditor(VNC_TAB_PREFIX, { label: 'VNC' });
+    }, [openEditor]);
+    const activePaneTab = useMemo(
+        () => tabStripTabs.find((tab) => tab.id === tabStripActiveId) || tabStripTabs[0] || null,
+        [tabStripActiveId, tabStripTabs],
+    );
+    const panePopoutTitle = useMemo(
+        () => panePopoutLabel || activePaneTab?.label || panePopoutPath || 'Pane',
+        [activePaneTab?.label, panePopoutLabel, panePopoutPath],
+    );
+    const panePopoutHasMenuActions = useMemo(
+        () => tabStripTabs.length > 1 || Boolean(tabStripActiveId && previewTabs.has(tabStripActiveId)),
+        [previewTabs, tabStripActiveId, tabStripTabs.length],
+    );
+    const isVncPanePopout = useMemo(
+        () => panePopoutPath === VNC_TAB_PREFIX || panePopoutPath.startsWith(`${VNC_TAB_PREFIX}/`),
+        [panePopoutPath],
+    );
+    const hidePanePopoutControls = useMemo(
+        () => (panePopoutPath === TERMINAL_TAB_PATH && !panePopoutHasMenuActions) || isVncPanePopout,
+        [isVncPanePopout, panePopoutHasMenuActions, panePopoutPath],
+    );
+    const showEditorPaneContainer = panePopoutMode || (!chatOnlyMode && (editorOpen || (hasDockPanes && dockVisible)));
 
     // ── Zen mode ────────────────────────────────────────────────
     const [zenMode, setZenMode] = useState(false);
@@ -331,6 +369,13 @@ function MainApp({ locationParams, navigate }) {
     useEffect(() => {
         if (zenMode && !editorOpen) exitZenMode();
     }, [zenMode, editorOpen, exitZenMode]);
+
+    useEffect(() => {
+        if (!panePopoutMode || !panePopoutPath) return;
+        const activeId = tabStore.getActiveId();
+        if (activeId === panePopoutPath) return;
+        openEditor(panePopoutPath, panePopoutLabel ? { label: panePopoutLabel } : undefined);
+    }, [openEditor, panePopoutLabel, panePopoutMode, panePopoutPath]);
 
     // Mount/dispose editor extension instance when active tab changes
     useEffect(() => {
@@ -395,28 +440,6 @@ function MainApp({ locationParams, navigate }) {
             }
         };
     }, [tabStripActiveId, closeEditor]);
-
-    // Listen for preview-card "Open in Tab" button clicks
-    useEffect(() => {
-        const handler = (e: CustomEvent) => {
-            const path = e.detail?.path;
-            if (path) openEditor(path);
-        };
-        document.addEventListener('office-viewer:open-tab', handler);
-        document.addEventListener('drawio:open-tab', handler);
-        document.addEventListener('csv-viewer:open-tab', handler);
-        document.addEventListener('pdf-viewer:open-tab', handler);
-        document.addEventListener('image-viewer:open-tab', handler);
-        document.addEventListener('video-viewer:open-tab', handler);
-        return () => {
-            document.removeEventListener('office-viewer:open-tab', handler);
-            document.removeEventListener('drawio:open-tab', handler);
-            document.removeEventListener('csv-viewer:open-tab', handler);
-            document.removeEventListener('pdf-viewer:open-tab', handler);
-            document.removeEventListener('image-viewer:open-tab', handler);
-            document.removeEventListener('video-viewer:open-tab', handler);
-        };
-    }, [openEditor]);
 
     useEffect(() => {
         const container = dockContainerRef.current;
@@ -3004,6 +3027,83 @@ function MainApp({ locationParams, navigate }) {
         }
     }, [chatOnlyMode, currentChatJid, navigate, refreshActiveChatAgents, refreshCurrentChatBranches, showIntentToast]);
 
+    const handlePopOutPane = useCallback((path, label) => {
+        if (typeof window === 'undefined' || isWebAppMode) return;
+        const panePath = typeof path === 'string' && path.trim() ? path.trim() : '';
+        if (!panePath) return;
+
+        const closeSourceTabIfTransferred = () => {
+            const sourceTab = tabStore.get(panePath);
+            if (!sourceTab || sourceTab.dirty) return;
+            handleTabClose(panePath);
+        };
+
+        const openOptions = getPaneWindowOpenOptions(panePath);
+        if (!openOptions) {
+            showIntentToast('Could not open pane window', 'Opening pane windows is unavailable in standalone webapp mode.', 'warning', 5000);
+            return;
+        }
+
+        const popoutUrl = buildPanePopoutUrl(window.location.href, panePath, {
+            label: typeof label === 'string' && label.trim() ? label.trim() : undefined,
+            chatJid: currentChatJid,
+        });
+
+        if (openOptions.mode === 'tab') {
+            const opened = window.open(popoutUrl, openOptions.target);
+            if (!opened) {
+                showIntentToast('Could not open pane window', 'The browser blocked opening a new tab or window.', 'warning', 5000);
+                return;
+            }
+            closeSourceTabIfTransferred();
+            return;
+        }
+
+        const provisionalWindow = openProvisionalChatWindow(openOptions);
+        if (!provisionalWindow) {
+            showIntentToast('Could not open pane window', 'The browser blocked opening a new tab or window.', 'warning', 5000);
+            return;
+        }
+        primeProvisionalChatWindow(provisionalWindow, {
+            title: typeof label === 'string' && label.trim() ? `Opening ${label}…` : 'Opening pane…',
+            message: 'Preparing a standalone pane window. This should only take a moment.',
+        });
+        navigateProvisionalChatWindow(provisionalWindow, popoutUrl);
+        closeSourceTabIfTransferred();
+    }, [currentChatJid, handleTabClose, isWebAppMode, showIntentToast]);
+
+    // Listen for preview-card / pane events that request opening a tab or standalone pane window.
+    useEffect(() => {
+        const openTabHandler = (e: CustomEvent) => {
+            const path = e.detail?.path;
+            const label = typeof e.detail?.label === 'string' && e.detail.label.trim() ? e.detail.label.trim() : undefined;
+            if (path) openEditor(path, label ? { label } : undefined);
+        };
+        const popoutHandler = (e: CustomEvent) => {
+            const path = e.detail?.path;
+            const label = typeof e.detail?.label === 'string' && e.detail.label.trim() ? e.detail.label.trim() : undefined;
+            if (path) handlePopOutPane(path, label);
+        };
+        document.addEventListener('office-viewer:open-tab', openTabHandler);
+        document.addEventListener('drawio:open-tab', openTabHandler);
+        document.addEventListener('csv-viewer:open-tab', openTabHandler);
+        document.addEventListener('pdf-viewer:open-tab', openTabHandler);
+        document.addEventListener('image-viewer:open-tab', openTabHandler);
+        document.addEventListener('video-viewer:open-tab', openTabHandler);
+        document.addEventListener('vnc:open-tab', openTabHandler);
+        document.addEventListener('pane:popout', popoutHandler);
+        return () => {
+            document.removeEventListener('office-viewer:open-tab', openTabHandler);
+            document.removeEventListener('drawio:open-tab', openTabHandler);
+            document.removeEventListener('csv-viewer:open-tab', openTabHandler);
+            document.removeEventListener('pdf-viewer:open-tab', openTabHandler);
+            document.removeEventListener('image-viewer:open-tab', openTabHandler);
+            document.removeEventListener('video-viewer:open-tab', openTabHandler);
+            document.removeEventListener('vnc:open-tab', openTabHandler);
+            document.removeEventListener('pane:popout', popoutHandler);
+        };
+    }, [handlePopOutPane, openEditor]);
+
     const handlePopOutChat = useCallback(async () => {
         if (typeof window === 'undefined' || isWebAppMode) return;
 
@@ -3122,6 +3222,75 @@ function MainApp({ locationParams, navigate }) {
         `;
     }
 
+    if (panePopoutMode) {
+        return html`
+            <div class=${`app-shell pane-popout${editorOpen ? ' editor-open' : ''}`} ref=${appShellRef}>
+                <div class="editor-pane-container pane-popout-container">
+                    ${editorOpen && !hidePanePopoutControls && html`
+                        <div class="pane-popout-controls" role="toolbar" aria-label="Pane window controls">
+                            ${panePopoutHasMenuActions
+                                ? html`
+                                    <details class="pane-popout-controls-menu">
+                                        <summary class="pane-popout-controls-trigger" aria-label="Pane window controls">
+                                            <span class="pane-popout-controls-title">${panePopoutTitle}</span>
+                                            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <polyline points="4.5 6.5 8 10 11.5 6.5" />
+                                            </svg>
+                                        </summary>
+                                        <div class="pane-popout-controls-panel">
+                                            ${tabStripTabs.length > 1 && html`
+                                                <div class="pane-popout-controls-section">
+                                                    <div class="pane-popout-controls-section-title">Open panes</div>
+                                                    <div class="pane-popout-controls-list">
+                                                        ${tabStripTabs.map((tab) => html`
+                                                            <button
+                                                                type="button"
+                                                                class=${`pane-popout-controls-item${tab.id === tabStripActiveId ? ' active' : ''}`}
+                                                                onClick=${(e) => {
+                                                                    handleTabActivate(tab.id);
+                                                                    e.currentTarget.closest('details')?.removeAttribute('open');
+                                                                }}
+                                                            >
+                                                                ${tab.label}
+                                                            </button>
+                                                        `)}
+                                                    </div>
+                                                </div>
+                                            `}
+                                            ${tabStripActiveId && previewTabs.has(tabStripActiveId) && html`
+                                                <button type="button" class="pane-popout-controls-action" onClick=${(e) => {
+                                                    handleTabTogglePreview(tabStripActiveId);
+                                                    e.currentTarget.closest('details')?.removeAttribute('open');
+                                                }}>
+                                                    Hide preview
+                                                </button>
+                                            `}
+                                        </div>
+                                    </details>
+                                `
+                                : html`
+                                    <div class="pane-popout-controls-label" aria-label=${panePopoutTitle}>${panePopoutTitle}</div>
+                                `}
+                        </div>
+                    `}
+                    ${editorOpen
+                        ? html`<div class="editor-pane-host" ref=${editorContainerRef}></div>`
+                        : html`<div class="card" style=${{ margin: '24px', padding: '24px', maxWidth: '640px' }}>
+                            <h1 style=${{ margin: '0 0 12px', fontSize: '1.1rem' }}>Opening pane…</h1>
+                            <p style=${{ margin: 0, lineHeight: 1.6 }}>${panePopoutPath || 'No pane path provided.'}</p>
+                        </div>`}
+                    ${editorOpen && tabStripActiveId && previewTabs.has(tabStripActiveId) && html`
+                        <${MarkdownPreview}
+                            getContent=${() => editorInstanceRef.current?.getContent?.()}
+                            path=${tabStripActiveId}
+                            onClose=${() => handleTabTogglePreview(tabStripActiveId)}
+                        />
+                    `}
+                </div>
+            </div>
+        `;
+    }
+
     return html`
         <div class=${`app-shell${workspaceOpen ? '' : ' workspace-collapsed'}${editorOpen ? ' editor-open' : ''}${chatOnlyMode ? ' chat-only' : ''}${zenMode ? ' zen-mode' : ''}`} ref=${appShellRef}>
             ${!chatOnlyMode && html`
@@ -3131,6 +3300,7 @@ function MainApp({ locationParams, navigate }) {
                     active=${workspaceOpen || editorOpen}
                     onOpenEditor=${openEditor}
                     onOpenTerminalTab=${openTerminalTab}
+                    onOpenVncTab=${openVncTab}
                     onToggleTerminal=${hasDockPanes ? toggleDock : undefined}
                     terminalVisible=${Boolean(hasDockPanes && dockVisible)}
                 />
@@ -3164,6 +3334,7 @@ function MainApp({ locationParams, navigate }) {
                             dockVisible=${hasDockPanes && dockVisible}
                             onToggleZen=${toggleZenMode}
                             zenMode=${zenMode}
+                            onPopOutTab=${isWebAppMode ? undefined : handlePopOutPane}
                         />
                     `}
                     ${editorOpen && html`<div class="editor-pane-host" ref=${editorContainerRef}></div>`}
@@ -3178,12 +3349,23 @@ function MainApp({ locationParams, navigate }) {
                     ${hasDockPanes && html`<div class=${`dock-panel${dockVisible ? '' : ' hidden'}`}>
                         <div class="dock-panel-header">
                             <span class="dock-panel-title">Terminal</span>
-                            <button class="dock-panel-close" onClick=${toggleDock} title="Hide terminal (Ctrl+\`)" aria-label="Hide terminal">
-                                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-                                    <line x1="4" y1="4" x2="12" y2="12"/>
-                                    <line x1="12" y1="4" x2="4" y2="12"/>
-                                </svg>
-                            </button>
+                            <div class="dock-panel-actions">
+                                ${!isWebAppMode && html`
+                                    <button class="dock-panel-action" onClick=${() => handlePopOutPane(TERMINAL_TAB_PATH, 'Terminal')} title="Open terminal in window" aria-label="Open terminal in window">
+                                        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <rect x="2.25" y="2.25" width="8.5" height="8.5" rx="1.5"/>
+                                            <path d="M8.5 2.25h5.25v5.25"/>
+                                            <path d="M13.75 2.25 7.75 8.25"/>
+                                        </svg>
+                                    </button>
+                                `}
+                                <button class="dock-panel-close" onClick=${toggleDock} title="Hide terminal (Ctrl+\`)" aria-label="Hide terminal">
+                                    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                                        <line x1="4" y1="4" x2="12" y2="12"/>
+                                        <line x1="12" y1="4" x2="4" y2="12"/>
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
                         <div class="dock-panel-body" ref=${dockContainerRef}></div>
                     </div>`}

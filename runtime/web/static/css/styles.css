@@ -1050,6 +1050,146 @@ body {
 
 
 /* Compact chat when editor is open */
+.app-shell.pane-popout {
+    display: flex;
+    background: var(--bg-primary);
+}
+
+.app-shell.pane-popout .editor-pane-container {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: 100%;
+    flex: 1;
+    position: relative;
+}
+
+.app-shell.pane-popout .editor-pane-host {
+    min-height: 0;
+}
+
+.pane-popout-controls {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 12;
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity var(--ui-transition-fast), transform var(--ui-transition-fast);
+    pointer-events: none;
+}
+
+.app-shell.pane-popout .editor-pane-container:hover .pane-popout-controls,
+.app-shell.pane-popout .editor-pane-container:focus-within .pane-popout-controls,
+.pane-popout-controls:focus-within {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.pane-popout-controls-menu {
+    position: relative;
+}
+
+.pane-popout-controls-label,
+.pane-popout-controls-trigger {
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    max-width: min(60vw, 320px);
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--border-color) 88%, transparent);
+    background: color-mix(in srgb, var(--bg-secondary) 84%, transparent);
+    color: var(--text-primary);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.pane-popout-controls-trigger::-webkit-details-marker {
+    display: none;
+}
+
+.pane-popout-controls-label {
+    cursor: default;
+}
+
+.pane-popout-controls-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.pane-popout-controls-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 220px;
+    max-width: min(70vw, 320px);
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.22);
+}
+
+.pane-popout-controls-section {
+    display: grid;
+    gap: 8px;
+}
+
+.pane-popout-controls-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.pane-popout-controls-list {
+    display: grid;
+    gap: 6px;
+}
+
+.pane-popout-controls-item,
+.pane-popout-controls-action {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+}
+
+.pane-popout-controls-item:hover,
+.pane-popout-controls-item:focus-visible,
+.pane-popout-controls-action:hover,
+.pane-popout-controls-action:focus-visible {
+    background: var(--bg-hover);
+}
+
+.pane-popout-controls-item.active {
+    background: color-mix(in srgb, var(--accent-color) 14%, transparent);
+    border-color: color-mix(in srgb, var(--accent-color) 28%, transparent);
+}
+
 .app-shell.editor-open > .container {
     font-size: 0.8em;
 }
@@ -1656,6 +1796,13 @@ body {
     letter-spacing: 0.03em;
 }
 
+.dock-panel-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.dock-panel-action,
 .dock-panel-close {
     display: inline-flex;
     align-items: center;
@@ -1677,11 +1824,15 @@ body {
     transition: opacity var(--ui-transition-fast), background-color var(--ui-transition-fast), color var(--ui-transition-fast);
 }
 
+.dock-panel-action > svg,
+.dock-panel-action > svg *,
 .dock-panel-close > svg,
 .dock-panel-close > svg * {
     pointer-events: none;
 }
 
+.dock-panel-action:hover,
+.dock-panel-action:focus-visible,
 .dock-panel-close:hover,
 .dock-panel-close:focus-visible {
     background: var(--bg-hover);

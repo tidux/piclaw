@@ -10,6 +10,7 @@ export type { PanePlacement, PaneCapability, PaneContext, PaneInstance, WebPaneE
 export { paneRegistry } from './pane-registry.js';
 export { editorPaneExtension, preloadEditorBundle } from './editor-loader.js';
 export { terminalPaneExtension, terminalTabPaneExtension, TERMINAL_TAB_PATH } from './terminal-pane.js';
+export { vncPaneExtension, VNC_TAB_PREFIX, buildVncTabPath } from './vnc-pane.js';
 export { workspacePreviewPaneExtension, workspaceMarkdownPreviewPaneExtension } from './workspace-preview-pane.js';
 export { officeViewerPaneExtension } from './office-viewer-pane.js';
 export { csvViewerPaneExtension } from './csv-viewer-pane.js';

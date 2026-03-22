@@ -149,10 +149,10 @@ export class TerminalSessionService {
         if (token) {
             const session = getWebSession(token);
             if (session) {
-                return { token, userId: session.user_id };
+                return { kind: "terminal", token, userId: session.user_id };
             }
         }
-        return allowUnauthenticated ? { ...FALLBACK_TERMINAL_OWNER } : null;
+        return allowUnauthenticated ? { kind: "terminal", ...FALLBACK_TERMINAL_OWNER } : null;
     }
     getSessionInfo(owner) {
         const session = this.sessions.get(owner.token);

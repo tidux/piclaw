@@ -89,6 +89,15 @@ test("static helpers serve files and not-found", async () => {
   const okRes = await serveStatic("index.html", () => new Response("nope", { status: 404 }));
   expect(okRes.status).toBe(200);
   expect(okRes.headers.get("Content-Type")).toContain("text/html");
+  expect(okRes.headers.get("Cache-Control")).toBe("no-cache, no-store, must-revalidate");
+
+  const appBundleRes = await serveStatic("dist/app.bundle.js", () => new Response("nope", { status: 404 }));
+  expect(appBundleRes.status).toBe(200);
+  expect(appBundleRes.headers.get("Cache-Control")).toBe("no-cache, no-store, must-revalidate");
+
+  const wasmRes = await serveStatic("js/vendor/remote-display-decoder.wasm", () => new Response("nope", { status: 404 }));
+  expect(wasmRes.status).toBe(200);
+  expect(wasmRes.headers.get("Content-Type")).toBe("application/wasm");
 
   const notFound = await serveDocsStatic("missing.html", () => new Response("nope", { status: 404 }));
   expect(notFound.status).toBe(404);

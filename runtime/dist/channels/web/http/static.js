@@ -20,6 +20,7 @@ const MIME_TYPES = {
     ".svg": "image/svg+xml",
     ".woff2": "font/woff2",
     ".ico": "image/x-icon",
+    ".wasm": "application/wasm",
 };
 /** Serve a static file from the web/static directory. */
 export async function serveStatic(relPath, notFound) {
@@ -33,13 +34,13 @@ export async function serveStatic(relPath, notFound) {
     const contentType = relPath.endsWith("manifest.json")
         ? "application/manifest+json; charset=utf-8"
         : MIME_TYPES[ext] || "application/octet-stream";
-    // HTML: never cache so new deploys are picked up on next load.
-    // Dist bundles (JS/CSS): short cache, browser revalidates each visit.
+    // HTML and app dist bundles should not be cached across deploys, otherwise
+    // the SPA can keep running stale UI code after a backend reload.
     // Everything else (fonts, icons, vendor libs): 1 hour cache.
     const cacheControl = ext === ".html"
         ? "no-cache, no-store, must-revalidate"
-        : relPath.includes("/dist/")
-            ? "public, max-age=300, must-revalidate"
+        : (relPath === "dist" || relPath.startsWith("dist/") || relPath.includes("/dist/"))
+            ? "no-cache, no-store, must-revalidate"
             : "public, max-age=3600";
     return new Response(file, {
         headers: {

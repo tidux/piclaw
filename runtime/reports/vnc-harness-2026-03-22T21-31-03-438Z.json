@@ -1,0 +1,126 @@
+{
+  "startedAt": "2026-03-22T21:30:57.049Z",
+  "finishedAt": "2026-03-22T21:31:03.525Z",
+  "baseUrl": "http://127.0.0.1:8791",
+  "args": {
+    "target": "192.168.1.10:5917",
+    "password": "***len:8***",
+    "host": "127.0.0.1",
+    "port": 8791,
+    "liveWaitMs": 6000
+  },
+  "synthetic": {
+    "at": "2026-03-22T21:30:57.405Z",
+    "cases": [
+      {
+        "name": "raw",
+        "pass": true,
+        "detail": "1x1 raw red pixel decoded"
+      },
+      {
+        "name": "rre",
+        "pass": true,
+        "detail": "RRE background + subrect decoded"
+      },
+      {
+        "name": "copyrect",
+        "pass": true,
+        "detail": "CopyRect copied 2x2 block"
+      },
+      {
+        "name": "hextile",
+        "pass": true,
+        "detail": "Hextile background + single subrect decoded"
+      },
+      {
+        "name": "zrle",
+        "pass": true,
+        "detail": "ZRLE decoded compressed tile (13 byte payload)"
+      },
+      {
+        "name": "desktop-size",
+        "pass": true,
+        "detail": "DesktopSize resized framebuffer to 3x4"
+      }
+    ],
+    "summary": {
+      "total": 6,
+      "passed": 6,
+      "failed": 0
+    }
+  },
+  "snapshot": {
+    "target": "192.168.1.10:5917",
+    "connectedAt": "2026-03-22T21:30:57.385Z",
+    "firstDisplayInitAt": "2026-03-22T21:30:57.399Z",
+    "firstFramebufferAt": null,
+    "lastError": null,
+    "protocolState": "connected",
+    "stats": {
+      "startedAt": "2026-03-22T21:30:57.361Z",
+      "bytesIn": 186840,
+      "bytesOut": 103,
+      "frames": 0,
+      "rects": 0,
+      "clipboardEvents": 0,
+      "bellEvents": 0,
+      "protocolEvents": {
+        "protocol-version": 1,
+        "security-types": 1,
+        "security-selected": 1,
+        "security-result": 1,
+        "display-init": 1
+      },
+      "logs": [
+        "[2026-03-22T21:30:57.361Z] Harness booted. target=192.168.1.10:5917 ws=/bridge",
+        "[2026-03-22T21:30:57.361Z] Connecting websocket to ws://127.0.0.1:8791/bridge",
+        "[2026-03-22T21:30:57.385Z] websocket.open",
+        "[2026-03-22T21:30:57.387Z] control.vnc.connected target=192.168.1.10:5917",
+        "[2026-03-22T21:30:57.388Z] protocol-version server=RFB 003.008 client=RFB 003.008",
+        "[2026-03-22T21:30:57.388Z] control.pong",
+        "[2026-03-22T21:30:57.389Z] security-types [2]",
+        "[2026-03-22T21:30:57.389Z] security-selected VNC Authentication",
+        "[2026-03-22T21:30:57.398Z] security-result ok=true",
+        "[2026-03-22T21:30:57.399Z] display-init width=1280 height=1024 name=QEMU (winagent)",
+        "[2026-03-22T21:30:57.405Z] synthetic-suite done 6/6 passed"
+      ]
+    },
+    "syntheticResults": [
+      {
+        "name": "raw",
+        "pass": true,
+        "detail": "1x1 raw red pixel decoded"
+      },
+      {
+        "name": "rre",
+        "pass": true,
+        "detail": "RRE background + subrect decoded"
+      },
+      {
+        "name": "copyrect",
+        "pass": true,
+        "detail": "CopyRect copied 2x2 block"
+      },
+      {
+        "name": "hextile",
+        "pass": true,
+        "detail": "Hextile background + single subrect decoded"
+      },
+      {
+        "name": "zrle",
+        "pass": true,
+        "detail": "ZRLE decoded compressed tile (13 byte payload)"
+      },
+      {
+        "name": "desktop-size",
+        "pass": true,
+        "detail": "DesktopSize resized framebuffer to 3x4"
+      }
+    ]
+  },
+  "consoleLines": [
+    "[error] Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "[warning] [remote-display] Failed to load AssemblyScript decoder, using JS fallback. Error: HTTP 404\n    at http://127.0.0.1:8791/harness.js?target=192.168.1.10%3A5917&password=cd8a99cd:1095:15\n    at async VncHarness.connect (http://127.0.0.1:8791/harness.js?target=192.168.1.10%3A5917&password=cd8a99cd:2845:25)"
+  ],
+  "screenshotPath": "/workspace/piclaw/runtime/reports/vnc-harness-2026-03-22T21-31-03-438Z.png"
+}

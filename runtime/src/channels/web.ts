@@ -134,6 +134,7 @@ import {
 import { createInteractionBroadcaster, type InteractionBroadcaster } from "./web/interaction-broadcaster.js";
 import { WebAuthGateway } from "./web/auth-gateway.js";
 import { TerminalSessionService, type TerminalSocketData } from "./web/terminal/terminal-session-service.js";
+import { VncSessionService, type VncSocketData } from "./web/vnc/vnc-session-service.js";
 import { RemoteInteropService } from "../remote/service.js";
 
 const DEFAULT_CHAT_JID = "web:default";
@@ -164,6 +165,8 @@ export interface WebChannelOpts {
 }
 
 /** Web channel: HTTP/SSE server, API endpoints, and agent event bridge. */
+type WebSocketSessionData = TerminalSocketData | VncSocketData;
+
 export class WebChannel implements WebChannelLike {
   queue: AgentQueue;
   agentPool: AgentPool;
@@ -189,6 +192,7 @@ export class WebChannel implements WebChannelLike {
   agentBuffers = new AgentBuffers();
   authGateway: WebAuthGateway;
   terminalService = new TerminalSessionService();
+  vncService = new VncSessionService();
   linkPreviewCachePurgeTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: WebChannelOpts) {
@@ -239,7 +243,7 @@ export class WebChannel implements WebChannelLike {
     this.loadState();
     try { initTheme(); } catch {}
     const tls = await this.loadTlsOptions();
-    this.server = Bun.serve<TerminalSocketData>({
+    this.server = Bun.serve<WebSocketSessionData>({
       hostname: WEB_HOST,
       port: WEB_PORT,
       idleTimeout: WEB_IDLE_TIMEOUT,
@@ -251,9 +255,27 @@ export class WebChannel implements WebChannelLike {
       maxRequestBodySize: 512 * 1024 * 1024, // 512 MB hard cap
       fetch: (req, server) => this.handleFetch(req, server),
       websocket: {
-        open: (ws) => this.terminalService.attachClient(ws),
-        message: (ws, message) => this.terminalService.handleMessage(ws, message),
-        close: (ws) => this.terminalService.detachClient(ws),
+        open: (ws) => {
+          if (ws.data?.kind === "vnc") {
+            this.vncService.attachClient(ws as any);
+            return;
+          }
+          this.terminalService.attachClient(ws as any);
+        },
+        message: (ws, message) => {
+          if (ws.data?.kind === "vnc") {
+            this.vncService.handleMessage(ws as any, message as any);
+            return;
+          }
+          this.terminalService.handleMessage(ws as any, message as any);
+        },
+        close: (ws) => {
+          if (ws.data?.kind === "vnc") {
+            this.vncService.detachClient(ws as any);
+            return;
+          }
+          this.terminalService.detachClient(ws as any);
+        },
       },
       ...(tls ? { tls } : {}),
     });
@@ -274,6 +296,7 @@ export class WebChannel implements WebChannelLike {
     this.sse.closeAll();
     this.uiBridge.stop();
     this.terminalService.shutdown();
+    this.vncService.shutdown();
     if (this.linkPreviewCachePurgeTimer) {
       clearInterval(this.linkPreviewCachePurgeTimer);
       this.linkPreviewCachePurgeTimer = null;
@@ -583,15 +606,18 @@ export class WebChannel implements WebChannelLike {
     }
   }
 
-  async handleFetch(req: Request, server?: Bun.Server<TerminalSocketData>): Promise<Response | undefined> {
+  async handleFetch(req: Request, server?: Bun.Server<WebSocketSessionData>): Promise<Response | undefined> {
     const pathname = new URL(req.url).pathname;
     if (pathname === "/terminal/ws") {
       return this.handleTerminalWebSocketUpgrade(req, server);
     }
+    if (pathname === "/vnc/ws") {
+      return this.handleVncWebSocketUpgrade(req, server);
+    }
     return this.handleRequest(req);
   }
 
-  private handleTerminalWebSocketUpgrade(req: Request, server?: Bun.Server<TerminalSocketData>): Response | undefined {
+  private handleTerminalWebSocketUpgrade(req: Request, server?: Bun.Server<WebSocketSessionData>): Response | undefined {
     if (!WEB_TERMINAL_ENABLED) {
       return this.json({ error: "Web terminal is disabled." }, 404);
     }
@@ -605,6 +631,29 @@ export class WebChannel implements WebChannelLike {
     const owner = this.terminalService.resolveOwnerFromRequest(req, !authEnabled);
     if (!owner) {
       return this.json({ error: "Unauthorized" }, 401);
+    }
+    if (!server?.upgrade(req, { data: owner })) {
+      return this.json({ error: "WebSocket upgrade failed" }, 400);
+    }
+    return undefined;
+  }
+
+  private handleVncWebSocketUpgrade(req: Request, server?: Bun.Server<WebSocketSessionData>): Response | undefined {
+    const url = new URL(req.url);
+    const targetId = url.searchParams.get("target")?.trim() || "";
+    if (!targetId) {
+      return this.json({ error: "Missing VNC target." }, 400);
+    }
+    const authEnabled = this.authGateway.isAuthEnabled();
+    if (authEnabled && !this.authGateway.isAuthenticated(req)) {
+      return this.json({ error: "Unauthorized" }, 401);
+    }
+    if (!checkCsrfOrigin(req)) {
+      return this.json({ error: "Origin not allowed" }, 403);
+    }
+    const owner = this.vncService.resolveOwnerFromRequest(req, targetId, !authEnabled);
+    if (!owner) {
+      return this.json({ error: "Unauthorized or unknown/disallowed VNC target" }, 401);
     }
     if (!server?.upgrade(req, { data: owner })) {
       return this.json({ error: "WebSocket upgrade failed" }, 400);
@@ -730,6 +779,19 @@ export class WebChannel implements WebChannelLike {
       return this.json({ error: "Unauthorized" }, 401);
     }
     return this.json(this.terminalService.getSessionInfo(owner));
+  }
+
+  handleVncSession(req: Request): Response {
+    const url = new URL(req.url);
+    const targetId = url.searchParams.get("target")?.trim() || "";
+    const authEnabled = this.authGateway.isAuthEnabled();
+    if (authEnabled && !this.authGateway.isAuthenticated(req)) {
+      return this.json({ error: "Unauthorized" }, 401);
+    }
+    if (targetId && !this.vncService.resolveTargetReference(targetId)) {
+      return this.json({ error: "Unknown or disallowed VNC target", ...this.vncService.getSessionInfo() }, 404);
+    }
+    return this.json(this.vncService.getSessionInfo(targetId || null), 200);
   }
 
   broadcastEvent(eventType: string, data: unknown): void {

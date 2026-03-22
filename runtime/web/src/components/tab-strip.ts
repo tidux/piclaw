@@ -28,6 +28,7 @@ import { html, useCallback, useEffect, useMemo, useRef, useState } from '../vend
  * @param {Set<string>} [props.previewTabs] - Set of tab ids with preview open.
  * @param {() => void} [props.onToggleDock] - Toggle terminal dock visibility.
  * @param {boolean} [props.dockVisible] - Whether the terminal dock is currently visible.
+ * @param {(id: string, label?: string) => void} [props.onPopOutTab] - Open a tab in a standalone window.
  */
 const OFFICE_EXTENSIONS = /\.(docx?|xlsx?|pptx?|odt|ods|odp|rtf)$/i;
 const CSV_EXTENSIONS = /\.(csv|tsv)$/i;
@@ -35,7 +36,7 @@ const PDF_EXTENSIONS = /\.pdf$/i;
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i;
 const DRAWIO_EXTENSIONS = /\.drawio(\.xml|\.svg|\.png)?$/i;
 
-export function TabStrip({ tabs, activeId, onActivate, onClose, onCloseOthers, onCloseAll, onTogglePin, onTogglePreview, previewTabs, onToggleDock, dockVisible, onToggleZen, zenMode }) {
+export function TabStrip({ tabs, activeId, onActivate, onClose, onCloseOthers, onCloseAll, onTogglePin, onTogglePreview, previewTabs, onToggleDock, dockVisible, onToggleZen, zenMode, onPopOutTab }) {
     const [contextMenu, setContextMenu] = useState(null);
     const stripRef = useRef(null);
 
@@ -208,6 +209,13 @@ export function TabStrip({ tabs, activeId, onActivate, onClose, onCloseOthers, o
                 <button onClick=${() => { onTogglePin?.(contextMenu.id); setContextMenu(null); }}>
                     ${tabs.find(t => t.id === contextMenu.id)?.pinned ? 'Unpin' : 'Pin'}
                 </button>
+                ${onPopOutTab && html`
+                    <button onClick=${() => {
+                        const tab = tabs.find(t => t.id === contextMenu.id);
+                        onPopOutTab(contextMenu.id, tab?.label);
+                        setContextMenu(null);
+                    }}>Open in Window</button>
+                `}
                 ${onTogglePreview && /\.(md|mdx|markdown)$/i.test(contextMenu.id) && html`
                     <hr />
                     <button onClick=${() => { onTogglePreview(contextMenu.id); setContextMenu(null); }}>

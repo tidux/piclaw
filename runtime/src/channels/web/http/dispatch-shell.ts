@@ -60,6 +60,10 @@ export async function handleShellRoutes(
     return channel.handleTerminalSession(req);
   }
 
+  if (req.method === "GET" && pathname === "/vnc/session") {
+    return channel.handleVncSession(req);
+  }
+
   if (flags.isAvatar) {
     return await channel.handleAvatar("agent", req);
   }

@@ -566,6 +566,7 @@ export function WorkspaceExplorer({
     active = undefined,
     onOpenEditor,
     onOpenTerminalTab,
+    onOpenVncTab,
     onToggleTerminal,
     terminalVisible = false,
 }) {
@@ -1954,6 +1955,11 @@ export function WorkspaceExplorer({
         onOpenTerminalTab?.();
     }, [closeHeaderMenu, onOpenTerminalTab]);
 
+    const handleMenuOpenVncTab = useCallback(() => {
+        closeHeaderMenu();
+        onOpenVncTab?.();
+    }, [closeHeaderMenu, onOpenVncTab]);
+
     const handleMenuToggleTerminal = useCallback(() => {
         closeHeaderMenu();
         onToggleTerminal?.();
@@ -2102,10 +2108,15 @@ export function WorkspaceExplorer({
                                     <button class="workspace-menu-item danger" role="menuitem" onClick=${handleMenuDelete}>Delete selected file</button>
                                 `}
 
-                                ${(onOpenTerminalTab || onToggleTerminal) && html`<div class="workspace-menu-separator"></div>`}
+                                ${(onOpenTerminalTab || onOpenVncTab || onToggleTerminal) && html`<div class="workspace-menu-separator"></div>`}
                                 ${onOpenTerminalTab && html`
                                     <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuOpenTerminalTab}>
                                         Open terminal in tab
+                                    </button>
+                                `}
+                                ${onOpenVncTab && html`
+                                    <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuOpenVncTab}>
+                                        Open VNC in tab
                                     </button>
                                 `}
                                 ${onToggleTerminal && html`

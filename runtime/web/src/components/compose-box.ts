@@ -5,6 +5,7 @@ import { getAgentModels, sendAgentMessage, uploadMedia } from '../api.js';
 import { getLocalStorageItem, setLocalStorageItem } from '../utils/storage.js';
 import { buildMentionValue, filterMentionAgents, getVisibleMentionAgents, parseMentionAutocompleteQuery } from '../ui/agent-mentions.js';
 import { shouldShowComposeAgentAffordance } from '../ui/compose-layout.js';
+import { shouldOpenSessionSwitcherFromBlankCompose } from '../ui/compose-session-switcher.js';
 import { FilePill } from './file-pill.js';
 
 /**
@@ -494,10 +495,8 @@ export function ComposeBox({
         });
     };
 
-    const toggleSessionPopup = (event) => {
-        event?.preventDefault?.();
-        event?.stopPropagation?.();
-        if (searchMode || (!canSwitchSession && !canRestoreSession && !canRenameSession && !canCreateSession && !canDeleteSession)) return;
+    const openSessionPopup = () => {
+        if (searchMode || (!canSwitchSession && !canRestoreSession && !canRenameSession && !canCreateSession && !canDeleteSession)) return false;
 
         popupTypeaheadRef.current = { value: '', updatedAt: 0 };
         setShowModelPopup(false);
@@ -505,7 +504,20 @@ export function ComposeBox({
         setSlashMatches([]);
         setShowMention(false);
         setMentionMatches([]);
-        setShowSessionPopup((prev) => !prev);
+        setShowSessionPopup(true);
+        return true;
+    };
+
+    const toggleSessionPopup = (event) => {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        if (searchMode || (!canSwitchSession && !canRestoreSession && !canRenameSession && !canCreateSession && !canDeleteSession)) return;
+        if (showSessionPopup) {
+            popupTypeaheadRef.current = { value: '', updatedAt: 0 };
+            setShowSessionPopup(false);
+            return;
+        }
+        openSessionPopup();
     };
 
     const handleSessionSwitch = (chatJid) => {
@@ -965,6 +977,15 @@ export function ComposeBox({
         if (handlePopupKeyboardEvent(e)) {
             return;
         }
+        const currentValue = textareaRef.current?.value ?? (searchMode ? searchText : content);
+        if (shouldOpenSessionSwitcherFromBlankCompose(e, currentValue, {
+            searchMode,
+            showSessionSwitcherButton,
+        })) {
+            e.preventDefault();
+            openSessionPopup();
+            return;
+        }
         // @agent autocomplete navigation
         if (showMention && mentionMatches.length > 0) {
             const mentionValue = textareaRef.current?.value ?? (searchMode ? searchText : content);
@@ -1019,7 +1040,6 @@ export function ComposeBox({
                     return;
                 }
                 if (e.key === 'Enter' && !e.shiftKey) {
-                    const currentValue = textareaRef.current?.value ?? (searchMode ? searchText : content);
                     const hasArgs = currentValue.includes(' ');
                     if (!hasArgs) {
                         e.preventDefault();
@@ -1085,7 +1105,6 @@ export function ComposeBox({
         }
         if (e.key === 'Enter' && !e.shiftKey && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
-            const currentValue = textareaRef.current?.value ?? (searchMode ? searchText : content);
             if (searchMode) {
                 if (currentValue.trim()) {
                     onSearch?.(currentValue.trim(), searchScope);
@@ -1098,7 +1117,6 @@ export function ComposeBox({
 
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            const currentValue = textareaRef.current?.value ?? (searchMode ? searchText : content);
             if (searchMode) {
                 if (currentValue.trim()) {
                     onSearch?.(currentValue.trim(), searchScope);

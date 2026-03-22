@@ -1,0 +1,39 @@
+import { expect, test } from 'bun:test';
+
+import { shouldOpenSessionSwitcherFromBlankCompose } from '../../web/src/ui/compose-session-switcher.js';
+
+test('opens the session switcher when @ is typed into a blank compose box', () => {
+  expect(shouldOpenSessionSwitcherFromBlankCompose({ key: '@' } as any, '', {
+    searchMode: false,
+    showSessionSwitcherButton: true,
+  })).toBe(true);
+});
+
+test('does not open the session switcher when compose already has content', () => {
+  expect(shouldOpenSessionSwitcherFromBlankCompose({ key: '@' } as any, 'hello', {
+    searchMode: false,
+    showSessionSwitcherButton: true,
+  })).toBe(false);
+});
+
+test('does not open the session switcher when searching or when no switcher is available', () => {
+  expect(shouldOpenSessionSwitcherFromBlankCompose({ key: '@' } as any, '', {
+    searchMode: true,
+    showSessionSwitcherButton: true,
+  })).toBe(false);
+  expect(shouldOpenSessionSwitcherFromBlankCompose({ key: '@' } as any, '', {
+    searchMode: false,
+    showSessionSwitcherButton: false,
+  })).toBe(false);
+});
+
+test('ignores modified keystrokes and non-@ characters', () => {
+  expect(shouldOpenSessionSwitcherFromBlankCompose({ key: '@', ctrlKey: true } as any, '', {
+    searchMode: false,
+    showSessionSwitcherButton: true,
+  })).toBe(false);
+  expect(shouldOpenSessionSwitcherFromBlankCompose({ key: 'a' } as any, '', {
+    searchMode: false,
+    showSessionSwitcherButton: true,
+  })).toBe(false);
+});

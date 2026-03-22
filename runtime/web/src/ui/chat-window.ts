@@ -115,6 +115,9 @@ export function buildChatWindowUrl(baseHref, chatJid, options = {}) {
     url.searchParams.set('chat_jid', normalizedChatJid);
     url.searchParams.delete('branch_loader');
     url.searchParams.delete('branch_source_chat_jid');
+    url.searchParams.delete('pane_popout');
+    url.searchParams.delete('pane_path');
+    url.searchParams.delete('pane_label');
     if (options.chatOnly !== false) {
         url.searchParams.set('chat_only', '1');
     }
@@ -126,9 +129,33 @@ export function buildBranchLoaderUrl(baseHref, sourceChatJid, options = {}) {
     const normalizedChatJid = String(sourceChatJid || '').trim() || 'web:default';
     url.searchParams.set('branch_loader', '1');
     url.searchParams.set('branch_source_chat_jid', normalizedChatJid);
+    url.searchParams.delete('chat_jid');
+    url.searchParams.delete('pane_popout');
+    url.searchParams.delete('pane_path');
+    url.searchParams.delete('pane_label');
     if (options.chatOnly !== false) {
         url.searchParams.set('chat_only', '1');
     }
+    return url.toString();
+}
+
+export function buildPanePopoutUrl(baseHref, panePath, options = {}) {
+    const url = new URL(String(baseHref || 'http://localhost/'));
+    const normalizedPanePath = String(panePath || '').trim();
+    if (!normalizedPanePath) return url.toString();
+    url.searchParams.set('pane_popout', '1');
+    url.searchParams.set('pane_path', normalizedPanePath);
+    if (options?.label) {
+        url.searchParams.set('pane_label', String(options.label));
+    } else {
+        url.searchParams.delete('pane_label');
+    }
+    if (options?.chatJid) {
+        url.searchParams.set('chat_jid', String(options.chatJid));
+    }
+    url.searchParams.delete('chat_only');
+    url.searchParams.delete('branch_loader');
+    url.searchParams.delete('branch_source_chat_jid');
     return url.toString();
 }
 
@@ -138,6 +165,32 @@ export function getChatWindowTarget(chatJid) {
         .toLowerCase()
         .replace(/[^a-z0-9_-]+/g, '-');
     return `piclaw-chat-${normalized || 'default'}`;
+}
+
+export function getPaneWindowTarget(panePath) {
+    const normalized = String(panePath || 'pane')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '-');
+    return `piclaw-pane-${normalized || 'default'}`;
+}
+
+export function getPaneWindowOpenOptions(panePath, runtime = {}) {
+    if (isStandaloneWebAppMode(runtime)) {
+        return null;
+    }
+    if (isMobileBrowserMode(runtime)) {
+        return {
+            target: '_blank',
+            features: undefined,
+            mode: 'tab',
+        };
+    }
+    return {
+        target: getPaneWindowTarget(panePath),
+        features: 'popup=yes,width=1200,height=960,resizable=yes,scrollbars=yes',
+        mode: 'popup',
+    };
 }
 
 export function describeBranchOpenError(error) {

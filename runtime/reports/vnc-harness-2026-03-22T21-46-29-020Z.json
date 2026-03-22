@@ -1,0 +1,263 @@
+{
+  "startedAt": "2026-03-22T21:46:26.491Z",
+  "finishedAt": "2026-03-22T21:46:29.183Z",
+  "baseUrl": "http://127.0.0.1:8791",
+  "args": {
+    "target": "192.168.1.10:5917",
+    "password": "***len:8***",
+    "host": "127.0.0.1",
+    "port": 8791,
+    "liveWaitMs": 10000,
+    "encodings": "16,5,2,1,0,-223"
+  },
+  "liveRuns": [
+    {
+      "encoding": "16",
+      "passed": false,
+      "connectedAt": "2026-03-22T21:46:26.901Z",
+      "firstDisplayInitAt": "2026-03-22T21:46:26.903Z",
+      "firstFramebufferAt": "n/a",
+      "lastError": "this.scheduleRawFallback is not a function",
+      "protocolState": "connected",
+      "frames": 0,
+      "rects": 0
+    },
+    {
+      "encoding": "5",
+      "passed": false,
+      "connectedAt": "2026-03-22T21:46:27.254Z",
+      "firstDisplayInitAt": "2026-03-22T21:46:27.257Z",
+      "firstFramebufferAt": "2026-03-22T21:46:27.288Z",
+      "lastError": "this.scheduleRawFallback is not a function",
+      "protocolState": "connected",
+      "frames": 1,
+      "rects": 1
+    },
+    {
+      "encoding": "2",
+      "passed": false,
+      "connectedAt": "2026-03-22T21:46:27.610Z",
+      "firstDisplayInitAt": "2026-03-22T21:46:27.614Z",
+      "firstFramebufferAt": "2026-03-22T21:46:27.698Z",
+      "lastError": "this.scheduleRawFallback is not a function",
+      "protocolState": "connected",
+      "frames": 1,
+      "rects": 1
+    },
+    {
+      "encoding": "1",
+      "passed": false,
+      "connectedAt": "2026-03-22T21:46:27.961Z",
+      "firstDisplayInitAt": "2026-03-22T21:46:27.964Z",
+      "firstFramebufferAt": "2026-03-22T21:46:28.047Z",
+      "lastError": "this.scheduleRawFallback is not a function",
+      "protocolState": "connected",
+      "frames": 1,
+      "rects": 1
+    },
+    {
+      "encoding": "0",
+      "passed": false,
+      "connectedAt": "2026-03-22T21:46:28.315Z",
+      "firstDisplayInitAt": "2026-03-22T21:46:28.318Z",
+      "firstFramebufferAt": "2026-03-22T21:46:28.411Z",
+      "lastError": "this.scheduleRawFallback is not a function",
+      "protocolState": "connected",
+      "frames": 1,
+      "rects": 1
+    },
+    {
+      "encoding": "-223",
+      "passed": false,
+      "connectedAt": "2026-03-22T21:46:28.667Z",
+      "firstDisplayInitAt": "2026-03-22T21:46:28.674Z",
+      "firstFramebufferAt": "2026-03-22T21:46:28.766Z",
+      "lastError": "this.scheduleRawFallback is not a function",
+      "protocolState": "connected",
+      "frames": 1,
+      "rects": 1
+    }
+  ],
+  "synthetic": {
+    "at": "2026-03-22T21:46:26.894Z",
+    "cases": [
+      {
+        "name": "raw",
+        "pass": true,
+        "detail": "1x1 raw red pixel decoded"
+      },
+      {
+        "name": "rre",
+        "pass": true,
+        "detail": "RRE background + subrect decoded"
+      },
+      {
+        "name": "copyrect",
+        "pass": true,
+        "detail": "CopyRect copied 2x2 block"
+      },
+      {
+        "name": "hextile",
+        "pass": true,
+        "detail": "Hextile background + single subrect decoded"
+      },
+      {
+        "name": "zrle",
+        "pass": true,
+        "detail": "ZRLE decoded compressed tile (13 byte payload)"
+      },
+      {
+        "name": "desktop-size",
+        "pass": true,
+        "detail": "DesktopSize resized framebuffer to 3x4"
+      }
+    ],
+    "summary": {
+      "total": 6,
+      "passed": 6,
+      "failed": 0
+    }
+  },
+  "snapshot": {
+    "target": "192.168.1.10:5917",
+    "connectedAt": "2026-03-22T21:46:28.667Z",
+    "firstDisplayInitAt": "2026-03-22T21:46:28.674Z",
+    "firstFramebufferAt": "2026-03-22T21:46:28.766Z",
+    "lastError": "this.scheduleRawFallback is not a function",
+    "protocolState": "connected",
+    "currentEncoding": "-223",
+    "fallbackQueue": [
+      -223
+    ],
+    "stats": {
+      "startedAt": "2026-03-22T21:46:26.816Z",
+      "bytesIn": 5243072,
+      "bytesOut": 93,
+      "frames": 1,
+      "rects": 1,
+      "clipboardEvents": 0,
+      "bellEvents": 0,
+      "protocolEvents": {
+        "protocol-version": 1,
+        "security-types": 1,
+        "security-selected": 1,
+        "security-result": 1,
+        "display-init": 1,
+        "framebuffer-update": 1
+      },
+      "logs": [
+        "[2026-03-22T21:46:26.816Z] Harness booted. target=192.168.1.10:5917 ws=/bridge",
+        "[2026-03-22T21:46:26.816Z] Connecting websocket to ws://127.0.0.1:8791/bridge",
+        "[2026-03-22T21:46:26.827Z] websocket.open",
+        "[2026-03-22T21:46:26.831Z] control.pong",
+        "[2026-03-22T21:46:26.831Z] control.vnc.connected target=192.168.1.10:5917",
+        "[2026-03-22T21:46:26.880Z] protocol-version server=RFB 003.008 client=RFB 003.008",
+        "[2026-03-22T21:46:26.883Z] security-types [2]",
+        "[2026-03-22T21:46:26.883Z] security-selected VNC Authentication",
+        "[2026-03-22T21:46:26.887Z] security-result ok=true",
+        "[2026-03-22T21:46:26.890Z] display-init width=1280 height=1024 name=QEMU (winagent)",
+        "[2026-03-22T21:46:26.891Z] protocol.error this.scheduleRawFallback is not a function",
+        "[2026-03-22T21:46:26.894Z] synthetic-suite done 6/6 passed",
+        "[2026-03-22T21:46:26.899Z] Connecting websocket to ws://127.0.0.1:8791/bridge",
+        "[2026-03-22T21:46:26.901Z] websocket.open",
+        "[2026-03-22T21:46:26.901Z] control.vnc.connected target=192.168.1.10:5917",
+        "[2026-03-22T21:46:26.901Z] protocol-version server=RFB 003.008 client=RFB 003.008",
+        "[2026-03-22T21:46:26.901Z] control.pong",
+        "[2026-03-22T21:46:26.902Z] security-types [2]",
+        "[2026-03-22T21:46:26.902Z] security-selected VNC Authentication",
+        "[2026-03-22T21:46:26.903Z] security-result ok=true",
+        "[2026-03-22T21:46:26.903Z] display-init width=1280 height=1024 name=QEMU (winagent)",
+        "[2026-03-22T21:46:26.903Z] protocol.error this.scheduleRawFallback is not a function",
+        "[2026-03-22T21:46:27.252Z] Connecting websocket to ws://127.0.0.1:8791/bridge",
+        "[2026-03-22T21:46:27.254Z] websocket.open",
+        "[2026-03-22T21:46:27.254Z] control.vnc.connected target=192.168.1.10:5917",
+        "[2026-03-22T21:46:27.255Z] protocol-version server=RFB 003.008 client=RFB 003.008",
+        "[2026-03-22T21:46:27.255Z] control.pong",
+        "[2026-03-22T21:46:27.256Z] security-types [2]",
+        "[2026-03-22T21:46:27.256Z] security-selected VNC Authentication",
+        "[2026-03-22T21:46:27.257Z] security-result ok=true",
+        "[2026-03-22T21:46:27.257Z] display-init width=1280 height=1024 name=QEMU (winagent)",
+        "[2026-03-22T21:46:27.258Z] protocol.error this.scheduleRawFallback is not a function",
+        "[2026-03-22T21:46:27.288Z] framebuffer-update rects=1 painted=1 size=1280x1024",
+        "[2026-03-22T21:46:27.605Z] Connecting websocket to ws://127.0.0.1:8791/bridge",
+        "[2026-03-22T21:46:27.610Z] websocket.open",
+        "[2026-03-22T21:46:27.611Z] control.vnc.connected target=192.168.1.10:5917",
+        "[2026-03-22T21:46:27.611Z] protocol-version server=RFB 003.008 client=RFB 003.008",
+        "[2026-03-22T21:46:27.612Z] control.pong",
+        "[2026-03-22T21:46:27.613Z] security-types [2]",
+        "[2026-03-22T21:46:27.613Z] security-selected VNC Authentication",
+        "[2026-03-22T21:46:27.614Z] security-result ok=true",
+        "[2026-03-22T21:46:27.614Z] display-init width=1280 height=1024 name=QEMU (winagent)",
+        "[2026-03-22T21:46:27.614Z] protocol.error this.scheduleRawFallback is not a function",
+        "[2026-03-22T21:46:27.698Z] framebuffer-update rects=1 painted=1 size=1280x1024",
+        "[2026-03-22T21:46:27.959Z] Connecting websocket to ws://127.0.0.1:8791/bridge",
+        "[2026-03-22T21:46:27.961Z] websocket.open",
+        "[2026-03-22T21:46:27.961Z] control.vnc.connected target=192.168.1.10:5917",
+        "[2026-03-22T21:46:27.962Z] protocol-version server=RFB 003.008 client=RFB 003.008",
+        "[2026-03-22T21:46:27.962Z] control.pong",
+        "[2026-03-22T21:46:27.963Z] security-types [2]",
+        "[2026-03-22T21:46:27.963Z] security-selected VNC Authentication",
+        "[2026-03-22T21:46:27.964Z] security-result ok=true",
+        "[2026-03-22T21:46:27.964Z] display-init width=1280 height=1024 name=QEMU (winagent)",
+        "[2026-03-22T21:46:27.965Z] protocol.error this.scheduleRawFallback is not a function",
+        "[2026-03-22T21:46:28.047Z] framebuffer-update rects=1 painted=1 size=1280x1024",
+        "[2026-03-22T21:46:28.312Z] Connecting websocket to ws://127.0.0.1:8791/bridge",
+        "[2026-03-22T21:46:28.315Z] websocket.open",
+        "[2026-03-22T21:46:28.316Z] control.vnc.connected target=192.168.1.10:5917",
+        "[2026-03-22T21:46:28.316Z] protocol-version server=RFB 003.008 client=RFB 003.008",
+        "[2026-03-22T21:46:28.316Z] control.pong",
+        "[2026-03-22T21:46:28.317Z] security-types [2]",
+        "[2026-03-22T21:46:28.317Z] security-selected VNC Authentication",
+        "[2026-03-22T21:46:28.318Z] security-result ok=true",
+        "[2026-03-22T21:46:28.318Z] display-init width=1280 height=1024 name=QEMU (winagent)",
+        "[2026-03-22T21:46:28.319Z] protocol.error this.scheduleRawFallback is not a function",
+        "[2026-03-22T21:46:28.411Z] framebuffer-update rects=1 painted=1 size=1280x1024",
+        "[2026-03-22T21:46:28.665Z] Connecting websocket to ws://127.0.0.1:8791/bridge",
+        "[2026-03-22T21:46:28.667Z] websocket.open",
+        "[2026-03-22T21:46:28.668Z] control.vnc.connected target=192.168.1.10:5917",
+        "[2026-03-22T21:46:28.668Z] protocol-version server=RFB 003.008 client=RFB 003.008",
+        "[2026-03-22T21:46:28.669Z] control.pong",
+        "[2026-03-22T21:46:28.669Z] security-types [2]",
+        "[2026-03-22T21:46:28.669Z] security-selected VNC Authentication",
+        "[2026-03-22T21:46:28.670Z] security-result ok=true",
+        "[2026-03-22T21:46:28.674Z] display-init width=1280 height=1024 name=QEMU (winagent)",
+        "[2026-03-22T21:46:28.675Z] protocol.error this.scheduleRawFallback is not a function",
+        "[2026-03-22T21:46:28.766Z] framebuffer-update rects=1 painted=1 size=1280x1024"
+      ]
+    },
+    "syntheticResults": [
+      {
+        "name": "raw",
+        "pass": true,
+        "detail": "1x1 raw red pixel decoded"
+      },
+      {
+        "name": "rre",
+        "pass": true,
+        "detail": "RRE background + subrect decoded"
+      },
+      {
+        "name": "copyrect",
+        "pass": true,
+        "detail": "CopyRect copied 2x2 block"
+      },
+      {
+        "name": "hextile",
+        "pass": true,
+        "detail": "Hextile background + single subrect decoded"
+      },
+      {
+        "name": "zrle",
+        "pass": true,
+        "detail": "ZRLE decoded compressed tile (13 byte payload)"
+      },
+      {
+        "name": "desktop-size",
+        "pass": true,
+        "detail": "DesktopSize resized framebuffer to 3x4"
+      }
+    ]
+  },
+  "consoleLines": [],
+  "screenshotPath": "/workspace/piclaw/runtime/reports/vnc-harness-2026-03-22T21-46-29-020Z.png"
+}
