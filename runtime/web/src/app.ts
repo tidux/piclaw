@@ -1838,6 +1838,90 @@ function MainApp({ locationParams }) {
         }
     }, [btwSession, handleMessageResponse, isComposeBoxAgentActive, showIntentToast]);
 
+    const buildFloatingWidgetDashboardSnapshot = useCallback(async (requestPayload = null) => {
+        const [statusRes, contextRes, queueRes, modelsRes, activeChatsRes, branchesRes, timelineRes] = await Promise.allSettled([
+            getAgentStatus(currentChatJid),
+            getAgentContext(currentChatJid),
+            getAgentQueueState(currentChatJid),
+            getAgentModels(currentChatJid),
+            getActiveChatAgents(),
+            getChatBranches(currentRootChatJid),
+            api.getTimeline(20, null, currentChatJid),
+        ]);
+
+        const statusPayload = statusRes.status === 'fulfilled' ? statusRes.value : null;
+        const contextPayload = contextRes.status === 'fulfilled' ? contextRes.value : null;
+        const queuePayload = queueRes.status === 'fulfilled' ? queueRes.value : null;
+        const modelsPayload = modelsRes.status === 'fulfilled' ? modelsRes.value : null;
+        const activeChatsPayload = activeChatsRes.status === 'fulfilled' ? activeChatsRes.value : null;
+        const branchesPayload = branchesRes.status === 'fulfilled' ? branchesRes.value : null;
+        const timelinePayload = timelineRes.status === 'fulfilled' ? timelineRes.value : null;
+
+        const posts = Array.isArray(timelinePayload?.posts)
+            ? timelinePayload.posts
+            : (Array.isArray(rawPosts) ? rawPosts : []);
+        const latestPost = posts.length ? posts[posts.length - 1] : null;
+        const botPosts = posts.filter((post) => post?.data?.is_bot_message).length;
+        const userPosts = posts.filter((post) => !post?.data?.is_bot_message).length;
+        const queueCount = Number(queuePayload?.count ?? followupQueueItemsRef.current.length ?? 0) || 0;
+        const activeChatsCount = Array.isArray(activeChatsPayload?.chats)
+            ? activeChatsPayload.chats.length
+            : activeChatAgents.length;
+        const branchCount = Array.isArray(branchesPayload?.chats)
+            ? branchesPayload.chats.length
+            : currentChatBranches.length;
+        const contextPercent = Number(contextPayload?.percent ?? contextUsage?.percent ?? 0) || 0;
+        const contextTokens = Number(contextPayload?.tokens ?? contextUsage?.tokens ?? 0) || 0;
+        const contextWindow = Number(contextPayload?.contextWindow ?? contextUsage?.contextWindow ?? 0) || 0;
+        const modelName = modelsPayload?.current ?? activeModel ?? null;
+        const thinkingLevel = modelsPayload?.thinking_level ?? activeThinkingLevel ?? null;
+        const supportsThinkingValue = modelsPayload?.supports_thinking ?? supportsThinking;
+        const agentState = statusPayload?.status || (isAgentTurnActive ? 'active' : 'idle');
+        const agentPhase = statusPayload?.data?.type || statusPayload?.type || null;
+
+        return {
+            generatedAt: new Date().toISOString(),
+            request: requestPayload,
+            chat: {
+                currentChatJid,
+                rootChatJid: currentRootChatJid,
+                activeChats: activeChatsCount,
+                branches: branchCount,
+            },
+            agent: {
+                status: agentState,
+                phase: agentPhase,
+                running: Boolean(isAgentTurnActive),
+            },
+            model: {
+                current: modelName,
+                thinkingLevel,
+                supportsThinking: Boolean(supportsThinkingValue),
+            },
+            context: {
+                tokens: contextTokens,
+                contextWindow,
+                percent: contextPercent,
+            },
+            queue: {
+                count: queueCount,
+            },
+            timeline: {
+                loadedPosts: posts.length,
+                botPosts,
+                userPosts,
+                latestPostId: latestPost?.id ?? null,
+                latestTimestamp: latestPost?.timestamp ?? null,
+            },
+            bars: [
+                { key: 'context', label: 'Context', value: Math.max(0, Math.min(100, Math.round(contextPercent))) },
+                { key: 'queue', label: 'Queue', value: Math.max(0, Math.min(100, queueCount * 18)) },
+                { key: 'activeChats', label: 'Active chats', value: Math.max(0, Math.min(100, activeChatsCount * 12)) },
+                { key: 'posts', label: 'Timeline load', value: Math.max(0, Math.min(100, posts.length * 5)) },
+            ],
+        };
+    }, [activeChatAgents, activeModel, activeThinkingLevel, contextUsage, currentChatBranches, currentChatJid, currentRootChatJid, isAgentTurnActive, rawPosts, supportsThinking]);
+
     const refreshModelAndQueueState = useCallback(() => {
         refreshModelState();
         refreshActiveChatAgents();
@@ -2805,6 +2889,8 @@ function MainApp({ locationParams }) {
 
         if (kind === 'widget.ready' || kind === 'widget.request_refresh') {
             const eventAt = new Date().toISOString();
+            const shouldBuildDashboard = Boolean(event?.payload?.buildDashboard || event?.payload?.dashboardKind === 'internal-state');
+            const nextRefreshCount = Number(widget?.runtimeState?.refreshCount || 0) + 1;
             setFloatingWidget((current) => {
                 const currentKey = getGeneratedWidgetSessionKey(current);
                 if (!current || currentKey !== sessionKey) return current;
@@ -2826,11 +2912,11 @@ function MainApp({ locationParams }) {
                         ...(kind === 'widget.request_refresh'
                             ? {
                                 lastRefreshRequestAt: eventAt,
-                                refreshCount: Number(current?.runtimeState?.refreshCount || 0) + 1,
+                                refreshCount: nextRefreshCount,
                                 lastHostUpdate: {
-                                    type: 'refresh_ack',
+                                    type: shouldBuildDashboard ? 'refresh_building' : 'refresh_ack',
                                     at: eventAt,
-                                    count: Number(current?.runtimeState?.refreshCount || 0) + 1,
+                                    count: nextRefreshCount,
                                     echo: event?.payload || null,
                                 },
                             }
@@ -2840,10 +2926,54 @@ function MainApp({ locationParams }) {
             });
 
             if (kind === 'widget.request_refresh') {
-                showIntentToast('Widget refresh requested', 'The widget received a host acknowledgement update.', 'info', 3000);
+                if (shouldBuildDashboard) {
+                    (async () => {
+                        try {
+                            const dashboard = await buildFloatingWidgetDashboardSnapshot(event?.payload || null);
+                            setFloatingWidget((current) => {
+                                const currentKey = getGeneratedWidgetSessionKey(current);
+                                if (!current || currentKey !== sessionKey) return current;
+                                return {
+                                    ...current,
+                                    runtimeState: {
+                                        ...(current.runtimeState || {}),
+                                        dashboard,
+                                        lastHostUpdate: {
+                                            type: 'refresh_dashboard',
+                                            at: new Date().toISOString(),
+                                            count: nextRefreshCount,
+                                            echo: event?.payload || null,
+                                        },
+                                    },
+                                };
+                            });
+                            showIntentToast('Dashboard built', 'Live dashboard state pushed into the widget.', 'info', 3000);
+                        } catch (error) {
+                            setFloatingWidget((current) => {
+                                const currentKey = getGeneratedWidgetSessionKey(current);
+                                if (!current || currentKey !== sessionKey) return current;
+                                return {
+                                    ...current,
+                                    runtimeState: {
+                                        ...(current.runtimeState || {}),
+                                        lastHostUpdate: {
+                                            type: 'refresh_failed',
+                                            at: new Date().toISOString(),
+                                            count: nextRefreshCount,
+                                            error: error?.message || 'Could not build dashboard.',
+                                        },
+                                    },
+                                };
+                            });
+                            showIntentToast('Dashboard build failed', error?.message || 'Could not build dashboard.', 'warning', 5000);
+                        }
+                    })();
+                } else {
+                    showIntentToast('Widget refresh requested', 'The widget received a host acknowledgement update.', 'info', 3000);
+                }
             }
         }
-    }, [currentChatJid, handleCloseFloatingWidget, handleMessageResponse, isComposeBoxAgentActive, showIntentToast]);
+    }, [buildFloatingWidgetDashboardSnapshot, currentChatJid, handleCloseFloatingWidget, handleMessageResponse, isComposeBoxAgentActive, showIntentToast]);
 
     useEffect(() => {
         dismissedLiveWidgetKeysRef.current.clear();
