@@ -1,11 +1,10 @@
 ---
 id: support-direct-bun-install-from-github-repo
 title: Support direct Bun installation from the GitHub repository
-status: done
+status: next
 priority: medium
 created: 2026-03-19
-updated: 2026-03-22
-completed: 2026-03-22
+updated: 2026-03-19
 target_release: later
 estimate: M
 risk: medium
@@ -182,30 +181,7 @@ That is the lowest-risk route consistent with the refinement answers:
 - `piclaw/dist/`
 - `piclaw/src/index.ts`
 
-## Implementation Paths Considered (historical)
-
-- Path A won: repo-root package metadata plus shipped `runtime/` assets kept the repo-install path close to the published package without a manual build step.
-- The remaining validation/documentation gap was resolved by explicit user confirmation that the direct Bun repo install also works on Windows in practice, even though Windows remains a secondary/non-officially-supported target.
-
 ## Updates
-
-### 2026-03-22
-- Lane change: `10-next` → `50-done` by user direction.
-- Accepted as closed.
-- Completion summary:
-  - the repo root is now the package/install boundary;
-  - `package.json` ships the packaged `runtime/` subtree and web assets required for direct Bun installs;
-  - the canonical repo install command is documented as `bun add -g github:rcarmo/piclaw`;
-  - `docs/install-from-repo.md` exists to document scope/caveats;
-  - the helper/smoke path exists at `scripts/smoke-install-from-repo.sh`.
-- Documentation update:
-  - aligned `docs/install-from-repo.md` with the current position that Linux/macOS are the primary supported targets, while Windows is known to work in practice but remains secondary / not officially supported for now.
-- Completion evidence retained in repo state:
-  - `package.json`
-  - `README.md`
-  - `docs/install-from-repo.md`
-  - `scripts/smoke-install-from-repo.sh`
-- Quality: ★★★★★ 9/10 (problem: 2, scope: 2, test: 1, deps: 2, risk: 2)
 
 ### 2026-03-19
 - Created from a full refinement pass using Adaptive Cards.

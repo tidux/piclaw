@@ -1,10 +1,11 @@
 ---
 id: adaptive-card-submission-hidden-fields-need-expandable-details
 title: Adaptive Card submission receipts need expandable details for hidden fields
-status: review
+status: done
 priority: medium
 created: 2026-03-17
-updated: 2026-03-17
+updated: 2026-03-22
+completed: 2026-03-22
 estimate: S
 risk: low
 tags:
@@ -39,7 +40,24 @@ those values on demand.
 - The interaction is accessible by mouse and keyboard.
 - Regression coverage exists for compact vs expanded receipt rendering.
 
+## Implementation Paths Considered (historical)
+
+- Inline expand/collapse disclosure was chosen over a modal/popover so receipts stay auditable in context while keeping the compact default view.
+
 ## Updates
+
+### 2026-03-22
+- Lane change: `40-review` → `50-done` by user direction.
+- Reviewed the implemented inline disclosure path and accepted it as complete for this ticket's scope.
+- Completion evidence retained from the implementation tranche:
+  - `piclaw/web/src/ui/adaptive-card-submission.ts`
+  - `piclaw/web/src/components/post.ts`
+  - `piclaw/web/static/css/styles.css`
+  - `piclaw/test/web/adaptive-card-submission.test.ts`
+  - `bun test piclaw/test/web/adaptive-card-submission.test.ts`
+  - `make build-web`
+  - `make lint`
+- Quality: ★★★★★ 9/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 2)
 
 ### 2026-03-17 (implementation)
 - Lane change: `00-inbox` → `40-review` after implementing inline expand/collapse for hidden submission fields.

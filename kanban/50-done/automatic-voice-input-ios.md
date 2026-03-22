@@ -1,10 +1,11 @@
 ---
 id: automatic-voice-input-ios
 title: Voice mode — speech input + terse speech output
-status: next
+status: done
 priority: medium
 created: 2026-03-12
-updated: 2026-03-12
+updated: 2026-03-22
+completed: 2026-03-22
 estimate: S
 risk: high
 target_release: next
@@ -119,7 +120,23 @@ Start with **Path B** (fallback + explicit iOS guidance) and a feature-flagged *
 - [ ] No changes to production behavior beyond non-intrusive detection/telemetry hooks
 - [ ] Ticket moved to `50-done/` once recommendation is finalized
 
+## Implementation Paths Considered (historical)
+
+- This ticket was closed as discarded rather than implemented.
+- Browser-native automatic voice input on iOS/WebKit was not accepted as a reliable product path, especially for standalone/PWA mode.
+- The preferred long-term direction is to handle speech as a PiClaw extension/runtime feature rather than continue investing in a browser-only automatic iOS voice flow.
+
 ## Updates
+
+### 2026-03-22
+- Lane change: `10-next` → `50-done` by user direction.
+- Closed as **discarded / not-done**.
+- Rationale:
+  - `webkitSpeechRecognition` on iOS is not reliable enough to serve as a first-class automatic voice-input path, especially in home-screen/PWA mode.
+  - The browser cannot programmatically trigger Apple keyboard dictation, so the best fallback is user guidance rather than a real automatic-input implementation.
+  - The broader speech direction was explicitly re-scoped toward a PiClaw extension/runtime path instead of more browser-only hacks.
+- This ticket should be treated as a completed investigation/decision record, not an implementation-ready item.
+- Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 1, deps: 1, risk: 2)
 
 ### 2026-03-19 — Refinement complete (10 questions)
 

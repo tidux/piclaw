@@ -25,8 +25,10 @@ sources, web app, extensions, vendored assets, and skills.
 This path is intended for:
 
 - Bun users
-- Linux and macOS
 - direct GitHub-repository installs
+- Linux and macOS as the primary supported targets
+
+Windows also works in practice, but remains a secondary / not-officially-supported target for now.
 
 It is **not** the same as a development/source install flow.
 

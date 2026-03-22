@@ -4,7 +4,7 @@ title: Prototype a timeline-launched floating generative widget pane
 status: doing
 priority: medium
 created: 2026-03-19
-updated: 2026-03-21
+updated: 2026-03-22
 target_release: next
 estimate: M
 risk: high
@@ -307,6 +307,20 @@ add focused coverage for:
 
 ## Updates
 
+### 2026-03-22
+- Continued the Phase 2/runtime slice rather than treating the pane as a static receipt only.
+- Landed the interactive widget bridge across the web channel/runtime path: live HTML widgets and timeline widgets with `capabilities: ["interactive"]` now get bounded script execution plus `window.piclawWidget.ready(...)`, `submit(...)`, `close(...)`, and `requestRefresh(...)`.
+- Hardened widget host delivery in `runtime/web/src/components/floating-widget-pane.ts` and `runtime/web/src/ui/generated-widget.ts` so host init/state updates keep pushing once the iframe exists, and isolated the `window.name` fallback so cross-origin `name` assignment failures no longer block `postMessage`.
+- Repaired the source-backed dashboard host path and reduced flicker by preventing repeated `widget.init` clears, coalescing updates with `requestAnimationFrame`, deduping dashboard payloads, and avoiding full stage rebuilds on metadata-only updates.
+- Added a server-side helper at `runtime/src/channels/web/dashboard-widget.ts` plus `WebChannel.postDashboardWidget(...)` wiring in `runtime/src/channels/web.ts` / `runtime/src/channels/web/web-channel-contracts.ts`.
+- Confirmed the installed `@mariozechner/pi-coding-agent` extension runner still exposes a fixed `ExtensionCommandContextActions` surface, so extra custom command-context actions do not propagate cleanly through `bindExtensions(...)` yet.
+- Prototyped a temporary `/dashboard` caller only to validate the helper path, then removed it after explicit user feedback that no user-facing command was wanted.
+- Replaced that shim with an internal built-in tool path: `runtime/src/extensions/send-dashboard-widget.ts` now posts the staged dashboard widget through the existing broadcast-aware message-posting flow, so the helper remains available without adding a chat command.
+- Added/updated focused coverage in `runtime/test/channels/web/dashboard-widget.test.ts`, `runtime/test/web/generated-widget.test.ts`, `runtime/test/channels/web/agent-message-handler.test.ts`, and `runtime/test/extensions/send-dashboard-widget.test.ts`.
+- Validation evidence: `bun test runtime/test/agent-control/parser.test.ts runtime/test/agent-control/agent-control.test.ts runtime/test/agent-control/agent-control-handlers.test.ts runtime/test/channels/web/agent-message-handler.test.ts runtime/test/channels/web/dashboard-widget.test.ts runtime/test/extensions/send-dashboard-widget.test.ts` ✅; `bun run build:web` ✅; `bun run build` ✅; `bun run check:hook-tdz` ✅.
+- Resume point: the helper/action layer is now in place and reachable through the internal tool path, but the real remaining work is typed bidirectional widget state sync, durable reload/resume behavior, current-chat scoping audits, narrow/mobile validation, and a final `bun run quality` before moving this ticket toward review.
+- Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 1)
+
 ### 2026-03-21
 - Moved to `20-doing`.
 - Began implementation on the recommended Path A shape: a shell-owned floating overlay launched from a timeline content block.
@@ -344,6 +358,12 @@ add focused coverage for:
 
 - `kanban/50-done/pi-generative-ui-integration-evaluation.md`
 - `runtime/web/src/app.ts`
+- `runtime/src/channels/web.ts`
+- `runtime/src/channels/web/web-channel-contracts.ts`
+- `runtime/src/channels/web/dashboard-widget.ts`
+- `runtime/test/channels/web/dashboard-widget.test.ts`
+- `runtime/src/extensions/send-dashboard-widget.ts`
+- `runtime/test/extensions/send-dashboard-widget.test.ts`
 - `runtime/web/src/components/post.ts`
 - `runtime/web/src/components/timeline.ts`
 - `runtime/web/src/components/floating-widget-pane.ts`

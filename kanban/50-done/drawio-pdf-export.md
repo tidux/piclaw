@@ -1,10 +1,11 @@
 ---
 id: drawio-pdf-export
 title: Enable local PDF export from the draw.io editor
-status: review
+status: done
 priority: medium
 created: 2026-03-16
-updated: 2026-03-18
+updated: 2026-03-22
+completed: 2026-03-22
 target_release: next
 estimate: M
 risk: medium
@@ -57,6 +58,23 @@ service running, so PDF export is effectively broken.
 - The `workspace-export` interception already handles `saveData` and
   `exportFile` — PDF may need a different hook if draw.io routes it
   through a separate code path.
+
+## Implementation Paths Considered (historical)
+
+- Native/local PDF export was investigated but not accepted as part of the current self-hosted draw.io integration.
+- The remaining viable paths depend on extra server-side/export-rendering components or a materially broader conversion stack than this ticket intended.
+- This ticket is therefore closed as unsupported in the current product scope rather than treated as an unfinished implementation bug.
+
+## Updates
+
+### 2026-03-22
+- Lane change: `40-review` → `50-done` by user direction.
+- Closed as **unsupported / not-done**.
+- Rationale:
+  - draw.io's PDF export path depends on server-side export/rendering components (`EXPORT_URL` or equivalent);
+  - the current self-hosted/local-only integration does not ship those components;
+  - supporting PDF export cleanly would require extra server/export infrastructure or a broader alternative conversion pipeline outside this ticket's intended scope.
+- Practical outcome: SVG/PNG/XML remain the supported local export formats for the current draw.io integration.
 
 ## Links
 

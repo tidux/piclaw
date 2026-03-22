@@ -24,3 +24,6 @@ coverage/
 
 # Pack artifacts
 **/piclaw-*.tgz
+
+# Session/test artifacts
+*.jsonl

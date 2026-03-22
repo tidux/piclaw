@@ -1,10 +1,11 @@
 ---
 id: pending-user-turns-after-reload-not-fully-handled
 title: Pending user turns after reload are still not fully handled
-status: review
+status: done
 priority: high
 created: 2026-03-14
-updated: 2026-03-17
+updated: 2026-03-22
+completed: 2026-03-22
 target_release: next
 estimate: M
 risk: medium
@@ -101,7 +102,23 @@ Potential remaining failure modes include:
 - [ ] Related older tickets linked and differentiated clearly
 - [ ] `bun run quality` passes
 
+## Implementation Paths Considered (historical)
+
+- The final resolution combined backend recovery/drain fixes with a frontend reconnect refresh fix rather than treating this as a backend-only issue.
+- This ticket remains the closure point for the concrete pending-turn/reload gaps fixed across monotonic timestamps, startup resume coverage, deferred-backlog draining, and reconnect queue refresh.
+
 ## Updates
+
+### 2026-03-22
+- Lane change: `40-review` → `50-done` by user direction.
+- Accepted the accumulated recovery/reload tranche as complete for this ticket: monotonic per-chat timestamps, restart-time pending-chat discovery, deferred-only backlog resume, backlog-aware defer gating, and reconnect-time `refreshQueueState()` coverage.
+- Treat the remaining concern as resolved unless a fresh reproducible case appears with evidence that is distinct from the already-fixed scenarios.
+- Completion evidence already recorded in prior entries includes:
+  - backend changes in `piclaw/src/channels/web/recovery.ts` and `piclaw/src/channels/web/handlers/agent.ts`
+  - reconnect refresh fix in `piclaw/web/src/app.ts`
+  - regression coverage in `piclaw/test/channels/web/recovery.test.ts`, `piclaw/test/channels/web/web-channel.test.ts`, `piclaw/test/channels/web/agent-message-handler.test.ts`, and `piclaw/test/db/db.test.ts`
+  - quality gates up to `bun run quality` → `1022 pass, 2 skip, 0 fail`
+- Quality: ★★★★★ 9/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 2)
 
 ### 2026-03-17 (kanban triage)
 - Lane change: `20-doing` → `40-review` via Adaptive Card triage submission (`kind: kanban-triage`, `board: piclaw`, `lane: 20-doing`, `ticket: pending-user-turns-after-reload-not-fully-handled`, `decision: move-review`).
