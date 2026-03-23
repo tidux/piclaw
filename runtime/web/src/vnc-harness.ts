@@ -132,6 +132,23 @@ function getPixel(surface, x, y) {
 function applyRectsToSurface(surface, event) {
     if (!surface || event?.type !== 'framebuffer-update') return surface;
     let current = surface;
+
+    // Pipeline mode: WASM has the full framebuffer
+    if (event.framebuffer && event.framebuffer.length > 0) {
+        for (const rect of event.rects || []) {
+            if (rect.kind === 'resize') {
+                current = createSurface(rect.width, rect.height);
+            }
+        }
+        // Overwrite with the pipeline framebuffer
+        const fb = event.framebuffer;
+        if (fb.length === current.width * current.height * 4) {
+            current.pixels.set(fb);
+        }
+        return current;
+    }
+
+    // Non-pipeline mode: per-rect RGBA blitting
     for (const rect of event.rects || []) {
         if (rect.kind === 'resize') {
             current = createSurface(rect.width, rect.height);
@@ -374,7 +391,10 @@ class VncHarness {
 
         const wasmDecoder = await loadRemoteDisplayWasmDecoder();
         const protocolOptions = wasmDecoder
-            ? { decodeRawRect: (chunk, width, height, pixelFormat) => wasmDecoder(chunk, width, height, pixelFormat) }
+            ? {
+                pipeline: wasmDecoder,
+                decodeRawRect: (chunk, width, height, pixelFormat) => wasmDecoder.decodeRawRectToRgba(chunk, width, height, pixelFormat),
+            }
             : {};
         const requested = preferredEncodings == null ? this.preferredEncodings : String(preferredEncodings);
         const explicitSequence = Array.isArray(opts.fallbackEncodings) ? opts.fallbackEncodings : null;
@@ -556,15 +576,33 @@ class VncHarness {
                 this.fallbackTimer = null;
             }
             let painted = false;
-            for (const rect of event.rects || []) {
-                if (rect.kind === 'resize') {
-                    this.ui.ensureCanvas(rect.width, rect.height, false);
-                } else if (rect.kind === 'copy') {
-                    this.ui.copyRect(rect, event.width, event.height);
+
+            // Pipeline mode: WASM owns the full framebuffer
+            if (event.framebuffer && event.framebuffer.length > 0) {
+                for (const rect of event.rects || []) {
+                    if (rect.kind === 'resize') {
+                        this.ui.ensureCanvas(rect.width, rect.height, false);
+                    }
+                }
+                // Paint full framebuffer to canvas
+                this.ui.ensureCanvas(event.width, event.height, true);
+                if (this.ui.ctx && event.width > 0 && event.height > 0) {
+                    const img = new ImageData(new Uint8ClampedArray(event.framebuffer), event.width, event.height);
+                    this.ui.ctx.putImageData(img, 0, 0);
                     painted = true;
-                } else if (rect.kind === 'rgba') {
-                    this.ui.drawRect(rect, event.width, event.height);
-                    painted = true;
+                }
+            } else {
+                // Non-pipeline: per-rect rendering
+                for (const rect of event.rects || []) {
+                    if (rect.kind === 'resize') {
+                        this.ui.ensureCanvas(rect.width, rect.height, false);
+                    } else if (rect.kind === 'copy') {
+                        this.ui.copyRect(rect, event.width, event.height);
+                        painted = true;
+                    } else if (rect.kind === 'rgba') {
+                        this.ui.drawRect(rect, event.width, event.height);
+                        painted = true;
+                    }
                 }
             }
             if (painted && !this.firstFramebufferAt) this.firstFramebufferAt = nowIso();
