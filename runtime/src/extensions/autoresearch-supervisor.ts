@@ -50,10 +50,6 @@ function tmuxSessionExists(name: string): boolean {
   return result.status === 0;
 }
 
-function generateExperimentId(): string {
-  return `exp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-}
-
 function ensureGitRepo(dir: string): string | null {
   if (existsSync(join(dir, ".git"))) return null;
   try {
@@ -429,17 +425,26 @@ async function startAutoresearch(
   const projectDir = resolve(params.project_dir);
   if (!existsSync(projectDir)) return buildResult(`❌ Project directory does not exist: ${projectDir}`);
 
-  // Set up experiment in a sandboxed copy
-  const id = generateExperimentId();
+  // Use a stable experiment ID derived from the project dir so experiments
+  // can be resumed across restarts without losing JSONL history.
+  const stableHash = projectDir.replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").slice(0, 40);
+  const id = `ar-${stableHash}`;
   const sessionDir = join(SESSIONS_DIR, id);
   const sandboxDir = join(sessionDir, "sandbox");
-  mkdirSync(sessionDir, { recursive: true });
+  const jsonlPath = join(sandboxDir, "autoresearch.jsonl");
+  const hasExistingData = existsSync(jsonlPath);
 
-  // Copy project into sandbox so the original is never touched
-  try {
-    execSync(`cp -a ${JSON.stringify(projectDir + "/")} ${JSON.stringify(sandboxDir)}`, { stdio: "ignore" });
-  } catch (err) {
-    return buildResult(`❌ Failed to copy project to sandbox: ${err instanceof Error ? err.message : String(err)}`);
+  if (hasExistingData) {
+    // Reuse existing sandbox — don't copy over it
+    console.log(`[autoresearch] Resuming existing experiment ${id} with ${parseJsonlFile(jsonlPath).length} entries`);
+  } else {
+    // Fresh sandbox — copy project
+    mkdirSync(sessionDir, { recursive: true });
+    try {
+      execSync(`cp -a ${JSON.stringify(projectDir + "/")} ${JSON.stringify(sandboxDir)}`, { stdio: "ignore" });
+    } catch (err) {
+      return buildResult(`❌ Failed to copy project to sandbox: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // Git safety — init in sandbox if needed
@@ -465,9 +470,13 @@ async function startAutoresearch(
   const extPath = join(VENDOR_DIR, "extensions", "pi-autoresearch", "index.ts");
   const skillPath = join(VENDOR_DIR, "skills", "autoresearch-create");
   const escapedPrompt = params.prompt.replace(/"/g, '\\"');
+  const piInvocation = hasExistingData
+    ? `"/autoresearch resume the experiment loop — read autoresearch.md for context"`
+    : `"/skill:autoresearch-create ${escapedPrompt}"`;
+  const continueFlag = hasExistingData ? "--continue" : "";
   const piCommand = [
     `cd ${JSON.stringify(sandboxDir)}`,
-    `exec pi ${modelArgs} --extension ${JSON.stringify(extPath)} --skill ${JSON.stringify(skillPath)} --session-dir ${JSON.stringify(join(sessionDir, "sessions"))} "/skill:autoresearch-create ${escapedPrompt}"`,
+    `exec pi ${modelArgs} ${continueFlag} --extension ${JSON.stringify(extPath)} --skill ${JSON.stringify(skillPath)} --session-dir ${JSON.stringify(join(sessionDir, "sessions"))} ${piInvocation}`,
   ].join(" && ");
 
   const tmuxResult = spawnSync("tmux", [
@@ -481,7 +490,6 @@ async function startAutoresearch(
     return buildResult(`❌ Failed to create tmux session (exit ${tmuxResult.status}).`);
   }
 
-  const jsonlPath = join(sandboxDir, "autoresearch.jsonl");
 
   // Set up active experiment tracking
   activeExperiment = {
@@ -550,16 +558,16 @@ async function startAutoresearch(
   }, 2000);
 
   const parts = [
-    `✅ Autoresearch launched.`,
+    hasExistingData ? `✅ Autoresearch resumed.` : `✅ Autoresearch launched.`,
     `Experiment: ${id}`,
     `tmux session: ${tmuxSession}`,
-    `Project: ${projectDir}`,
+    `Project: ${sandboxDir}`,
     model ? `Model: ${model}` : "Model: (pi default)",
     params.max_iterations ? `Max iterations: ${params.max_iterations}` : "",
-    gitNote || "",
+    hasExistingData ? `Resuming with existing JSONL data.` : (gitNote || ""),
     "",
-    `Open the terminal pane to see the TUI dashboard (Ctrl+X to expand).`,
-    `Use stop_autoresearch to stop the experiment.`,
+    `Original source is safe — all changes happen in the sandbox.`,
+    `Use stop_autoresearch to stop and clean up.`,
   ].filter(Boolean);
 
   // Post initial timeline status card
