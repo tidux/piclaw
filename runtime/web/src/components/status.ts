@@ -6,7 +6,7 @@ import { getTurnColor } from '../ui/agent-utils.js';
 import { getStatusElapsedLabel, isCompactionStatus, resolveStatusPanelTitle } from '../ui/status-duration.js';
 
 /** Preact component: agent status bar with draft/thought/plan panels. */
-export function AgentStatus({ status, draft, plan, thought, pendingRequest, intent, turnId, steerQueued, onPanelToggle }) {
+export function AgentStatus({ status, draft, plan, thought, pendingRequest, intent, extensionPanels = [], pendingPanelActions = new Set(), onExtensionPanelAction, turnId, steerQueued, onPanelToggle, showCorePanels = true, showExtensionPanels = true }) {
     const THOUGHT_MAX_LINES = 8;
     const DRAFT_MAX_LINES = 8;
 
@@ -57,7 +57,9 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
     const hasThought = Boolean(thoughtInfo.text) || thoughtInfo.totalLines > 0;
     const hasDraft = Boolean(draftInfo.fullText?.trim() || draftInfo.text?.trim());
 
-    if (!status && !hasDraft && !hasPlan && !hasThought && !pendingRequest && !intent) return null;
+    const hasCorePanels = Boolean(status || hasDraft || hasPlan || hasThought || pendingRequest || intent);
+    const hasExtensionPanels = Array.isArray(extensionPanels) && extensionPanels.length > 0;
+    if ((!showCorePanels || !hasCorePanels) && (!showExtensionPanels || !hasExtensionPanels)) return null;
 
     const [expandedPanels, setExpandedPanels] = useState(new Set());
     const [nowMs, setNowMs] = useState(() => Date.now());
@@ -193,25 +195,131 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
         `;
     };
 
+    const buildLinePath = (points, width, height, minValue, maxValue) => {
+        if (!Array.isArray(points) || points.length === 0) return '';
+        const range = Math.max(maxValue - minValue, 1e-9);
+        return points.map((point, index) => {
+            const x = points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
+            const y = height - (((point.value - minValue) / range) * height);
+            return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
+        }).join(' ');
+    };
+
+    const renderSeriesChart = (series) => {
+        const points = Array.isArray(series?.points) ? series.points.filter((point) => Number.isFinite(point?.value)) : [];
+        if (points.length === 0) return null;
+        const values = points.map((point) => point.value);
+        const minValue = Math.min(...values);
+        const maxValue = Math.max(...values);
+        const width = 260;
+        const height = 72;
+        const path = buildLinePath(points, width, height, minValue, maxValue);
+        const latest = points[points.length - 1]?.value;
+        const unit = typeof series?.unit === 'string' ? series.unit : '';
+        return html`
+            <div class="agent-series-chart" key=${series?.key || series?.label}>
+                <div class="agent-series-chart-header">
+                    <span class="agent-series-chart-title">${series?.label || 'Series'}</span>
+                    <span class="agent-series-chart-value">${latest != null ? `${latest}${unit}` : '—'}</span>
+                </div>
+                <svg class="agent-series-chart-svg" viewBox=${`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
+                    <path class="agent-series-chart-line" d=${path}></path>
+                </svg>
+            </div>
+        `;
+    };
+
+    const renderExtensionPanel = (panel) => {
+        if (!panel) return null;
+        const panelKey = typeof panel?.key === 'string' ? panel.key : `panel-${Math.random()}`;
+        const isExpanded = expandedPanels.has(panelKey);
+        const titleText = panel?.title || 'Extension status';
+        const collapsedText = panel?.collapsed_text || '';
+        const stateLabel = String(panel?.state || '').replace(/[-_]+/g, ' ').replace(/^./, (match) => match.toUpperCase());
+        const color = resolveIntentColor(
+            panel?.state === 'completed'
+                ? 'success'
+                : panel?.state === 'failed'
+                    ? 'error'
+                    : panel?.state === 'stopped'
+                        ? 'warning'
+                        : 'info'
+        );
+        const detailText = typeof panel?.detail_markdown === 'string' ? panel.detail_markdown.trim() : '';
+        const series = Array.isArray(panel?.series) ? panel.series : [];
+        const actions = Array.isArray(panel?.actions) ? panel.actions : [];
+
+        return html`
+            <div
+                class="agent-thinking agent-thinking-intent agent-thinking-autoresearch"
+                aria-live="polite"
+                data-expanded=${isExpanded ? 'true' : 'false'}
+                style=${color ? `--turn-color: ${color};` : ''}
+                title=${detailText || titleText}
+            >
+                <button
+                    class="agent-thinking-title intent agent-thinking-title-clickable"
+                    type="button"
+                    onClick=${() => ((detailText || series.length > 0) ? toggleExpand(panelKey) : null)}
+                >
+                    ${color && html`<span class=${dotClass} aria-hidden="true"></span>`}
+                    <span class="agent-thinking-title-text">${titleText}</span>
+                    ${collapsedText && html`<span class="agent-status-elapsed">${collapsedText}</span>`}
+                </button>
+                <div class="agent-thinking-actions">
+                    ${actions.map((action) => {
+                        const pendingKey = `${panelKey}:${action?.key || ''}`;
+                        const pending = pendingPanelActions?.has?.(pendingKey);
+                        return html`
+                            <button
+                                key=${pendingKey}
+                                class=${`agent-thinking-action-btn${action?.tone === 'danger' ? ' danger' : ''}`}
+                                onClick=${() => onExtensionPanelAction?.(panel, action)}
+                                disabled=${Boolean(pending)}
+                            >
+                                ${pending ? 'Working…' : (action?.label || 'Run')}
+                            </button>
+                        `;
+                    })}
+                </div>
+                ${isExpanded && detailText && html`
+                    <div
+                        class="agent-thinking-body"
+                        dangerouslySetInnerHTML=${{ __html: renderThinkingMarkdown(detailText) }}
+                    />
+                `}
+                ${isExpanded && series.length > 0 && html`
+                    <div class="agent-series-chart-grid">
+                        ${series.map((item) => renderSeriesChart(item))}
+                    </div>
+                `}
+                ${isExpanded && series.length === 0 && html`
+                    <div class="agent-thinking-body agent-thinking-autoresearch-summary">Variable history will appear after the first completed run.</div>
+                `}
+            </div>
+        `;
+    };
+
     return html`
         <div class="agent-status-panel">
-            ${intent && renderIntentPanel(intent, intentColor)}
-            ${status?.type === 'intent' && renderIntentPanel(status, statusIntentColor, compactionElapsedLabel)}
-            ${pendingRequest && html`
+            ${showCorePanels && intent && renderIntentPanel(intent, intentColor)}
+            ${showExtensionPanels && Array.isArray(extensionPanels) && extensionPanels.map((panel) => renderExtensionPanel(panel))}
+            ${showCorePanels && status?.type === 'intent' && renderIntentPanel(status, statusIntentColor, compactionElapsedLabel)}
+            ${showCorePanels && pendingRequest && html`
                 <div class="agent-status agent-status-request" aria-live="polite" style=${turnColor ? `--turn-color: ${turnColor};` : ''}>
                     <span class=${dotClass} aria-hidden="true"></span>
                     <div class="agent-status-spinner"></div>
                     <span class="agent-status-text">${pendingMessage}</span>
                 </div>
             `}
-            ${hasPlan && renderThinkingPanel({
+            ${showCorePanels && hasPlan && renderThinkingPanel({
                 panelTitle: panelTitle('Planning'),
                 text: planInfo.text,
                 fullText: planInfo.fullText,
                 totalLines: planInfo.totalLines,
                 panelKey: 'plan',
             })}
-            ${hasThought && renderThinkingPanel({
+            ${showCorePanels && hasThought && renderThinkingPanel({
                 panelTitle: panelTitle('Thoughts'),
                 text: thoughtInfo.text,
                 fullText: thoughtInfo.fullText,
@@ -220,7 +328,7 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
                 titleClass: 'thought',
                 panelKey: 'thought',
             })}
-            ${hasDraft && renderThinkingPanel({
+            ${showCorePanels && hasDraft && renderThinkingPanel({
                 panelTitle: panelTitle('Draft'),
                 text: draftInfo.text,
                 fullText: draftInfo.fullText,
@@ -229,7 +337,7 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
                 titleClass: 'thought',
                 panelKey: 'draft',
             })}
-            ${status && status?.type !== 'intent' && html`
+            ${showCorePanels && status && status?.type !== 'intent' && html`
                 <div class=${`agent-status${isLastActivity ? ' agent-status-last-activity' : ''}${status?.type === 'error' ? ' agent-status-error' : ''}`} aria-live="polite" style=${turnColor ? `--turn-color: ${turnColor};` : ''}>
                     ${turnColor && html`<span class=${dotClass} aria-hidden="true"></span>`}
                     ${status?.type === 'error' ? html`<span class="agent-status-error-icon" aria-hidden="true">⚠</span>` : (!isLastActivity && html`<div class="agent-status-spinner"></div>`)}

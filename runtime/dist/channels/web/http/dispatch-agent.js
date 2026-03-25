@@ -25,6 +25,12 @@ export async function handleAgentRoutes(channel, req, pathname, url) {
     if (req.method === "GET" && pathname === "/agent/context") {
         return await channel.handleAgentContext(req);
     }
+    if (req.method === "GET" && pathname === "/agent/autoresearch/status") {
+        return await channel.handleAutoresearchStatus(req);
+    }
+    if (req.method === "POST" && pathname === "/agent/autoresearch/stop") {
+        return await channel.handleAutoresearchStop(req);
+    }
     if (req.method === "GET" && pathname === "/agent/queue-state") {
         return await channel.handleAgentQueueState(req);
     }

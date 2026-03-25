@@ -13,12 +13,11 @@
 
 import { spawnSync, execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync, statSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, basename } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentToolResult, ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-agent";
 import { WORKSPACE_DIR } from "../core/config.js";
 import { postMessagesToolMessage } from "./messages-crud.js";
-import { deleteMessageByRowId, getDb } from "../db.js";
 
 // ── Paths ───────────────────────────────────────────────────────
 
@@ -38,11 +37,12 @@ interface ActiveExperiment {
   startedAt: string;
   pollInterval: ReturnType<typeof setInterval> | null;
   lastJsonlOffset: number;
-  lastBroadcastedRun: number;
   /** Timestamp of the last new JSONL entry — used for idle detection. */
   lastActivityAt: number;
-  /** Chat JID where status cards should be posted (defaults to env or web:default). */
+  /** Chat JID where status updates should appear (defaults to env or web:default). */
   chatJid: string;
+  /** Human-readable experiment title used before JSONL config arrives. */
+  displayName: string;
 }
 
 let activeExperiment: ActiveExperiment | null = null;
@@ -188,102 +188,186 @@ function buildExperimentSummary(entries: JsonlEntry[]): {
   return { name, metricName, metricUnit, direction, totalRuns, kept, discarded, crashed, checksFailed, bestMetric, confidence, lastDescription };
 }
 
-// ── Timeline card helpers ───────────────────────────────────────
+export interface AutoresearchSeriesPoint {
+  run: number;
+  value: number;
+}
 
-function buildStatusCardBlock(
-  experimentId: string,
-  summary: ReturnType<typeof buildExperimentSummary>,
-  status: "running" | "stopped" | "failed" | "completed",
-  tmuxSession?: string,
-): Record<string, unknown> {
-  const confLabel = summary.confidence !== null
-    ? (summary.confidence >= 2.0 ? `${summary.confidence.toFixed(1)}× ✅` : summary.confidence >= 1.0 ? `${summary.confidence.toFixed(1)}× ⚠️` : `${summary.confidence.toFixed(1)}× 🔴`)
-    : "—";
-  const bestLabel = summary.bestMetric !== null ? `${summary.bestMetric}${summary.metricUnit}` : "—";
-  const statusEmoji = status === "running" ? "🔬" : status === "completed" ? "✅" : status === "failed" ? "❌" : "⏹️";
+export interface AutoresearchSeries {
+  key: string;
+  label: string;
+  unit?: string;
+  points: AutoresearchSeriesPoint[];
+}
 
-  const facts: unknown[] = [
-    { title: "Status", value: status },
-    { title: "Runs", value: `${summary.totalRuns} (${summary.kept} kept, ${summary.discarded} discarded${summary.crashed ? `, ${summary.crashed} crashed` : ""})` },
-    { title: `Best ${summary.metricName}`, value: bestLabel },
-    { title: "Confidence", value: confLabel },
-    ...(summary.lastDescription ? [{ title: "Last", value: summary.lastDescription.slice(0, 512) }] : []),
-  ];
+export interface ExtensionStatusPanelAction {
+  key: string;
+  label: string;
+  action_type: string;
+  tone?: "default" | "danger";
+}
 
-  const body: unknown[] = [
-    { type: "TextBlock", text: `${statusEmoji} Autoresearch: ${summary.name}`, weight: "Bolder", size: "Medium" },
-    { type: "FactSet", facts },
-  ];
-  if (tmuxSession && status === "running") {
-    body.push({ type: "TextBlock", text: `tmux attach -t ${tmuxSession}`, spacing: "Small", fontType: "Monospace", size: "Small" });
+export interface ExtensionStatusPanelPayload {
+  key: string;
+  kind: string;
+  title: string;
+  collapsed_text: string;
+  detail_markdown?: string;
+  state?: string;
+  series?: AutoresearchSeries[];
+  actions?: ExtensionStatusPanelAction[];
+}
+
+export interface ExtensionStatusWidgetPayload {
+  chat_jid: string;
+  key: string;
+  content: Array<{ type: string; panel: ExtensionStatusPanelPayload }>;
+  options?: Record<string, unknown>;
+}
+
+function buildActiveExperimentSummary(exp: ActiveExperiment): ReturnType<typeof buildExperimentSummary> {
+  const summary = existsSync(exp.jsonlPath)
+    ? buildExperimentSummary(parseJsonlFile(exp.jsonlPath))
+    : buildExperimentSummary([]);
+  if (!summary.name || summary.name === "Experiment") {
+    summary.name = exp.displayName || basename(exp.projectDir) || "Experiment";
+  }
+  return summary;
+}
+
+function buildAutoresearchSeries(entries: JsonlEntry[]): AutoresearchSeries[] {
+  const summary = buildExperimentSummary(entries);
+  const series = new Map<string, AutoresearchSeries>();
+  let run = 0;
+
+  const ensureSeries = (key: string, label: string, unit = ""): AutoresearchSeries => {
+    const existing = series.get(key);
+    if (existing) return existing;
+    const created: AutoresearchSeries = { key, label, unit, points: [] };
+    series.set(key, created);
+    return created;
+  };
+
+  for (const entry of entries) {
+    if (entry.type === "config") continue;
+    run += 1;
+
+    if (typeof entry.metric === "number" && Number.isFinite(entry.metric)) {
+      ensureSeries("primary_metric", summary.metricName, summary.metricUnit).points.push({ run, value: entry.metric });
+    }
+
+    if (entry.metrics && typeof entry.metrics === "object") {
+      for (const [key, rawValue] of Object.entries(entry.metrics)) {
+        if (typeof rawValue !== "number" || !Number.isFinite(rawValue)) continue;
+        const normalizedKey = key.trim();
+        if (!normalizedKey) continue;
+        const seriesKey = normalizedKey.toLowerCase() === summary.metricName.toLowerCase()
+          ? "primary_metric"
+          : `metric:${normalizedKey}`;
+        const label = normalizedKey.toLowerCase() === summary.metricName.toLowerCase() ? summary.metricName : normalizedKey;
+        ensureSeries(seriesKey, label).points.push({ run, value: rawValue });
+      }
+    }
   }
 
-  const actions: unknown[] = [];
-  if (status === "running") {
-    actions.push({ type: "Action.Submit", title: "⏹ Stop Experiment", data: { intent: "autoresearch-stop", experiment_id: experimentId } });
+  return Array.from(series.values()).filter((item) => item.points.length > 0);
+}
+
+function buildAutoresearchPanel(
+  exp: ActiveExperiment | null,
+  state: "idle" | "running" | "stopped" | "failed" | "completed",
+  options: { summary?: ReturnType<typeof buildExperimentSummary> | null; reason?: string | null; entries?: JsonlEntry[] | null } = {},
+): ExtensionStatusPanelPayload | null {
+  if (!exp || state === "idle") return null;
+
+  const summary = options.summary ?? buildActiveExperimentSummary(exp);
+  const entries = options.entries ?? (existsSync(exp.jsonlPath) ? parseJsonlFile(exp.jsonlPath) : []);
+  const series = buildAutoresearchSeries(entries);
+  const runLabel = `${summary.totalRuns} run${summary.totalRuns === 1 ? "" : "s"}`;
+  const stateLabel = state.replace(/[-_]+/g, " ");
+  const detailLines = [
+    `- State: **${stateLabel}**`,
+    `- Runs: **${summary.totalRuns}** (${summary.kept} kept, ${summary.discarded} discarded${summary.crashed ? `, ${summary.crashed} crashed` : ""})`,
+    summary.bestMetric !== null ? `- Best ${summary.metricName}: **${summary.bestMetric}${summary.metricUnit}**` : "",
+    summary.confidence !== null ? `- Confidence: **${summary.confidence.toFixed(1)}×**` : "",
+    exp.model ? `- Model: \`${exp.model}\`` : "",
+    exp.maxIterations ? `- Max runs: **${exp.maxIterations}**` : "",
+    exp.projectDir ? `- Project: \`${exp.projectDir}\`` : "",
+    exp.tmuxSession ? `- tmux: \`${exp.tmuxSession}\`` : "",
+    summary.lastDescription ? `- Last run: ${summary.lastDescription}` : "",
+    options.reason ? `- Reason: ${options.reason}` : "",
+  ].filter(Boolean);
+
+  const actions: ExtensionStatusPanelAction[] = [];
+  if (state === "running") {
+    actions.push({ key: "stop", label: "Cancel", action_type: "autoresearch.stop", tone: "danger" });
   }
 
   return {
-    type: "adaptive_card",
-    card_id: `autoresearch-status-${experimentId}`,
-    schema_version: "1.5",
-    state: status === "running" ? "active" : "completed",
-    fallback_text: `Autoresearch ${summary.name}: ${summary.totalRuns} runs, best ${summary.metricName}: ${bestLabel}`,
-    payload: {
-      type: "AdaptiveCard",
-      version: "1.5",
-      body,
-      ...(actions.length > 0 ? { actions } : {}),
+    key: "autoresearch",
+    kind: "chart_status",
+    title: summary.name || exp.displayName || "Autoresearch",
+    collapsed_text: runLabel,
+    detail_markdown: detailLines.join("\n"),
+    state,
+    series,
+    ...(actions.length ? { actions } : {}),
+  };
+}
+
+function buildAutoresearchWidgetPayload(
+  exp: ActiveExperiment | null,
+  state: "idle" | "running" | "stopped" | "failed" | "completed",
+  options: { summary?: ReturnType<typeof buildExperimentSummary> | null; reason?: string | null; entries?: JsonlEntry[] | null } = {},
+): ExtensionStatusWidgetPayload | null {
+  if (!exp) return null;
+  const panel = buildAutoresearchPanel(exp, state, options);
+  if (!panel) return null;
+  return {
+    chat_jid: exp.chatJid,
+    key: panel.key,
+    content: [{ type: "status_panel", panel }],
+    options: {
+      surface: "status-panel",
+      state,
     },
   };
 }
 
-/** Find the row ID of the most recent autoresearch status card for an experiment. */
-function findPreviousStatusCardRowId(chatJid: string, experimentId: string): number | null {
-  try {
-    const db = getDb();
-    const cardId = `autoresearch-status-${experimentId}`;
-    const row = db
-      .prepare("SELECT rowid FROM messages WHERE chat_jid = ? AND content_blocks LIKE ? ORDER BY rowid DESC LIMIT 1")
-      .get(chatJid, `%${cardId}%`) as { rowid: number } | undefined;
-    return row?.rowid ?? null;
-  } catch {
-    return null;
-  }
-}
-
-let statusCardBroadcast: ((type: string, data: unknown) => void) | null = null;
-
-function postStatusCard(
-  experimentId: string,
-  summary: ReturnType<typeof buildExperimentSummary>,
-  status: "running" | "stopped" | "failed" | "completed",
-  chatJid = "web:default",
-  tmuxSession?: string,
+function emitAutoresearchStatus(
+  broadcastEvent: (type: string, data: unknown) => void,
+  exp: ActiveExperiment | null,
+  state: "idle" | "running" | "stopped" | "failed" | "completed",
+  summary?: ReturnType<typeof buildExperimentSummary> | null,
+  reason?: string | null,
+  entries?: JsonlEntry[] | null,
 ): void {
   try {
-    // Delete previous card so only the latest one exists on the timeline
-    const prevRowId = findPreviousStatusCardRowId(chatJid, experimentId);
-    if (prevRowId !== null) {
-      try {
-        deleteMessageByRowId(chatJid, prevRowId);
-        statusCardBroadcast?.("interaction_deleted", { chat_jid: chatJid, ids: [prevRowId] });
-      } catch { /* ok — may already be gone */ }
+    if (!exp) return;
+    const widget = buildAutoresearchWidgetPayload(exp, state, { summary: summary ?? null, reason: reason ?? null, entries: entries ?? null });
+    if (!widget) {
+      broadcastEvent("extension_ui_widget", {
+        chat_jid: exp.chatJid,
+        key: "autoresearch",
+        content: [],
+        options: { surface: "status-panel", remove: true },
+      });
+      return;
     }
-
-    const card = buildStatusCardBlock(experimentId, summary, status, tmuxSession);
-    const fallback = `Autoresearch ${summary.name}: ${summary.totalRuns} runs, best ${summary.metricName}: ${summary.bestMetric !== null ? `${summary.bestMetric}${summary.metricUnit}` : "—"}`;
-    postMessagesToolMessage({
-      action: "post",
-      type: "agent",
-      chat_jid: chatJid,
-      content: fallback,
-      content_blocks: [card],
-    }, chatJid);
-  } catch (err) {
-    console.warn("[autoresearch] Failed to post status card:", err);
+    broadcastEvent("extension_ui_widget", widget);
+  } catch {
+    // best effort only
   }
 }
+
+export function getAutoresearchWidgetPayload(chatJid?: string | null): ExtensionStatusWidgetPayload | null {
+  const normalizedChatJid = typeof chatJid === "string" && chatJid.trim() ? chatJid.trim() : null;
+  if (!activeExperiment) return null;
+  if (normalizedChatJid && activeExperiment.chatJid !== normalizedChatJid) return null;
+  return buildAutoresearchWidgetPayload(activeExperiment, "running");
+}
+
+let autoresearchWidgetBroadcast: (type: string, data: unknown) => void = () => {};
 
 function generateReport(projectDir: string, jsonlPath: string): string {
   const entries = parseJsonlFile(jsonlPath);
@@ -342,6 +426,7 @@ const StartSchema = Type.Object({
   model: Type.Optional(Type.String({ description: "Model to use (provider/id format). Defaults to current model." })),
   max_iterations: Type.Optional(Type.Integer({ description: "Maximum experiments before auto-stopping.", minimum: 1 })),
   sandbox: Type.Optional(Type.Boolean({ description: "Copy project to a sandbox directory (default true). Set false for large repos — runs directly on a new git branch." })),
+  variables: Type.Optional(Type.Array(Type.String(), { description: "Optional list of tracked variables/metrics to highlight in the launch UI." })),
 });
 
 const StopSchema = Type.Object({
@@ -356,12 +441,21 @@ interface PendingLaunch {
   project_dir: string;
   prompt: string;
   max_iterations?: number;
+  variables?: string[];
   chat_jid?: string;
+}
+
+interface AutoresearchSessionMetadata {
+  chat_jid?: string;
+  display_name?: string;
+  model?: string | null;
+  max_iterations?: number | null;
+  variables?: string[];
 }
 
 let pendingLaunch: PendingLaunch | null = null;
 
-/** Resolve the chat JID to use for status cards — prefer explicit, then env, then fallback. */
+/** Resolve the chat JID to use for live autoresearch status updates. */
 function resolveStatusChatJid(explicitChatJid?: string): string {
   if (explicitChatJid?.trim()) return explicitChatJid.trim();
   if (process.env.PICLAW_CHAT_JID?.trim()) return process.env.PICLAW_CHAT_JID.trim();
@@ -378,14 +472,55 @@ export function consumePendingLaunch(): PendingLaunch | null {
   return launch;
 }
 
+function sessionMetadataPath(workDir: string): string {
+  return join(workDir, "autoresearch.session.json");
+}
+
+function writeSessionMetadata(workDir: string, metadata: AutoresearchSessionMetadata): void {
+  try {
+    writeFileSync(sessionMetadataPath(workDir), JSON.stringify(metadata, null, 2) + "\n", "utf-8");
+  } catch (error) {
+    console.warn("[autoresearch] Failed to write session metadata:", error);
+  }
+}
+
+function readSessionMetadata(workDir: string): AutoresearchSessionMetadata | null {
+  try {
+    const path = sessionMetadataPath(workDir);
+    if (!existsSync(path)) return null;
+    const parsed = JSON.parse(readFileSync(path, "utf-8"));
+    return parsed && typeof parsed === "object" ? parsed as AutoresearchSessionMetadata : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatContextWindowLabel(value: number | null | undefined): string {
+  if (!Number.isFinite(value) || (value ?? 0) <= 0) return "unknown ctx";
+  const num = Number(value);
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(num % 1_000_000 === 0 ? 0 : 1)}M ctx`;
+  if (num >= 1_000) return `${(num / 1_000).toFixed(num % 1_000 === 0 ? 0 : 1)}k ctx`;
+  return `${num} ctx`;
+}
+
 function buildModelPickerCard(
-  models: Array<{ label: string; provider: string; id: string }>,
+  models: Array<{ label: string; provider: string; id: string; contextWindow?: number }>,
   currentModel: string | null,
+  launch: PendingLaunch,
 ): Record<string, unknown> {
-  const choices = models.map((m) => ({ title: m.label, value: m.label }));
+  const choices = models.map((m) => ({ title: `${m.label} • ${formatContextWindowLabel(m.contextWindow)}`, value: m.label }));
   const defaultValue = currentModel && choices.find((c) => c.value === currentModel)
     ? currentModel
     : choices[0]?.value || "";
+
+  const variableLabels = Array.isArray(launch?.variables)
+    ? launch.variables.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  const facts = [
+    { title: 'Project', value: launch?.project_dir || '—' },
+    { title: 'Runs', value: launch?.max_iterations ? `Up to ${launch.max_iterations}` : 'Open-ended' },
+    { title: 'Variables', value: variableLabels.length ? variableLabels.join(', ') : 'Auto-detect during run' },
+  ];
 
   return {
     type: "adaptive_card",
@@ -398,6 +533,8 @@ function buildModelPickerCard(
       version: "1.5",
       body: [
         { type: "TextBlock", text: "🔬 Autoresearch — Launch Experiment", weight: "Bolder", size: "Medium" },
+        { type: "TextBlock", text: launch?.prompt || 'No summary provided.', wrap: true, spacing: 'Small' },
+        { type: 'FactSet', facts },
         { type: "TextBlock", text: "Model", weight: "Bolder", spacing: "Medium" },
         { type: "Input.ChoiceSet", id: "model", style: "compact", choices, value: defaultValue },
         { type: "TextBlock", text: "Isolation", weight: "Bolder", spacing: "Medium" },
@@ -421,7 +558,7 @@ function buildResult(text: string, details: Record<string, unknown> = {}): Agent
 }
 
 async function startAutoresearch(
-  params: { project_dir: string; prompt: string; model?: string; max_iterations?: number; sandbox?: boolean },
+  params: { project_dir: string; prompt: string; model?: string; max_iterations?: number; sandbox?: boolean; variables?: string[] },
   broadcastEvent: (type: string, data: unknown) => void,
   chatJid?: string,
 ): Promise<AgentToolResult<Record<string, unknown>>> {
@@ -502,6 +639,16 @@ async function startAutoresearch(
     );
   }
 
+  const resolvedChatJid = chatJid || resolveStatusChatJid();
+  const displayName = params.prompt.slice(0, 80) || basename(workDir) || "Experiment";
+  writeSessionMetadata(workDir, {
+    chat_jid: resolvedChatJid,
+    display_name: displayName,
+    model: params.model || null,
+    max_iterations: params.max_iterations ?? null,
+    variables: Array.isArray(params.variables) ? params.variables : undefined,
+  });
+
   // Build tmux command
   const tmuxSession = `${TMUX_SESSION_PREFIX}${id}`;
   const model = params.model || "";
@@ -531,7 +678,6 @@ async function startAutoresearch(
 
 
   // Set up active experiment tracking
-  const resolvedChatJid = chatJid || resolveStatusChatJid();
   activeExperiment = {
     id,
     tmuxSession,
@@ -542,9 +688,9 @@ async function startAutoresearch(
     startedAt: new Date().toISOString(),
     pollInterval: null,
     lastJsonlOffset: existsSync(jsonlPath) ? readFileSync(jsonlPath, "utf-8").length : 0,
-    lastBroadcastedRun: 0,
     lastActivityAt: Date.now(),
     chatJid: resolvedChatJid,
+    displayName,
   };
 
   // Start JSONL polling
@@ -553,17 +699,12 @@ async function startAutoresearch(
 
     // Check if tmux session is still alive
     if (!tmuxSessionExists(activeExperiment.tmuxSession)) {
-      const expId = activeExperiment.id;
       const jsonlP = activeExperiment.jsonlPath;
       stopPolling();
-      if (existsSync(jsonlP)) {
-        const summary = buildExperimentSummary(parseJsonlFile(jsonlP));
-        postStatusCard(expId, summary, summary.totalRuns > 0 ? "completed" : "failed", resolvedChatJid);
-      }
-      broadcastEvent("autoresearch_stopped", {
-        experiment_id: expId,
-        reason: "process_exited",
-      });
+      const summary = existsSync(jsonlP)
+        ? buildExperimentSummary(parseJsonlFile(jsonlP))
+        : buildActiveExperimentSummary(activeExperiment);
+      emitAutoresearchStatus(broadcastEvent, activeExperiment, summary.totalRuns > 0 ? "completed" : "failed", summary, "process_exited");
       activeExperiment = null;
       return;
     }
@@ -593,14 +734,12 @@ async function startAutoresearch(
       if (shouldStop) {
         const expId = activeExperiment.id;
         const tmux = activeExperiment.tmuxSession;
-        const chatJidForCard = activeExperiment.chatJid;
         const reason = maxReached ? "max_iterations_idle" : "general_idle";
         stopPolling();
         const summary = buildExperimentSummary(allEntries);
-        postStatusCard(expId, summary, "completed", chatJidForCard);
+        emitAutoresearchStatus(broadcastEvent, activeExperiment, "completed", summary, reason);
         spawnSync("tmux", ["send-keys", "-t", tmux, "C-c", ""], { stdio: "ignore" });
         setTimeout(() => spawnSync("tmux", ["kill-session", "-t", tmux], { stdio: "ignore" }), 2000);
-        broadcastEvent("autoresearch_stopped", { experiment_id: expId, reason });
         console.log(`[autoresearch] Experiment ${expId} completed (${runCount} runs, idle ${Math.round(idleMs / 1000)}s, reason: ${reason})`);
         activeExperiment = null;
         return;
@@ -611,27 +750,9 @@ async function startAutoresearch(
     activeExperiment.lastJsonlOffset = newOffset;
     activeExperiment.lastActivityAt = Date.now();
 
-    // Broadcast each new entry
-    for (const entry of entries) {
-      if (entry.type === "config") {
-        broadcastEvent("autoresearch_config", {
-          experiment_id: activeExperiment.id,
-          ...entry,
-        });
-      } else {
-        activeExperiment.lastBroadcastedRun++;
-        const allEntries = parseJsonlFile(activeExperiment.jsonlPath);
-        const summary = buildExperimentSummary(allEntries);
-        broadcastEvent("autoresearch_result", {
-          experiment_id: activeExperiment.id,
-          run: activeExperiment.lastBroadcastedRun,
-          entry,
-          summary,
-        });
-
-        // Post timeline card update on every result
-        postStatusCard(activeExperiment.id, summary, "running", activeExperiment.chatJid, activeExperiment.tmuxSession);
-      }
+    // Refresh the live status snapshot for each new JSONL entry.
+    for (const _entry of entries) {
+      emitAutoresearchStatus(broadcastEvent, activeExperiment, "running", buildActiveExperimentSummary(activeExperiment));
     }
   }, 2000);
 
@@ -649,10 +770,10 @@ async function startAutoresearch(
     `Use stop_autoresearch to stop and clean up.`,
   ].filter(Boolean);
 
-  // Post initial timeline status card
+  // Publish the live status pane snapshot immediately.
   const initialSummary = buildExperimentSummary([]);
   initialSummary.name = params.prompt.slice(0, 80);
-  postStatusCard(id, initialSummary, "running", resolvedChatJid, tmuxSession);
+  emitAutoresearchStatus(broadcastEvent, activeExperiment, "running", initialSummary);
 
   return buildResult(parts.join("\n"), {
     experiment_id: id,
@@ -671,10 +792,13 @@ function stopPolling(): void {
 }
 
 async function stopAutoresearch(
-  params: { generate_report?: boolean },
+  params: { generate_report?: boolean; chat_jid?: string },
 ): Promise<AgentToolResult<Record<string, unknown>>> {
   if (!activeExperiment) {
-    return buildResult("No experiment is currently running.");
+    return buildResult("No experiment is currently running.", { active: false });
+  }
+  if (params.chat_jid && activeExperiment.chatJid !== params.chat_jid) {
+    return buildResult("No experiment is currently running in this chat.", { active: false, chat_jid: params.chat_jid });
   }
 
   const exp = activeExperiment;
@@ -701,17 +825,19 @@ async function stopAutoresearch(
     parts.push(`Report: ${reportPath}`);
   }
 
-  // Final summary + card
+  // Final summary for the live status pane
+  const summary = existsSync(exp.jsonlPath)
+    ? buildExperimentSummary(parseJsonlFile(exp.jsonlPath))
+    : buildActiveExperimentSummary(exp);
   if (existsSync(exp.jsonlPath)) {
-    const summary = buildExperimentSummary(parseJsonlFile(exp.jsonlPath));
     parts.push(
       "",
       `Results: ${summary.totalRuns} runs, ${summary.kept} kept, ${summary.discarded} discarded`,
       summary.bestMetric !== null ? `Best ${summary.metricName}: ${summary.bestMetric}${summary.metricUnit}` : "",
       summary.confidence !== null ? `Confidence: ${summary.confidence.toFixed(1)}×` : "",
     );
-    postStatusCard(exp.id, summary, "stopped", exp.chatJid);
   }
+  emitAutoresearchStatus(autoresearchWidgetBroadcast, exp, "stopped", summary, "user_stopped");
 
   activeExperiment = null;
 
@@ -720,6 +846,12 @@ async function stopAutoresearch(
     stopped: true,
     report_path: reportPath,
   });
+}
+
+export async function stopAutoresearchFromWeb(
+  params: { generate_report?: boolean; chat_jid?: string } = {},
+): Promise<AgentToolResult<Record<string, unknown>>> {
+  return stopAutoresearch(params);
 }
 
 async function autoresearchStatus(): Promise<AgentToolResult<Record<string, unknown>>> {
@@ -789,7 +921,7 @@ const HINT = [
  * Returns a human-readable result message.
  */
 export async function startAutoresearchFromCard(
-  params: { project_dir: string; prompt: string; model?: string; max_iterations?: number; sandbox?: boolean; chat_jid?: string },
+  params: { project_dir: string; prompt: string; model?: string; max_iterations?: number; sandbox?: boolean; variables?: string[]; chat_jid?: string },
 ): Promise<string> {
   const noop = () => {};
   const result = await startAutoresearch(params, noop, resolveStatusChatJid(params.chat_jid));
@@ -805,7 +937,7 @@ export const autoresearchSupervisor: ExtensionFactory = (pi: ExtensionAPI) => {
     const global = globalThis as { __PICLAW_BROADCAST_EVENT__?: (type: string, data: unknown) => void };
     if (typeof global.__PICLAW_BROADCAST_EVENT__ === "function") {
       broadcastEvent = global.__PICLAW_BROADCAST_EVENT__;
-      statusCardBroadcast = global.__PICLAW_BROADCAST_EVENT__;
+      autoresearchWidgetBroadcast = global.__PICLAW_BROADCAST_EVENT__;
     }
   } catch { /* ok */ }
 
@@ -822,7 +954,7 @@ export const autoresearchSupervisor: ExtensionFactory = (pi: ExtensionAPI) => {
     async execute(_toolCallId, params, _signal, _update, ctx) {
       // If no model specified, show a model picker card and defer launch
       if (!params.model) {
-        const models: Array<{ label: string; provider: string; id: string }> = [];
+        const models: Array<{ label: string; provider: string; id: string; contextWindow?: number }> = [];
         try {
           ctx.modelRegistry.refresh();
           const seen = new Set<string>();
@@ -831,7 +963,7 @@ export const autoresearchSupervisor: ExtensionFactory = (pi: ExtensionAPI) => {
             const label = `${m.provider}/${m.id}`;
             if (seen.has(label)) continue;
             seen.add(label);
-            models.push({ label, provider: m.provider, id: m.id });
+            models.push({ label, provider: m.provider, id: m.id, contextWindow: Number.isFinite(m.contextWindow) ? Number(m.contextWindow) : undefined });
           }
         } catch { /* ok */ }
 
@@ -845,9 +977,10 @@ export const autoresearchSupervisor: ExtensionFactory = (pi: ExtensionAPI) => {
           project_dir: params.project_dir,
           prompt: params.prompt,
           max_iterations: params.max_iterations,
+          variables: Array.isArray(params.variables) ? params.variables : undefined,
           chat_jid: pickerChatJid,
         };
-        const card = buildModelPickerCard(models, currentModel);
+        const card = buildModelPickerCard(models, currentModel, pendingLaunch);
         postMessagesToolMessage({
           action: "post",
           type: "agent",
@@ -905,19 +1038,28 @@ export const autoresearchSupervisor: ExtensionFactory = (pi: ExtensionAPI) => {
       // Look for JSONL in the working dir (which is the sandbox)
       const jsonlPath = join(projectDir, "autoresearch.jsonl");
       if (!existsSync(jsonlPath)) return;
+      const metadata = readSessionMetadata(projectDir);
       activeExperiment = {
         id,
         tmuxSession,
         projectDir,
         jsonlPath,
-        model: null,
-        maxIterations: (() => { try { const c = JSON.parse(readFileSync(join(projectDir, "autoresearch.config.json"), "utf-8")); return typeof c.maxIterations === "number" ? c.maxIterations : null; } catch { return null; } })(),
+        model: typeof metadata?.model === "string" && metadata.model.trim() ? metadata.model.trim() : null,
+        maxIterations: (() => {
+          if (typeof metadata?.max_iterations === "number") return metadata.max_iterations;
+          try {
+            const c = JSON.parse(readFileSync(join(projectDir, "autoresearch.config.json"), "utf-8"));
+            return typeof c.maxIterations === "number" ? c.maxIterations : null;
+          } catch {
+            return null;
+          }
+        })(),
         startedAt: new Date().toISOString(),
         pollInterval: null,
         lastJsonlOffset: existsSync(jsonlPath) ? readFileSync(jsonlPath, "utf-8").length : 0,
-        lastBroadcastedRun: 0,
         lastActivityAt: Date.now(),
-        chatJid: resolveStatusChatJid(),
+        chatJid: typeof metadata?.chat_jid === "string" && metadata.chat_jid.trim() ? metadata.chat_jid.trim() : resolveStatusChatJid(),
+        displayName: typeof metadata?.display_name === "string" && metadata.display_name.trim() ? metadata.display_name.trim() : (basename(projectDir) || id || "Experiment"),
       };
 
       // Resume polling
@@ -925,10 +1067,10 @@ export const autoresearchSupervisor: ExtensionFactory = (pi: ExtensionAPI) => {
         if (!activeExperiment) return;
         if (!tmuxSessionExists(activeExperiment.tmuxSession)) {
           stopPolling();
-          if (existsSync(activeExperiment.jsonlPath)) {
-            const summary = buildExperimentSummary(parseJsonlFile(activeExperiment.jsonlPath));
-            postStatusCard(activeExperiment.id, summary, summary.totalRuns > 0 ? "completed" : "failed", activeExperiment.chatJid);
-          }
+          const summary = existsSync(activeExperiment.jsonlPath)
+            ? buildExperimentSummary(parseJsonlFile(activeExperiment.jsonlPath))
+            : buildActiveExperimentSummary(activeExperiment);
+          emitAutoresearchStatus(broadcastEvent, activeExperiment, summary.totalRuns > 0 ? "completed" : "failed", summary, "process_exited");
           activeExperiment = null;
           return;
         }
@@ -936,26 +1078,15 @@ export const autoresearchSupervisor: ExtensionFactory = (pi: ExtensionAPI) => {
         if (entries.length === 0) return;
         activeExperiment.lastJsonlOffset = newOffset;
         for (const entry of entries) {
-          broadcastEvent(entry.type === "config" ? "autoresearch_config" : "autoresearch_result", {
-            experiment_id: activeExperiment.id,
-            entry,
-          });
-          if (entry.type !== "config") {
-            const allEntries = parseJsonlFile(activeExperiment.jsonlPath);
-            const summary = buildExperimentSummary(allEntries);
-            postStatusCard(activeExperiment.id, summary, "running", activeExperiment.chatJid, activeExperiment.tmuxSession);
-          }
+          emitAutoresearchStatus(broadcastEvent, activeExperiment, "running", buildActiveExperimentSummary(activeExperiment));
         }
       }, 2000);
 
-      // Post an immediate status card with current state
-      if (existsSync(jsonlPath)) {
-        const currentEntries = parseJsonlFile(jsonlPath);
-        if (currentEntries.length > 0) {
-          const summary = buildExperimentSummary(currentEntries);
-          postStatusCard(id, summary, "running", resolveStatusChatJid(), tmuxSession);
-        }
-      }
+      // Publish an immediate live-status snapshot with the current state.
+      const summary = existsSync(jsonlPath)
+        ? buildExperimentSummary(parseJsonlFile(jsonlPath))
+        : buildActiveExperimentSummary(activeExperiment);
+      emitAutoresearchStatus(broadcastEvent, activeExperiment, "running", summary);
 
       console.log(`[autoresearch] Re-attached to running experiment ${id} (tmux: ${tmuxSession})`);
     } catch (err) {

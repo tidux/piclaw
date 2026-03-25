@@ -135,6 +135,8 @@ const getAgentThought = api.getAgentThought;
 const setAgentThoughtVisibility = api.setAgentThoughtVisibility;
 const getAgentStatus = api.getAgentStatus;
 const getAgentContext = resolveOptionalApi(api, 'getAgentContext', null);
+const getAutoresearchStatus = resolveOptionalApi(api, 'getAutoresearchStatus', null);
+const stopAutoresearch = resolveOptionalApi(api, 'stopAutoresearch', { status: 'ok' });
 const getAgentModels = resolveOptionalApi(api, 'getAgentModels', { current: null, models: [] });
 const getActiveChatAgents = resolveOptionalApi(api, 'getActiveChatAgents', { chats: [] });
 const getChatBranches = resolveOptionalApi(api, 'getChatBranches', { chats: [] });
@@ -252,6 +254,8 @@ function MainApp({ locationParams, navigate }) {
     const [activeChatAgents, setActiveChatAgents] = useState([]);
     const [currentChatBranches, setCurrentChatBranches] = useState([]);
     const [contextUsage, setContextUsage] = useState(null);
+    const [extensionStatusPanels, setExtensionStatusPanels] = useState(() => new Map());
+    const [pendingExtensionPanelActions, setPendingExtensionPanelActions] = useState(() => new Set());
     const [followupQueueItems, setFollowupQueueItems] = useState([]);
     const [isAgentTurnActive, setIsAgentTurnActive] = useState(false);
     const [btwSession, setBtwSession] = useState(() => loadStoredBtwSession());
@@ -1242,6 +1246,34 @@ function MainApp({ locationParams, navigate }) {
         }
     }, [currentChatJid]);
 
+    const refreshAutoresearchStatus = useCallback(async () => {
+        const targetChatJid = currentChatJid;
+        try {
+            const payload = await getAutoresearchStatus(targetChatJid);
+            if (activeChatJidRef.current !== targetChatJid) return;
+            const panel = Array.isArray(payload?.content)
+                ? payload.content.find((item) => item?.type === 'status_panel' && item?.panel)
+                : null;
+            setExtensionStatusPanels((prev) => {
+                const next = new Map(prev);
+                if (payload?.key && panel?.panel) {
+                    next.set(payload.key, panel.panel);
+                } else {
+                    next.delete('autoresearch');
+                }
+                return next;
+            });
+            setPendingExtensionPanelActions((prev) => {
+                if (prev.size === 0) return prev;
+                const next = new Set(Array.from(prev).filter((key) => !String(key).startsWith('autoresearch:')));
+                return next.size === prev.size ? prev : next;
+            });
+        } catch (err) {
+            if (activeChatJidRef.current !== targetChatJid) return;
+            console.warn('Failed to fetch autoresearch status:', err);
+        }
+    }, [currentChatJid]);
+
     const refreshAgentStatus = useCallback(async () => {
         const targetChatJid = currentChatJid;
         try {
@@ -1754,6 +1786,8 @@ function MainApp({ locationParams, navigate }) {
 
         refreshActiveChatAgents();
         refreshCurrentChatBranches();
+        void refreshContextUsage();
+        void refreshAutoresearchStatus();
 
         if (response?.queued === "followup" || response?.queued === "steer") {
             refreshQueueState();
@@ -1766,7 +1800,37 @@ function MainApp({ locationParams, navigate }) {
         )) {
             refreshQueueState();
         }
-    }, [refreshActiveChatAgents, refreshCurrentChatBranches, refreshQueueState]);
+    }, [refreshActiveChatAgents, refreshAutoresearchStatus, refreshCurrentChatBranches, refreshContextUsage, refreshQueueState]);
+
+    const handleExtensionPanelAction = useCallback(async (panel, action) => {
+        const panelKey = typeof panel?.key === 'string' ? panel.key : '';
+        const actionKey = typeof action?.key === 'string' ? action.key : '';
+        const pendingKey = `${panelKey}:${actionKey}`;
+        if (!panelKey || !actionKey) return;
+        setPendingExtensionPanelActions((prev) => {
+            if (prev.has(pendingKey)) return prev;
+            const next = new Set(prev);
+            next.add(pendingKey);
+            return next;
+        });
+        try {
+            if (action?.action_type === 'autoresearch.stop') {
+                await stopAutoresearch(currentChatJid, { generateReport: true });
+                void refreshAutoresearchStatus();
+                return;
+            }
+            throw new Error(`Unsupported panel action: ${action?.action_type || actionKey}`);
+        } catch (error) {
+            showIntentToast('Panel action failed', error?.message || 'Could not complete that action.', 'warning');
+        } finally {
+            setPendingExtensionPanelActions((prev) => {
+                if (!prev.has(pendingKey)) return prev;
+                const next = new Set(prev);
+                next.delete(pendingKey);
+                return next;
+            });
+        }
+    }, [currentChatJid, refreshAutoresearchStatus, showIntentToast]);
 
     const closeBtwPanel = useCallback(() => {
         if (btwAbortRef.current) {
@@ -1977,7 +2041,8 @@ function MainApp({ locationParams, navigate }) {
         refreshCurrentChatBranches();
         refreshQueueState();
         refreshContextUsage();
-    }, [refreshModelState, refreshActiveChatAgents, refreshCurrentChatBranches, refreshQueueState, refreshContextUsage]);
+        refreshAutoresearchStatus();
+    }, [refreshModelState, refreshActiveChatAgents, refreshCurrentChatBranches, refreshQueueState, refreshContextUsage, refreshAutoresearchStatus]);
 
     useEffect(() => {
         refreshModelAndQueueState();
@@ -1993,6 +2058,12 @@ function MainApp({ locationParams, navigate }) {
     useEffect(() => {
         refreshCurrentChatBranches();
     }, [refreshCurrentChatBranches]);
+
+    useEffect(() => {
+        setExtensionStatusPanels(new Map());
+        setPendingExtensionPanelActions(new Set());
+        void refreshAutoresearchStatus();
+    }, [currentChatJid, refreshAutoresearchStatus]);
 
     useEffect(() => {
         let cancelled = false;
@@ -2245,9 +2316,13 @@ function MainApp({ locationParams, navigate }) {
                     // during an SSE gap (agent_response event may have been missed).
                     const { currentHashtag: ah, searchQuery: sq, searchOpen: so } = viewStateRef.current || {};
                     if (!ah && !sq && !so) refreshTimeline();
-                    // Update context usage indicator from the done event payload
+                    // Update context usage indicator immediately from the done
+                    // payload when available, then re-fetch canonical state so
+                    // the compose pie stays in sync even if the SSE payload is
+                    // absent or stale.
                     if (data.context_usage) setContextUsage(data.context_usage);
                 }
+                void refreshContextUsage();
                 wasAgentActiveRef.current = false;
                 clearAgentRunState();
                 // Re-sync queue state from the server on terminal transitions.
@@ -2480,6 +2555,34 @@ function MainApp({ locationParams, navigate }) {
             return;
         }
 
+        if (eventType === 'extension_ui_widget' && data?.options?.surface === 'status-panel') {
+            const eventChatJid = typeof data?.chat_jid === 'string' && data.chat_jid.trim() ? data.chat_jid.trim() : currentChatJid;
+            if (eventChatJid !== currentChatJid) return;
+            const panelKey = typeof data?.key === 'string' ? data.key : '';
+            const panel = Array.isArray(data?.content)
+                ? data.content.find((item) => item?.type === 'status_panel' && item?.panel)
+                : null;
+            if (!panelKey) return;
+            setExtensionStatusPanels((prev) => {
+                const next = new Map(prev);
+                if (data?.options?.remove || !panel?.panel) {
+                    next.delete(panelKey);
+                } else {
+                    next.set(panelKey, panel.panel);
+                }
+                return next;
+            });
+            if (data?.options?.remove || panel?.panel?.state !== 'running') {
+                setPendingExtensionPanelActions((prev) => {
+                    if (prev.size === 0) return prev;
+                    const next = new Set(Array.from(prev).filter((key) => !String(key).startsWith(`${panelKey}:`)));
+                    return next.size === prev.size ? prev : next;
+                });
+            }
+            dispatchExtensionUiBrowserEvent(eventType, data);
+            return;
+        }
+
         if (eventType === 'workspace_update') {
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('workspace-update', { detail: data }));
@@ -2561,6 +2664,7 @@ function MainApp({ locationParams, navigate }) {
         refreshModelState,
         refreshQueueState,
         setFollowupQueueItems,
+        refreshContextUsage,
     ]);
 
     useEffect(() => {
@@ -2623,16 +2727,18 @@ function MainApp({ locationParams, navigate }) {
                 refreshQueueState();
                 refreshAgentStatus();
                 refreshContextUsage();
+                refreshAutoresearchStatus();
             } else {
                 if (onMainTimeline) {
                     refreshTimeline();
                 }
                 refreshAgentStatus();
                 refreshContextUsage();
+                refreshAutoresearchStatus();
             }
         }, intervalMs);
         return () => clearInterval(interval);
-    }, [connectionStatus, isAgentActive, refreshAgentStatus, refreshContextUsage, refreshQueueState, refreshTimeline]);
+    }, [connectionStatus, isAgentActive, refreshAgentStatus, refreshAutoresearchStatus, refreshContextUsage, refreshQueueState, refreshTimeline]);
 
     // Returning to the tab/webapp should restore current context-affordance
     // truth immediately instead of waiting for the 15s/60s backstop poller.
@@ -2641,8 +2747,9 @@ function MainApp({ locationParams, navigate }) {
             refreshAgentStatus();
             refreshContextUsage();
             refreshQueueState();
+            refreshAutoresearchStatus();
         });
-    }, [refreshAgentStatus, refreshContextUsage, refreshQueueState]);
+    }, [refreshAgentStatus, refreshAutoresearchStatus, refreshContextUsage, refreshQueueState]);
 
     const toggleWorkspace = useCallback(() => {
         setWorkspaceOpen((prev) => !prev);
@@ -3564,6 +3671,7 @@ function MainApp({ locationParams, navigate }) {
                     turnId=${currentTurnId}
                     steerQueued=${steerQueued}
                     onPanelToggle=${handlePanelToggle}
+                    showExtensionPanels=${false}
                 />
                 <${BtwPanel}
                     session=${btwSession}
@@ -3575,6 +3683,15 @@ function MainApp({ locationParams, navigate }) {
                     widget=${floatingWidget}
                     onClose=${handleCloseFloatingWidget}
                     onWidgetEvent=${handleFloatingWidgetEvent}
+                />
+                <${AgentStatus}
+                    extensionPanels=${Array.from(extensionStatusPanels.values())}
+                    pendingPanelActions=${pendingExtensionPanelActions}
+                    onExtensionPanelAction=${handleExtensionPanelAction}
+                    turnId=${currentTurnId}
+                    steerQueued=${steerQueued}
+                    onPanelToggle=${handlePanelToggle}
+                    showCorePanels=${false}
                 />
                 <${ComposeBox}
                     onPost=${() => {

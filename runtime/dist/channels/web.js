@@ -638,6 +638,61 @@ export class WebChannel {
     async handleAgentContext(req) {
         return await handleAgentContextRequest(req, this.endpointContexts.agentStatus());
     }
+    /** GET /agent/autoresearch/status — current live autoresearch pane snapshot. */
+    async handleAutoresearchStatus(req) {
+        const url = new URL(req.url);
+        const chatJid = url.searchParams.get("chat_jid")?.trim() || DEFAULT_CHAT_JID;
+        try {
+            const { getAutoresearchStatusSnapshot } = await import("../extensions/autoresearch-supervisor.js");
+            return this.json(getAutoresearchStatusSnapshot(chatJid));
+        }
+        catch (error) {
+            console.warn("[web] Failed to read autoresearch status:", error);
+            return this.json({
+                active: false,
+                state: "idle",
+                chat_jid: chatJid,
+                experiment_id: null,
+                tmux_session: null,
+                project_dir: null,
+                model: null,
+                max_iterations: null,
+                started_at: null,
+                updated_at: new Date().toISOString(),
+                can_stop: false,
+                summary: null,
+            });
+        }
+    }
+    /** POST /agent/autoresearch/stop — stop the running autoresearch experiment for this chat. */
+    async handleAutoresearchStop(req) {
+        let payload = {};
+        try {
+            payload = await req.json();
+        }
+        catch {
+            payload = {};
+        }
+        const chatJid = typeof payload.chat_jid === "string" && payload.chat_jid.trim()
+            ? payload.chat_jid.trim()
+            : DEFAULT_CHAT_JID;
+        try {
+            const { stopAutoresearchFromWeb } = await import("../extensions/autoresearch-supervisor.js");
+            const result = await stopAutoresearchFromWeb({
+                chat_jid: chatJid,
+                generate_report: payload.generate_report !== false,
+            });
+            return this.json({
+                status: "ok",
+                chat_jid: chatJid,
+                result,
+            });
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return this.json({ error: message || "Failed to stop autoresearch experiment." }, 500);
+        }
+    }
     /** GET /agent/queue-state — return queued follow-up placeholder count and pending content. */
     async handleAgentQueueState(req) {
         const url = new URL(req.url);

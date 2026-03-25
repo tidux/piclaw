@@ -12,7 +12,7 @@
  */
 import { spawnSync, execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync, statSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, basename } from "node:path";
 import { Type } from "@sinclair/typebox";
 import { WORKSPACE_DIR } from "../core/config.js";
 import { postMessagesToolMessage } from "./messages-crud.js";
@@ -148,6 +148,50 @@ function buildExperimentSummary(entries) {
             lastDescription = entry.description;
     }
     return { name, metricName, metricUnit, direction, totalRuns, kept, discarded, crashed, checksFailed, bestMetric, confidence, lastDescription };
+}
+function buildActiveExperimentSummary(exp) {
+    const summary = existsSync(exp.jsonlPath)
+        ? buildExperimentSummary(parseJsonlFile(exp.jsonlPath))
+        : buildExperimentSummary([]);
+    if (!summary.name || summary.name === "Experiment") {
+        summary.name = exp.displayName || basename(exp.projectDir) || "Experiment";
+    }
+    return summary;
+}
+function buildAutoresearchStatusSnapshot(exp, state, options = {}) {
+    return {
+        active: state === "running",
+        state,
+        chat_jid: exp?.chatJid ?? options.chatJid ?? null,
+        experiment_id: exp?.id ?? null,
+        tmux_session: exp?.tmuxSession ?? null,
+        project_dir: exp?.projectDir ?? null,
+        model: exp?.model ?? null,
+        max_iterations: exp?.maxIterations ?? null,
+        started_at: exp?.startedAt ?? null,
+        updated_at: new Date().toISOString(),
+        can_stop: state === "running",
+        reason: options.reason ?? null,
+        summary: options.summary ?? (exp ? buildActiveExperimentSummary(exp) : null),
+    };
+}
+function emitAutoresearchStatus(broadcastEvent, exp, state, summary, reason) {
+    try {
+        broadcastEvent("autoresearch_status", buildAutoresearchStatusSnapshot(exp, state, { summary: summary ?? null, reason: reason ?? null }));
+    }
+    catch {
+        // best effort only
+    }
+}
+export function getAutoresearchStatusSnapshot(chatJid) {
+    const normalizedChatJid = typeof chatJid === "string" && chatJid.trim() ? chatJid.trim() : null;
+    if (!activeExperiment) {
+        return buildAutoresearchStatusSnapshot(null, "idle", { chatJid: normalizedChatJid });
+    }
+    if (normalizedChatJid && activeExperiment.chatJid !== normalizedChatJid) {
+        return buildAutoresearchStatusSnapshot(null, "idle", { chatJid: normalizedChatJid });
+    }
+    return buildAutoresearchStatusSnapshot(activeExperiment, "running");
 }
 // ── Timeline card helpers ───────────────────────────────────────
 function buildStatusCardBlock(experimentId, summary, status, tmuxSession) {
@@ -443,6 +487,7 @@ async function startAutoresearch(params, broadcastEvent, chatJid) {
         lastBroadcastedRun: 0,
         lastActivityAt: Date.now(),
         chatJid: resolvedChatJid,
+        displayName: params.prompt.slice(0, 80) || basename(workDir) || "Experiment",
     };
     // Start JSONL polling
     activeExperiment.pollInterval = setInterval(() => {
@@ -453,10 +498,10 @@ async function startAutoresearch(params, broadcastEvent, chatJid) {
             const expId = activeExperiment.id;
             const jsonlP = activeExperiment.jsonlPath;
             stopPolling();
-            if (existsSync(jsonlP)) {
-                const summary = buildExperimentSummary(parseJsonlFile(jsonlP));
-                postStatusCard(expId, summary, summary.totalRuns > 0 ? "completed" : "failed", resolvedChatJid);
-            }
+            const summary = existsSync(jsonlP)
+                ? buildExperimentSummary(parseJsonlFile(jsonlP))
+                : buildActiveExperimentSummary(activeExperiment);
+            emitAutoresearchStatus(broadcastEvent, activeExperiment, summary.totalRuns > 0 ? "completed" : "failed", summary, "process_exited");
             broadcastEvent("autoresearch_stopped", {
                 experiment_id: expId,
                 reason: "process_exited",
@@ -481,11 +526,10 @@ async function startAutoresearch(params, broadcastEvent, chatJid) {
             if (shouldStop) {
                 const expId = activeExperiment.id;
                 const tmux = activeExperiment.tmuxSession;
-                const chatJidForCard = activeExperiment.chatJid;
                 const reason = maxReached ? "max_iterations_idle" : "general_idle";
                 stopPolling();
                 const summary = buildExperimentSummary(allEntries);
-                postStatusCard(expId, summary, "completed", chatJidForCard);
+                emitAutoresearchStatus(broadcastEvent, activeExperiment, "completed", summary, reason);
                 spawnSync("tmux", ["send-keys", "-t", tmux, "C-c", ""], { stdio: "ignore" });
                 setTimeout(() => spawnSync("tmux", ["kill-session", "-t", tmux], { stdio: "ignore" }), 2000);
                 broadcastEvent("autoresearch_stopped", { experiment_id: expId, reason });
@@ -504,6 +548,7 @@ async function startAutoresearch(params, broadcastEvent, chatJid) {
                     experiment_id: activeExperiment.id,
                     ...entry,
                 });
+                emitAutoresearchStatus(broadcastEvent, activeExperiment, "running", buildActiveExperimentSummary(activeExperiment));
             }
             else {
                 activeExperiment.lastBroadcastedRun++;
@@ -515,8 +560,7 @@ async function startAutoresearch(params, broadcastEvent, chatJid) {
                     entry,
                     summary,
                 });
-                // Post timeline card update on every result
-                postStatusCard(activeExperiment.id, summary, "running", activeExperiment.chatJid, activeExperiment.tmuxSession);
+                emitAutoresearchStatus(broadcastEvent, activeExperiment, "running", summary);
             }
         }
     }, 2000);
@@ -533,10 +577,10 @@ async function startAutoresearch(params, broadcastEvent, chatJid) {
         useSandbox ? `Experiment runs in a copied sandbox — the original repo is not modified by this run.` : `⚠️ Direct mode — changes are made on branch ${branchName} in the original repo.`,
         `Use stop_autoresearch to stop and clean up.`,
     ].filter(Boolean);
-    // Post initial timeline status card
+    // Publish the live status pane snapshot immediately.
     const initialSummary = buildExperimentSummary([]);
     initialSummary.name = params.prompt.slice(0, 80);
-    postStatusCard(id, initialSummary, "running", resolvedChatJid, tmuxSession);
+    emitAutoresearchStatus(broadcastEvent, activeExperiment, "running", initialSummary);
     return buildResult(parts.join("\n"), {
         experiment_id: id,
         tmux_session: tmuxSession,
@@ -553,7 +597,10 @@ function stopPolling() {
 }
 async function stopAutoresearch(params) {
     if (!activeExperiment) {
-        return buildResult("No experiment is currently running.");
+        return buildResult("No experiment is currently running.", { active: false });
+    }
+    if (params.chat_jid && activeExperiment.chatJid !== params.chat_jid) {
+        return buildResult("No experiment is currently running in this chat.", { active: false, chat_jid: params.chat_jid });
     }
     const exp = activeExperiment;
     stopPolling();
@@ -575,18 +622,23 @@ async function stopAutoresearch(params) {
         writeFileSync(reportPath, report, "utf-8");
         parts.push(`Report: ${reportPath}`);
     }
-    // Final summary + card
+    // Final summary for the live status pane
+    const summary = existsSync(exp.jsonlPath)
+        ? buildExperimentSummary(parseJsonlFile(exp.jsonlPath))
+        : buildActiveExperimentSummary(exp);
     if (existsSync(exp.jsonlPath)) {
-        const summary = buildExperimentSummary(parseJsonlFile(exp.jsonlPath));
         parts.push("", `Results: ${summary.totalRuns} runs, ${summary.kept} kept, ${summary.discarded} discarded`, summary.bestMetric !== null ? `Best ${summary.metricName}: ${summary.bestMetric}${summary.metricUnit}` : "", summary.confidence !== null ? `Confidence: ${summary.confidence.toFixed(1)}×` : "");
-        postStatusCard(exp.id, summary, "stopped", exp.chatJid);
     }
+    emitAutoresearchStatus(statusCardBroadcast || (() => { }), exp, "stopped", summary, "user_stopped");
     activeExperiment = null;
     return buildResult(parts.filter(Boolean).join("\n"), {
         experiment_id: exp.id,
         stopped: true,
         report_path: reportPath,
     });
+}
+export async function stopAutoresearchFromWeb(params = {}) {
+    return stopAutoresearch(params);
 }
 async function autoresearchStatus() {
     if (!activeExperiment) {
@@ -764,6 +816,7 @@ export const autoresearchSupervisor = (pi) => {
                 lastBroadcastedRun: 0,
                 lastActivityAt: Date.now(),
                 chatJid: resolveStatusChatJid(),
+                displayName: basename(projectDir) || id || "Experiment",
             };
             // Resume polling
             activeExperiment.pollInterval = setInterval(() => {
@@ -771,10 +824,10 @@ export const autoresearchSupervisor = (pi) => {
                     return;
                 if (!tmuxSessionExists(activeExperiment.tmuxSession)) {
                     stopPolling();
-                    if (existsSync(activeExperiment.jsonlPath)) {
-                        const summary = buildExperimentSummary(parseJsonlFile(activeExperiment.jsonlPath));
-                        postStatusCard(activeExperiment.id, summary, summary.totalRuns > 0 ? "completed" : "failed", activeExperiment.chatJid);
-                    }
+                    const summary = existsSync(activeExperiment.jsonlPath)
+                        ? buildExperimentSummary(parseJsonlFile(activeExperiment.jsonlPath))
+                        : buildActiveExperimentSummary(activeExperiment);
+                    emitAutoresearchStatus(broadcastEvent, activeExperiment, summary.totalRuns > 0 ? "completed" : "failed", summary, "process_exited");
                     activeExperiment = null;
                     return;
                 }
@@ -787,21 +840,16 @@ export const autoresearchSupervisor = (pi) => {
                         experiment_id: activeExperiment.id,
                         entry,
                     });
-                    if (entry.type !== "config") {
-                        const allEntries = parseJsonlFile(activeExperiment.jsonlPath);
-                        const summary = buildExperimentSummary(allEntries);
-                        postStatusCard(activeExperiment.id, summary, "running", activeExperiment.chatJid, activeExperiment.tmuxSession);
-                    }
+                    const allEntries = parseJsonlFile(activeExperiment.jsonlPath);
+                    const summary = buildExperimentSummary(allEntries);
+                    emitAutoresearchStatus(broadcastEvent, activeExperiment, "running", summary);
                 }
             }, 2000);
-            // Post an immediate status card with current state
-            if (existsSync(jsonlPath)) {
-                const currentEntries = parseJsonlFile(jsonlPath);
-                if (currentEntries.length > 0) {
-                    const summary = buildExperimentSummary(currentEntries);
-                    postStatusCard(id, summary, "running", resolveStatusChatJid(), tmuxSession);
-                }
-            }
+            // Publish an immediate live-status snapshot with the current state.
+            const summary = existsSync(jsonlPath)
+                ? buildExperimentSummary(parseJsonlFile(jsonlPath))
+                : buildActiveExperimentSummary(activeExperiment);
+            emitAutoresearchStatus(broadcastEvent, activeExperiment, "running", summary);
             console.log(`[autoresearch] Re-attached to running experiment ${id} (tmux: ${tmuxSession})`);
         }
         catch (err) {

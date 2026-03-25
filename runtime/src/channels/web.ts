@@ -851,6 +851,47 @@ export class WebChannel implements WebChannelLike {
     return await handleAgentContextRequest(req, this.endpointContexts.agentStatus());
   }
 
+  /** GET /agent/autoresearch/status — current live autoresearch status-panel widget payload. */
+  async handleAutoresearchStatus(req: Request): Promise<Response> {
+    const url = new URL(req.url);
+    const chatJid = url.searchParams.get("chat_jid")?.trim() || DEFAULT_CHAT_JID;
+    try {
+      const { getAutoresearchWidgetPayload } = await import("../extensions/autoresearch-supervisor.js");
+      return this.json(getAutoresearchWidgetPayload(chatJid));
+    } catch (error) {
+      console.warn("[web] Failed to read autoresearch status:", error);
+      return this.json(null);
+    }
+  }
+
+  /** POST /agent/autoresearch/stop — stop the running autoresearch experiment for this chat. */
+  async handleAutoresearchStop(req: Request): Promise<Response> {
+    let payload: { chat_jid?: string; generate_report?: boolean } = {};
+    try {
+      payload = await req.json();
+    } catch {
+      payload = {};
+    }
+    const chatJid = typeof payload.chat_jid === "string" && payload.chat_jid.trim()
+      ? payload.chat_jid.trim()
+      : DEFAULT_CHAT_JID;
+    try {
+      const { stopAutoresearchFromWeb } = await import("../extensions/autoresearch-supervisor.js");
+      const result = await stopAutoresearchFromWeb({
+        chat_jid: chatJid,
+        generate_report: payload.generate_report !== false,
+      });
+      return this.json({
+        status: "ok",
+        chat_jid: chatJid,
+        result,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return this.json({ error: message || "Failed to stop autoresearch experiment." }, 500);
+    }
+  }
+
   /** GET /agent/queue-state — return queued follow-up placeholder count and pending content. */
   async handleAgentQueueState(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -1452,6 +1493,7 @@ export class WebChannel implements WebChannelLike {
           model: selectedModel,
           sandbox: useSandbox,
           max_iterations: pending.max_iterations,
+          variables: pending.variables,
           chat_jid: pending.chat_jid || chatJid,
         });
         await this.sendMessage(chatJid, result, { threadId });

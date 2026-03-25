@@ -261,6 +261,27 @@ export async function getAgentContext(chatJid = null) {
 }
 
 /**
+ * Get the live autoresearch status-panel widget payload for the current chat.
+ */
+export async function getAutoresearchStatus(chatJid = null) {
+    const query = chatJid ? `?chat_jid=${encodeURIComponent(chatJid)}` : '';
+    return request(`/agent/autoresearch/status${query}`);
+}
+
+/**
+ * Stop the currently running autoresearch experiment for the current chat.
+ */
+export async function stopAutoresearch(chatJid = null, options = {}) {
+    return request('/agent/autoresearch/stop', {
+        method: 'POST',
+        body: JSON.stringify({
+            chat_jid: chatJid || undefined,
+            generate_report: options?.generateReport !== false,
+        }),
+    });
+}
+
+/**
  * Get queued follow-up state for the default web chat (count + pending items).
  */
 export async function getAgentQueueState(chatJid = null) {
