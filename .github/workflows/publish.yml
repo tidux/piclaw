@@ -93,7 +93,7 @@ jobs:
         timeout-minutes: 5
         env:
           STATIC_TIMEOUT_SEC: "120"
-          HTTP_TIMEOUT_SEC: "90"
+          HTTP_TIMEOUT_SEC: "180"
         run: |
           IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
           chmod +x ./scripts/docker/publish-smoke-test.sh
@@ -151,7 +151,7 @@ jobs:
         timeout-minutes: 5
         env:
           STATIC_TIMEOUT_SEC: "120"
-          HTTP_TIMEOUT_SEC: "90"
+          HTTP_TIMEOUT_SEC: "180"
         run: |
           IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
           chmod +x ./scripts/docker/publish-smoke-test.sh

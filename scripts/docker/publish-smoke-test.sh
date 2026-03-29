@@ -83,6 +83,8 @@ docker run -d \
   --name "$CONTAINER_NAME" \
   --platform "$PLATFORM" \
   -p 127.0.0.1::${PICLAW_CONTAINER_PORT} \
+  -v "$(mktemp -d):/workspace" \
+  -v "$(mktemp -d):/config" \
   "$IMAGE_REF" >/dev/null
 
 HOST_PORT=""
