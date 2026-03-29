@@ -29,7 +29,6 @@ import { handleAgentPanelToggle } from './ui/app-agent-panel-toggle.js';
 import { resolveFilePillOpenAction } from './ui/file-pill-open.js';
 import { parseBtwCommand, buildBtwInjectionText, resolveBtwChatJid } from './ui/btw.js';
 import {
-    buildChatWindowUrl,
     isStandaloneWebAppMode,
 } from './ui/chat-window.js';
 import { shouldClearQueuedSteerState } from './ui/queue-state.js';
@@ -123,6 +122,21 @@ import {
     refreshQueueStateForChat,
 } from './ui/app-status-refresh-orchestration.js';
 import { handleAppSseEvent } from './ui/app-sse-events.js';
+import {
+    applyStoredSidebarWidth,
+    runTimelineLoadFlow,
+} from './ui/app-boot-load-orchestration.js';
+import {
+    applyStoredPaneLayout,
+    closeTransferredPaneSource,
+    navigateToSelectedBranch,
+    resolvePanePopoutTransfer,
+} from './ui/app-branch-pane-orchestration.js';
+import {
+    appendUniqueStringRef,
+    normalizeComposeRefs,
+    removeStringRef,
+} from './ui/app-shell-ref-utils.js';
 
 const CURRENT_APP_ASSET_VERSION = getCurrentAppAssetVersion();
 
@@ -622,12 +636,11 @@ function MainApp({ locationParams, navigate }) {
     }, []);
 
     const addFileRef = useCallback((path) => {
-        if (!path) return;
-        setFileRefs((prev) => (prev.includes(path) ? prev : [...prev, path]));
+        setFileRefs((prev) => appendUniqueStringRef(prev, path));
     }, []);
 
     const removeFileRef = useCallback((path) => {
-        setFileRefs((prev) => prev.filter((item) => item !== path));
+        setFileRefs((prev) => removeStringRef(prev, path));
     }, []);
     removeFileRefRef.current = removeFileRef;
 
@@ -636,20 +649,7 @@ function MainApp({ locationParams, navigate }) {
     }, []);
 
     const setFileRefsFromCompose = useCallback((next) => {
-        if (!Array.isArray(next)) {
-            setFileRefs([]);
-            return;
-        }
-        const deduped = [];
-        const seen = new Set();
-        for (const value of next) {
-            if (typeof value !== 'string' || !value.trim()) continue;
-            const normalized = value.trim();
-            if (seen.has(normalized)) continue;
-            seen.add(normalized);
-            deduped.push(normalized);
-        }
-        setFileRefs(deduped);
+        setFileRefs(normalizeComposeRefs(next));
     }, []);
 
 
@@ -683,8 +683,7 @@ function MainApp({ locationParams, navigate }) {
     }, [tabStripActiveId, addFileRef]);
 
     const addMessageRef = useCallback((id) => {
-        if (!id) return;
-        setMessageRefs((prev) => (prev.includes(id) ? prev : [...prev, id]));
+        setMessageRefs((prev) => appendUniqueStringRef(prev, id));
     }, []);
 
     /** Scroll to a message by ID; fetch and inject if not in current timeline. */
@@ -724,7 +723,7 @@ function MainApp({ locationParams, navigate }) {
     }, [currentChatJid]);
 
     const removeMessageRef = useCallback((id) => {
-        setMessageRefs((prev) => prev.filter((item) => item !== id));
+        setMessageRefs((prev) => removeStringRef(prev, id));
     }, []);
 
     const clearMessageRefs = useCallback(() => {
@@ -732,20 +731,7 @@ function MainApp({ locationParams, navigate }) {
     }, []);
 
     const setMessageRefsFromCompose = useCallback((next) => {
-        if (!Array.isArray(next)) {
-            setMessageRefs([]);
-            return;
-        }
-        const deduped = [];
-        const seen = new Set();
-        for (const value of next) {
-            if (typeof value !== 'string' || !value.trim()) continue;
-            const normalized = value.trim();
-            if (seen.has(normalized)) continue;
-            seen.add(normalized);
-            deduped.push(normalized);
-        }
-        setMessageRefs(deduped);
+        setMessageRefs(normalizeComposeRefs(next));
     }, []);
 
     const handleComposeSubmitError = useCallback((message) => {
@@ -1436,13 +1422,11 @@ function MainApp({ locationParams, navigate }) {
 
     useEffect(() => {
         loadAgents();
-        // Also apply saved sidebar width imperatively (no state → no re-render)
-        const saved = getLocalStorageNumber('sidebarWidth', null);
-        const w = Number.isFinite(saved) ? Math.min(Math.max(saved, 160), 600) : 280;
-        sidebarWidthRef.current = w;
-        if (appShellRef.current) {
-            appShellRef.current.style.setProperty('--sidebar-width', `${w}px`);
-        }
+        applyStoredSidebarWidth({
+            readStoredNumber: getLocalStorageNumber,
+            sidebarWidthRef,
+            shellElement: appShellRef.current,
+        });
     }, [loadAgents]);
 
     const isComposeBoxAgentActive = isAgentTurnActive || agentStatus !== null;
@@ -1741,47 +1725,19 @@ function MainApp({ locationParams, navigate }) {
     useEffect(() => {
         let cancelled = false;
 
-        const safeScrollToBottom = () => {
-            if (cancelled) return;
-            requestAnimationFrame(() => {
-                if (cancelled) return;
-                scrollToBottom();
-            });
-        };
-
-        if (currentHashtag) {
-            loadPosts(currentHashtag);
-            return () => {
-                cancelled = true;
-            };
-        }
-
-        if (searchQuery) {
-            searchPosts(searchQuery, 50, 0, currentChatJid, searchScope, currentRootChatJid)
-                .then((result) => {
-                    if (cancelled) return;
-                    setPosts(result.results);
-                    setHasMore(false);
-                })
-                .catch((error) => {
-                    if (cancelled) return;
-                    console.error('Failed to search:', error);
-                    setPosts([]);
-                    setHasMore(false);
-                });
-            return () => {
-                cancelled = true;
-            };
-        }
-
-        loadPosts()
-            .then(() => {
-                safeScrollToBottom();
-            })
-            .catch((error) => {
-                if (cancelled) return;
-                console.error('Failed to load timeline:', error);
-            });
+        void runTimelineLoadFlow({
+            currentHashtag,
+            searchQuery,
+            searchScope,
+            currentChatJid,
+            currentRootChatJid,
+            loadPosts,
+            searchPosts,
+            setPosts,
+            setHasMore,
+            scrollToBottom,
+            isCancelled: () => cancelled,
+        });
 
         return () => {
             cancelled = true;
@@ -1986,11 +1942,14 @@ function MainApp({ locationParams, navigate }) {
     }, []);
 
     const handleBranchPickerChange = useCallback((nextChatJid) => {
-        if (typeof window === 'undefined') return;
-        const normalized = String(nextChatJid || '').trim();
-        if (!normalized || normalized === currentChatJid) return;
-        const url = buildChatWindowUrl(window.location.href, normalized, { chatOnly: chatOnlyMode });
-        navigate?.(url);
+        navigateToSelectedBranch({
+            hasWindow: typeof window !== 'undefined',
+            nextChatJid,
+            currentChatJid,
+            chatOnlyMode,
+            currentHref: typeof window !== 'undefined' ? window.location.href : 'http://localhost/',
+            navigate,
+        });
     }, [chatOnlyMode, currentChatJid, navigate]);
 
     const openRenameCurrentBranchForm = useCallback(() => {
@@ -2137,25 +2096,22 @@ function MainApp({ locationParams, navigate }) {
             showIntentToast,
             currentChatJid,
             baseHref: typeof window !== 'undefined' ? window.location.href : 'http://localhost/',
-            resolveSourceTransfer: async (panePath) => {
-                const activePath = typeof tabStripActiveId === 'string' ? tabStripActiveId.trim() : '';
-                const sourceInstance = activePath === panePath
-                    ? editorInstanceRef.current
-                    : (panePath === TERMINAL_TAB_PATH ? dockInstanceRef.current : null);
-                if (typeof sourceInstance?.preparePopoutTransfer === 'function') {
-                    return await sourceInstance.preparePopoutTransfer();
-                }
-                return null;
-            },
+            resolveSourceTransfer: (panePath) => resolvePanePopoutTransfer({
+                panePath,
+                tabStripActiveId,
+                editorInstanceRef,
+                dockInstanceRef,
+                terminalTabPath: TERMINAL_TAB_PATH,
+            }),
             closeSourcePaneIfTransferred: (panePath) => {
-                const sourceTab = tabStore.get(panePath);
-                if (sourceTab && !sourceTab.dirty) {
-                    handleTabClose(panePath);
-                    return;
-                }
-                if (panePath === TERMINAL_TAB_PATH && dockVisible) {
-                    setDockVisible(false);
-                }
+                closeTransferredPaneSource({
+                    panePath,
+                    terminalTabPath: TERMINAL_TAB_PATH,
+                    dockVisible,
+                    resolveTab: (value) => tabStore.get(value),
+                    closeTab: handleTabClose,
+                    setDockVisible,
+                });
             },
         });
     }, [currentChatJid, dockVisible, handleTabClose, isWebAppMode, showIntentToast, tabStripActiveId]);
@@ -2185,21 +2141,15 @@ function MainApp({ locationParams, navigate }) {
     }, [currentChatJid, currentRootChatJid, isWebAppMode, showIntentToast]);
 
     useEffect(() => {
-        if (!editorOpen) return;
-        if (typeof window === 'undefined') return;
-        const shell = appShellRef.current;
-        if (!shell) return;
-        if (!editorWidthRef.current) {
-            const stored = getLocalStorageNumber('editorWidth', null);
-            const fallback = sidebarWidthRef.current || 280;
-            editorWidthRef.current = Number.isFinite(stored) ? stored : fallback;
-        }
-        shell.style.setProperty('--editor-width', `${editorWidthRef.current}px`);
-        if (!dockHeightRef.current) {
-            const stored = getLocalStorageNumber('dockHeight', null);
-            dockHeightRef.current = Number.isFinite(stored) ? stored : 200;
-        }
-        shell.style.setProperty('--dock-height', `${dockHeightRef.current}px`);
+        applyStoredPaneLayout({
+            hasWindow: typeof window !== 'undefined',
+            editorOpen,
+            shellElement: appShellRef.current,
+            editorWidthRef,
+            dockHeightRef,
+            sidebarWidthRef,
+            readStoredNumber: getLocalStorageNumber,
+        });
     }, [editorOpen]);
 
 
