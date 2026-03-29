@@ -4,7 +4,6 @@ import { html, render, useState, useEffect, useCallback, useRef, useMemo } from 
 import * as api from './api.js';
 import { paneRegistry, editorPaneExtension, preloadEditorBundle, terminalPaneExtension, terminalTabPaneExtension, TERMINAL_TAB_PATH, vncPaneExtension, VNC_TAB_PREFIX, workspacePreviewPaneExtension, workspaceMarkdownPreviewPaneExtension, officeViewerPaneExtension, csvViewerPaneExtension, pdfViewerPaneExtension, imageViewerPaneExtension, videoViewerPaneExtension, drawioPaneExtension, mindmapPaneExtension, kanbanPaneExtension, tabStore } from './panes/index.js';
 import { getLocalStorageBoolean, getLocalStorageNumber, setLocalStorageItem } from './utils/storage.js';
-import { useSseConnection } from './ui/use-sse-connection.js';
 import { useNotifications } from './ui/use-notifications.js';
 import { useTimeline } from './ui/use-timeline.js';
 import { dedupePosts } from './ui/timeline-utils.js';
@@ -41,9 +40,12 @@ import {
 import {
     useViewRefreshLifecycle,
 } from './ui/app-view-refresh-lifecycle.js';
+import {
+    useRealtimeLifecycleOrchestration,
+} from './ui/app-realtime-lifecycle-orchestration.js';
 import { installStandaloneMobileViewportFix } from './ui/mobile-viewport.js';
 import { resolveOptionalApi } from './ui/optional-api.js';
-import { watchReturnToApp, watchStandaloneWebAppMode } from './ui/app-resume.js';
+import { watchStandaloneWebAppMode } from './ui/app-resume.js';
 import { watchDockToggleShortcut, watchZenModeShortcuts } from './ui/app-browser-events.js';
 import {
     getPanePopoutTitle,
@@ -65,7 +67,6 @@ import {
 import {
     handleConnectionStatusChangeEvent,
     handleUiVersionDriftEvent,
-    runBackstopRefreshTick,
 } from './ui/app-connection-lifecycle.js';
 import {
     createSessionFromComposeAction,
@@ -106,7 +107,6 @@ import {
     refreshContextUsageForChat,
     refreshQueueStateForChat,
 } from './ui/app-status-refresh-orchestration.js';
-import { handleAppSseEvent } from './ui/app-sse-events.js';
 import {
     finalizeStalledResponse as finalizeStalledResponseState,
     reconcileSilentTurn as reconcileSilentTurnState,
@@ -1329,153 +1329,73 @@ function MainApp({ locationParams, navigate }) {
         dismissedLiveWidgetKeysRef,
     });
 
-    const handleSseEvent = useCallback((eventType, data) => {
-        handleAppSseEvent(eventType, data, {
-            currentChatJid,
-            updateAgentProfile,
-            updateUserProfile,
-            currentTurnIdRef,
-            activeChatJidRef,
-            pendingRequestRef,
-            draftBufferRef,
-            thoughtBufferRef,
-            steerQueuedTurnIdRef,
-            thoughtExpandedRef,
-            draftExpandedRef,
-            draftThrottleRef,
-            thoughtThrottleRef,
-            viewStateRef,
-            followupQueueItemsRef,
-            dismissedQueueRowIdsRef,
-            scrollToBottomRef,
-            hasMoreRef,
-            loadMoreRef,
-            lastAgentResponseRef,
-            wasAgentActiveRef,
-            setActiveTurn,
-            applyLiveGeneratedWidgetUpdate,
-            setFloatingWidget,
-            clearLastActivityFlag,
-            handleUiVersionDrift,
-            setAgentStatus,
-            setAgentDraft,
-            setAgentPlan,
-            setAgentThought,
-            setPendingRequest,
-            clearAgentRunState,
-            getAgentStatus,
-            noteAgentActivity,
-            showLastActivity,
-            refreshTimeline,
-            refreshModelAndQueueState,
-            refreshActiveChatAgents,
-            refreshCurrentChatBranches,
-            notifyForFinalResponse,
-            setContextUsage,
-            refreshContextUsage,
-            refreshQueueState,
-            setFollowupQueueItems,
-            clearQueuedSteerStateIfStale,
-            setSteerQueuedTurnId,
-            applyModelState,
-            getAgentContext,
-            setExtensionStatusPanels,
-            setPendingExtensionPanelActions,
-            refreshActiveEditorFromWorkspace,
-            showIntentToast,
-            removeStalledPost,
-            setPosts,
-            preserveTimelineScrollTop,
-        });
-    }, [
-        applyLiveGeneratedWidgetUpdate,
-        applyModelState,
-        clearAgentRunState,
-        clearLastActivityFlag,
-        clearQueuedSteerStateIfStale,
+    useRealtimeLifecycleOrchestration({
         currentChatJid,
-        handleUiVersionDrift,
-        noteAgentActivity,
-        notifyForFinalResponse,
-        refreshActiveChatAgents,
-        refreshActiveEditorFromWorkspace,
-        refreshContextUsage,
-        refreshCurrentChatBranches,
-        refreshModelAndQueueState,
-        refreshQueueState,
-        refreshTimeline,
-        removeStalledPost,
-        setActiveTurn,
-        setFollowupQueueItems,
-        showIntentToast,
-        showLastActivity,
+        posts,
+        scrollToMessage,
+        handleConnectionStatusChange,
+        loadPosts,
+        refreshCurrentView,
         updateAgentProfile,
         updateUserProfile,
-    ]);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        const api = window.__PICLAW_TEST_API || {};
-        api.emit = handleSseEvent;
-        api.reset = () => {
-            removeStalledPost();
-            clearAgentRunState();
-            setAgentStatus(null);
-            setAgentDraft({ text: '', totalLines: 0 });
-            setAgentPlan('');
-            setAgentThought({ text: '', totalLines: 0 });
-            setPendingRequest(null);
-        };
-        api.finalize = () => finalizeStalledResponse();
-        window.__PICLAW_TEST_API = api;
-        return () => {
-            if (window.__PICLAW_TEST_API === api) {
-                window.__PICLAW_TEST_API = undefined;
-            }
-        };
-    }, [clearAgentRunState, finalizeStalledResponse, handleSseEvent, removeStalledPost]);
-
-    // Set up SSE connection
-    useSseConnection({ handleSseEvent, handleConnectionStatusChange, loadPosts, onWake: refreshCurrentView, chatJid: currentChatJid });
-
-    // Scroll to hash-linked message on load.
-    useEffect(() => {
-        if (!posts || posts.length === 0) return;
-        const hash = location.hash;
-        if (!hash || !hash.startsWith('#msg-')) return;
-        const msgId = hash.slice(5);
-        scrollToMessage(msgId);
-        history.replaceState(null, '', location.pathname + location.search);
-    }, [posts, scrollToMessage]);
-
-    // Adaptive backstop poller: 15s while active, 60s while idle.
-    const isAgentActive = agentStatus !== null;
-    useEffect(() => {
-        if (connectionStatus !== 'connected') return;
-        const intervalMs = isAgentActive ? 15000 : 60000;
-        const interval = setInterval(() => {
-            runBackstopRefreshTick({
-                viewStateRef,
-                isAgentActive,
-                refreshTimeline,
-                refreshQueueState,
-                refreshAgentStatus,
-                refreshContextUsage,
-                refreshAutoresearchStatus,
-            });
-        }, intervalMs);
-        return () => clearInterval(interval);
-    }, [connectionStatus, isAgentActive, refreshAgentStatus, refreshAutoresearchStatus, refreshContextUsage, refreshQueueState, refreshTimeline]);
-
-    // Returning to the tab/webapp should restore context immediately.
-    useEffect(() => {
-        return watchReturnToApp(() => {
-            refreshAgentStatus();
-            refreshContextUsage();
-            refreshQueueState();
-            refreshAutoresearchStatus();
-        });
-    }, [refreshAgentStatus, refreshAutoresearchStatus, refreshContextUsage, refreshQueueState]);
+        currentTurnIdRef,
+        activeChatJidRef,
+        pendingRequestRef,
+        draftBufferRef,
+        thoughtBufferRef,
+        steerQueuedTurnIdRef,
+        thoughtExpandedRef,
+        draftExpandedRef,
+        draftThrottleRef,
+        thoughtThrottleRef,
+        viewStateRef,
+        followupQueueItemsRef,
+        dismissedQueueRowIdsRef,
+        scrollToBottomRef,
+        hasMoreRef,
+        loadMoreRef,
+        lastAgentResponseRef,
+        wasAgentActiveRef,
+        setActiveTurn,
+        applyLiveGeneratedWidgetUpdate,
+        setFloatingWidget,
+        clearLastActivityFlag,
+        handleUiVersionDrift,
+        setAgentStatus,
+        setAgentDraft,
+        setAgentPlan,
+        setAgentThought,
+        setPendingRequest,
+        clearAgentRunState,
+        getAgentStatus,
+        noteAgentActivity,
+        showLastActivity,
+        refreshTimeline,
+        refreshModelAndQueueState,
+        refreshActiveChatAgents,
+        refreshCurrentChatBranches,
+        notifyForFinalResponse,
+        setContextUsage,
+        refreshContextUsage,
+        refreshQueueState,
+        setFollowupQueueItems,
+        clearQueuedSteerStateIfStale,
+        setSteerQueuedTurnId,
+        applyModelState,
+        getAgentContext,
+        setExtensionStatusPanels,
+        setPendingExtensionPanelActions,
+        refreshActiveEditorFromWorkspace,
+        showIntentToast,
+        removeStalledPost,
+        setPosts,
+        preserveTimelineScrollTop,
+        finalizeStalledResponse,
+        connectionStatus,
+        agentStatus,
+        refreshAgentStatus,
+        refreshAutoresearchStatus,
+    });
 
     const toggleWorkspace = useCallback(() => {
         toggleWorkspaceVisibility(setWorkspaceOpen);
