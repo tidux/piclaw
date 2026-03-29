@@ -1,11 +1,25 @@
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
-import { buildFollowupTicketMarkdown } from "../../../scripts/audit-baseline-quality-deterministic.ts";
+import {
+  buildAuditCommandEnv,
+  buildFollowupTicketMarkdown,
+} from "../../../scripts/audit-baseline-quality-deterministic.ts";
 
 const repoRoot = path.resolve(import.meta.dir, "../../..");
 const auditScriptPath = path.join(repoRoot, "scripts", "audit-baseline-quality-deterministic.ts");
 
 describe("audit-baseline-quality-deterministic", () => {
+  test("buildAuditCommandEnv isolates runtime state away from the live workspace", () => {
+    const env = buildAuditCommandEnv({ PATH: process.env.PATH, PICLAW_WORKSPACE: "/workspace" });
+
+    expect(env.PATH).toBe(process.env.PATH);
+    expect(env.PICLAW_WORKSPACE).not.toBe("/workspace");
+    expect(env.PICLAW_WORKSPACE).toContain("artifacts/baseline-quality-deterministic");
+    expect(env.PICLAW_STORE).toContain("isolated-state/store");
+    expect(env.PICLAW_DATA).toContain("isolated-state/data");
+    expect(env.PICLAW_DB_IN_MEMORY).toBe("1");
+  });
+
   test("list-groups exposes finer deterministic subgroup coverage", async () => {
     const proc = Bun.spawn(["bun", "run", auditScriptPath, "--list-groups"], {
       cwd: repoRoot,

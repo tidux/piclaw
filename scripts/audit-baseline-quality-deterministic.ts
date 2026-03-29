@@ -84,6 +84,10 @@ const artifactDir = process.env.PICLAW_AUDIT_RUN_DIR
   : path.join(artifactBaseDir, timestamp);
 const logDir = path.join(artifactDir, "logs");
 const followupDir = path.join(artifactDir, "followups");
+const isolatedStateDir = path.join(artifactDir, "isolated-state");
+const isolatedWorkspaceDir = path.join(isolatedStateDir, "workspace");
+const isolatedStoreDir = path.join(isolatedStateDir, "store");
+const isolatedDataDir = path.join(isolatedStateDir, "data");
 const boardFollowupDir = process.env.PICLAW_AUDIT_KANBAN_FOLLOWUP_DIR
   ? path.resolve(repoRoot, process.env.PICLAW_AUDIT_KANBAN_FOLLOWUP_DIR)
   : null;
@@ -401,9 +405,31 @@ const excludedPatterns = [
   { reason: "fuzz suite", regex: /\.fuzz\.test\.ts$/ },
 ];
 
+export function buildAuditCommandEnv(baseEnv: Record<string, string | undefined>): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(baseEnv)) {
+    if (value !== undefined) env[key] = value;
+  }
+
+  env.TZ = env.TZ ?? "UTC";
+  env.LANG = env.LANG ?? "C.UTF-8";
+  env.LC_ALL = env.LC_ALL ?? "C.UTF-8";
+  env.CI = env.CI ?? "1";
+  env.FORCE_COLOR = env.FORCE_COLOR ?? "0";
+  env.PICLAW_WORKSPACE = isolatedWorkspaceDir;
+  env.PICLAW_STORE = isolatedStoreDir;
+  env.PICLAW_DATA = isolatedDataDir;
+  env.PICLAW_DB_IN_MEMORY = env.PICLAW_DB_IN_MEMORY ?? "1";
+
+  return env;
+}
+
 export async function main(): Promise<void> {
   await mkdir(logDir, { recursive: true });
   await mkdir(followupDir, { recursive: true });
+  await mkdir(isolatedWorkspaceDir, { recursive: true });
+  await mkdir(isolatedStoreDir, { recursive: true });
+  await mkdir(isolatedDataDir, { recursive: true });
   if (boardFollowupDir) {
     await mkdir(boardFollowupDir, { recursive: true });
   }
@@ -689,14 +715,7 @@ async function runCommand(options: {
   const startedAt = new Date();
   const proc = Bun.spawn(["bash", "-lc", options.command], {
     cwd: options.cwd,
-    env: {
-      ...process.env,
-      TZ: process.env.TZ ?? "UTC",
-      LANG: process.env.LANG ?? "C.UTF-8",
-      LC_ALL: process.env.LC_ALL ?? "C.UTF-8",
-      CI: process.env.CI ?? "1",
-      FORCE_COLOR: process.env.FORCE_COLOR ?? "0",
-    },
+    env: buildAuditCommandEnv(process.env),
     stdout: "pipe",
     stderr: "pipe",
   });
