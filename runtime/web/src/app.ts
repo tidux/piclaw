@@ -45,6 +45,9 @@ import {
 import {
     useAgentStatusLifecycle,
 } from './ui/app-agent-status-lifecycle.js';
+import {
+    useTimelineViewActions,
+} from './ui/app-timeline-view-actions.js';
 import { installStandaloneMobileViewportFix } from './ui/mobile-viewport.js';
 import { resolveOptionalApi } from './ui/optional-api.js';
 import { watchStandaloneWebAppMode } from './ui/app-resume.js';
@@ -90,12 +93,6 @@ import {
 import {
     finalizeStalledResponse as finalizeStalledResponseState,
 } from './ui/app-agent-status-orchestration.js';
-import {
-    backToTimeline,
-    deleteTimelinePost,
-    loadHashtagTimeline,
-    searchTimeline,
-} from './ui/app-timeline-actions.js';
 
 const CURRENT_APP_ASSET_VERSION = getCurrentAppAssetVersion();
 
@@ -940,73 +937,38 @@ function MainApp({ locationParams, navigate }) {
     });
 
 
-    // Handle hashtag click
-    const handleHashtagClick = useCallback(async (hashtag) => {
-        await loadHashtagTimeline({
-            hashtag,
-            setCurrentHashtag,
-            setPosts,
-            loadPosts,
-        });
-    }, [loadPosts]);
-
-    // Go back to timeline
-    const handleBackToTimeline = useCallback(async () => {
-        await backToTimeline({
-            setCurrentHashtag,
-            setSearchQuery,
-            setPosts,
-            loadPosts,
-        });
-    }, [loadPosts]);
-
-    // Handle search
-    const handleSearch = useCallback(async (query, scope = searchScope) => {
-        await searchTimeline({
-            query,
-            scope,
-            currentChatJid,
-            currentRootChatJid,
-            searchPosts,
-            setSearchScope,
-            setSearchQuery,
-            setCurrentHashtag,
-            setPosts,
-            setHasMore,
-        });
-    }, [currentChatJid, currentRootChatJid, searchScope]);
-
-    const enterSearchMode = useCallback(() => {
-        setSearchOpen(true);
-        setSearchQuery(null);
-        setCurrentHashtag(null);
-        setSearchScope('current');
-        setPosts([]);
-    }, []);
-
-    const exitSearchMode = useCallback(() => {
-        setSearchOpen(false);
-        setSearchQuery(null);
-        loadPosts();
-    }, [loadPosts]);
+    const {
+        handleHashtagClick,
+        handleBackToTimeline,
+        handleSearch,
+        enterSearchMode,
+        exitSearchMode,
+        isMainTimelineView,
+        handleDeletePost,
+    } = useTimelineViewActions({
+        currentHashtag,
+        searchQuery,
+        searchOpen,
+        searchScope,
+        currentChatJid,
+        currentRootChatJid,
+        posts,
+        loadPosts,
+        searchPosts,
+        setCurrentHashtag,
+        setSearchQuery,
+        setSearchOpen,
+        setSearchScope,
+        setPosts,
+        setHasMore,
+        preserveTimelineScrollTop,
+        setRemovingPostIds,
+        deletePost,
+        hasMoreRef,
+        loadMoreRef,
+    });
 
     const navigateToSearchResult = useCallback(() => {}, []);
-
-    const isMainTimelineView = !currentHashtag && !searchQuery && !searchOpen;
-
-    const handleDeletePost = useCallback(async (post) => {
-        await deleteTimelinePost({
-            post,
-            posts,
-            currentChatJid,
-            deletePost,
-            preserveTimelineScrollTop,
-            setPosts,
-            setRemovingPostIds,
-            hasMoreRef,
-            loadMoreRef,
-        });
-    }, [currentChatJid, posts, preserveTimelineScrollTop]);
 
     const {
         updateAgentProfile,
