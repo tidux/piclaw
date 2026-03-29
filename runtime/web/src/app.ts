@@ -50,6 +50,9 @@ import {
 import {
     useAgentActivityOrchestration,
 } from './ui/app-agent-activity-orchestration.js';
+import {
+    useTimelineScrollOrchestration,
+} from './ui/app-timeline-scroll-orchestration.js';
 import { installStandaloneMobileViewportFix } from './ui/mobile-viewport.js';
 import { resolveOptionalApi } from './ui/optional-api.js';
 import { watchStandaloneWebAppMode } from './ui/app-resume.js';
@@ -77,9 +80,6 @@ import {
 import {
     useChatPaneRuntimeOrchestration,
 } from './ui/app-chat-pane-runtime-orchestration.js';
-import {
-    filterQueuedTimelinePosts,
-} from './ui/app-followup-queue.js';
 import {
     handleInjectQueuedFollowupAction,
     handleRemoveQueuedFollowupAction,
@@ -702,64 +702,17 @@ function MainApp({ locationParams, navigate }) {
     // Scroll to bottom of timeline (column-reverse: bottom is scrollTop=0)
     // Only auto-scroll if user is already near the bottom (within 150px).
     const scrollToBottomRef = useRef(null);
-    const scrollToBottom = useCallback(() => {
-        const el = timelineRef.current;
-        if (!el) return;
-        // column-reverse: scrollTop=0 is bottom, negative values mean scrolled up
-        const scrolledUp = Math.abs(el.scrollTop) > 150;
-        if (!scrolledUp) {
-            el.scrollTop = 0;
-        }
-    }, []);
+    const {
+        scrollToBottom,
+        preserveTimelineScroll,
+        preserveTimelineScrollTop,
+        filterQueuedPosts,
+    } = useTimelineScrollOrchestration({
+        timelineRef,
+        viewStateRef,
+        followupQueueRowIdsRef,
+    });
     scrollToBottomRef.current = scrollToBottom;
-
-    const preserveTimelineScroll = useCallback((mutate) => {
-        const container = timelineRef.current;
-        if (!container || typeof mutate !== 'function') {
-            mutate?.();
-            return;
-        }
-        const { currentHashtag: activeHashtag, searchQuery: activeSearch, searchOpen: activeSearchOpen } = viewStateRef.current || {};
-        const reverseTimeline = !((activeSearch || activeSearchOpen) && !activeHashtag);
-        const anchor = reverseTimeline
-            ? container.scrollHeight - container.scrollTop
-            : container.scrollTop;
-        mutate();
-        requestAnimationFrame(() => {
-            const target = timelineRef.current;
-            if (!target) return;
-            if (reverseTimeline) {
-                const nextTop = Math.max(target.scrollHeight - anchor, 0);
-                target.scrollTop = nextTop;
-            } else {
-                const maxScroll = Math.max(target.scrollHeight - target.clientHeight, 0);
-                const nextTop = Math.min(anchor, maxScroll);
-                target.scrollTop = nextTop;
-            }
-        });
-    }, []);
-
-    const preserveTimelineScrollTop = useCallback((mutate) => {
-        const container = timelineRef.current;
-        if (!container || typeof mutate !== 'function') {
-            mutate?.();
-            return;
-        }
-        const anchor = container.scrollTop;
-        mutate();
-        requestAnimationFrame(() => {
-            const target = timelineRef.current;
-            if (!target) return;
-            const maxScroll = Math.max(target.scrollHeight - target.clientHeight, 0);
-            target.scrollTop = Math.min(anchor, maxScroll);
-        });
-    }, []);
-
-    /** Ref-stable filter: hides placeholder rows and their parent user messages.
-     *  Reads from refs so callback identity never changes — this breaks the
-     *  re-render cascade that previously destabilised handleSseEvent → SSE.
-     *  Returns the same array reference when nothing is filtered. */
-    const filterQueuedPosts = useCallback((items) => filterQueuedTimelinePosts(items, followupQueueRowIdsRef.current), []);
 
     const {
         posts: rawPosts,
