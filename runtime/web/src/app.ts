@@ -143,6 +143,12 @@ import {
     loadHashtagTimeline,
     searchTimeline,
 } from './ui/app-timeline-actions.js';
+import {
+    closeBtwPanelSession,
+    handleBtwInterceptCommand,
+    injectBtwSession,
+    runBtwPromptSession,
+} from './ui/app-btw-orchestration.js';
 
 const CURRENT_APP_ASSET_VERSION = getCurrentAppAssetVersion();
 
@@ -1453,97 +1459,32 @@ function MainApp({ locationParams, navigate }) {
     }, [currentChatJid, refreshAutoresearchStatus, showIntentToast]);
 
     const closeBtwPanel = useCallback(() => {
-        if (btwAbortRef.current) {
-            btwAbortRef.current.abort();
-            btwAbortRef.current = null;
-        }
-        setBtwSession(null);
+        closeBtwPanelSession({
+            btwAbortRef,
+            setBtwSession,
+        });
     }, []);
 
     const runBtwPrompt = useCallback(async (question) => {
-        const trimmed = String(question || '').trim();
-        if (!trimmed) {
-            showIntentToast('BTW needs a question', 'Usage: /btw <question>', 'warning');
-            return true;
-        }
-
-        if (btwAbortRef.current) {
-            btwAbortRef.current.abort();
-        }
-        const controller = new AbortController();
-        btwAbortRef.current = controller;
-
-        setBtwSession({
-            question: trimmed,
-            answer: '',
-            thinking: '',
-            error: null,
-            model: null,
-            status: 'running',
+        return await runBtwPromptSession({
+            question,
+            currentChatJid,
+            streamSidePrompt,
+            resolveBtwChatJid,
+            showIntentToast,
+            btwAbortRef,
+            setBtwSession,
         });
-
-        try {
-            const finalResult = await streamSidePrompt(trimmed, {
-                signal: controller.signal,
-                chatJid: resolveBtwChatJid(currentChatJid),
-                systemPrompt: 'Answer the user briefly and directly. This is a side conversation that should not affect the main chat until explicitly injected.',
-                onEvent: (eventType, data) => {
-                    if (eventType === 'side_prompt_start') {
-                        setBtwSession((prev) => prev ? { ...prev, status: 'running' } : prev);
-                    }
-                },
-                onThinkingDelta: (delta) => {
-                    setBtwSession((prev) => prev ? { ...prev, thinking: `${prev.thinking || ''}${delta || ''}` } : prev);
-                },
-                onTextDelta: (delta) => {
-                    setBtwSession((prev) => prev ? { ...prev, answer: `${prev.answer || ''}${delta || ''}` } : prev);
-                },
-            });
-            if (btwAbortRef.current !== controller) return true;
-            setBtwSession((prev) => prev ? {
-                ...prev,
-                answer: finalResult?.result || prev.answer || '',
-                thinking: finalResult?.thinking || prev.thinking || '',
-                model: finalResult?.model || null,
-                status: 'success',
-                error: null,
-            } : prev);
-        } catch (error) {
-            if (controller.signal.aborted) return true;
-            setBtwSession((prev) => prev ? {
-                ...prev,
-                status: 'error',
-                error: error?.payload?.error || error?.message || 'BTW request failed.',
-            } : prev);
-        } finally {
-            if (btwAbortRef.current === controller) {
-                btwAbortRef.current = null;
-            }
-        }
-        return true;
     }, [currentChatJid, showIntentToast]);
 
     const handleBtwIntercept = useCallback(async ({ content }) => {
-        const parsed = parseBtwCommand(content);
-        if (!parsed) return false;
-
-        if (parsed.type === 'help') {
-            showIntentToast('BTW usage', 'Use /btw <question> to open a side conversation.', 'info', 4000);
-            return true;
-        }
-
-        if (parsed.type === 'clear') {
-            closeBtwPanel();
-            showIntentToast('BTW cleared', 'Closed the side conversation panel.', 'info');
-            return true;
-        }
-
-        if (parsed.type === 'ask') {
-            await runBtwPrompt(parsed.question);
-            return true;
-        }
-
-        return false;
+        return await handleBtwInterceptCommand({
+            content,
+            parseBtwCommand,
+            closeBtwPanel,
+            runBtwPrompt,
+            showIntentToast,
+        });
     }, [closeBtwPanel, runBtwPrompt, showIntentToast]);
 
     const handleBtwRetry = useCallback(() => {
@@ -1553,23 +1494,16 @@ function MainApp({ locationParams, navigate }) {
     }, [btwSession, runBtwPrompt]);
 
     const handleBtwInject = useCallback(async () => {
-        const content = buildBtwInjectionText(btwSession);
-        if (!content) return;
-        try {
-            const response = await api.sendAgentMessage('default', content, null, [], isComposeBoxAgentActive ? 'queue' : null, currentChatJid);
-            handleMessageResponse(response);
-            showIntentToast(
-                response?.queued === 'followup' ? 'BTW queued' : 'BTW injected',
-                response?.queued === 'followup'
-                    ? 'The BTW summary was queued as a follow-up because the agent is busy.'
-                    : 'The BTW summary was sent to the main chat.',
-                'info',
-                3500,
-            );
-        } catch (error) {
-            showIntentToast('BTW inject failed', error?.message || 'Could not inject BTW answer into chat.', 'warning');
-        }
-    }, [btwSession, handleMessageResponse, isComposeBoxAgentActive, showIntentToast]);
+        await injectBtwSession({
+            btwSession,
+            buildBtwInjectionText,
+            isComposeBoxAgentActive,
+            currentChatJid,
+            sendAgentMessage: api.sendAgentMessage,
+            handleMessageResponse,
+            showIntentToast,
+        });
+    }, [btwSession, currentChatJid, handleMessageResponse, isComposeBoxAgentActive, showIntentToast]);
 
     const buildFloatingWidgetDashboardSnapshot = useCallback(async (requestPayload = null) => {
         return buildFloatingWidgetDashboardData({
