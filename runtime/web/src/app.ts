@@ -142,6 +142,7 @@ import {
     backToTimeline,
     deleteTimelinePost,
     loadHashtagTimeline,
+    scrollToTimelineMessage,
     searchTimeline,
 } from './ui/app-timeline-actions.js';
 import {
@@ -701,39 +702,14 @@ function MainApp({ locationParams, navigate }) {
 
     /** Scroll to a message by ID; fetch and inject if not in current timeline. */
     const scrollToMessage = useCallback(async (id, targetChatJid = null) => {
-        // Helper to highlight after scroll
-        const highlight = (el) => {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            el.classList.add('post-highlight');
-            setTimeout(() => el.classList.remove('post-highlight'), 2000);
-        };
-        // Try to find it in the DOM first
-        const existing = document.getElementById('post-' + id);
-        if (existing) { highlight(existing); return; }
-        // Not in DOM - fetch via API and inject into posts
-        try {
-            const resolvedChatJid = typeof targetChatJid === 'string' && targetChatJid.trim()
-                ? targetChatJid.trim()
-                : currentChatJid;
-            const result = await api.getThread(id, resolvedChatJid);
-            const msg = result?.thread?.[0];
-            if (!msg) return;
-            setPosts((prev) => {
-                if (!prev) return [msg];
-                if (prev.some((p) => p.id === msg.id)) return prev;
-                return [...prev, msg];
-            });
-            // Wait for render, then scroll
-            requestAnimationFrame(() => {
-                setTimeout(() => {
-                    const el = document.getElementById('post-' + id);
-                    if (el) highlight(el);
-                }, 50);
-            });
-        } catch (err) {
-            console.error('[scrollToMessage] Failed to fetch message', id, err);
-        }
-    }, [currentChatJid]);
+        await scrollToTimelineMessage({
+            id,
+            targetChatJid,
+            currentChatJid,
+            getThread: api.getThread,
+            setPosts,
+        });
+    }, [currentChatJid, setPosts]);
 
     const removeMessageRef = useCallback((id) => {
         setMessageRefs((prev) => removeStringRef(prev, id));

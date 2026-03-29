@@ -176,3 +176,68 @@ export async function deleteTimelinePost(options: DeleteTimelinePostOptions): Pr
     showAlert(`Failed to delete message: ${errorMessage}`);
   }
 }
+
+export interface ScrollToTimelineMessageOptions {
+  id: string | number;
+  targetChatJid?: string | null;
+  currentChatJid: string;
+  getThread: (id: string | number, chatJid: string) => Promise<{ thread?: any[] }>;
+  setPosts: StateSetter<any[] | null>;
+  getElementById?: (id: string) => HTMLElement | null;
+  scheduleRaf?: (callback: () => void) => void;
+  scheduleTimeout?: (callback: () => void, delayMs: number) => void;
+}
+
+/** Scroll/highlight a message row, fetching it first when missing from the DOM/timeline. */
+export async function scrollToTimelineMessage(options: ScrollToTimelineMessageOptions): Promise<void> {
+  const {
+    id,
+    targetChatJid,
+    currentChatJid,
+    getThread,
+    setPosts,
+    getElementById = (value) => document.getElementById(value),
+    scheduleRaf = (callback) => requestAnimationFrame(callback),
+    scheduleTimeout = (callback, delayMs) => {
+      setTimeout(callback, delayMs);
+    },
+  } = options;
+
+  const highlight = (el: HTMLElement) => {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('post-highlight');
+    scheduleTimeout(() => el.classList.remove('post-highlight'), 2000);
+  };
+
+  const existing = getElementById(`post-${id}`);
+  if (existing) {
+    highlight(existing);
+    return;
+  }
+
+  try {
+    const resolvedChatJid = typeof targetChatJid === 'string' && targetChatJid.trim()
+      ? targetChatJid.trim()
+      : currentChatJid;
+    const result = await getThread(id, resolvedChatJid);
+    const message = result?.thread?.[0];
+    if (!message) return;
+
+    setPosts((prev) => {
+      if (!prev) return [message];
+      if (prev.some((item) => item.id === message.id)) return prev;
+      return [...prev, message];
+    });
+
+    scheduleRaf(() => {
+      scheduleTimeout(() => {
+        const element = getElementById(`post-${id}`);
+        if (element) {
+          highlight(element);
+        }
+      }, 50);
+    });
+  } catch (error) {
+    console.error('[scrollToMessage] Failed to fetch message', id, error);
+  }
+}

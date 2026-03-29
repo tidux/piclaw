@@ -4,6 +4,7 @@ import {
   backToTimeline,
   deleteTimelinePost,
   loadHashtagTimeline,
+  scrollToTimelineMessage,
   searchTimeline,
 } from '../../web/src/ui/app-timeline-actions.js';
 
@@ -120,4 +121,37 @@ test('deleteTimelinePost retries with reply deletion when backend reports Replie
     [99, false, 'web:main'],
     [99, true, 'web:main'],
   ]);
+});
+
+test('scrollToTimelineMessage fetches missing rows, appends once, then highlights', async () => {
+  const setPostsCalls: any[] = [];
+  const highlighted: string[] = [];
+  const element = {
+    classList: {
+      add: () => highlighted.push('add'),
+      remove: () => highlighted.push('remove'),
+    },
+    scrollIntoView: () => highlighted.push('scroll'),
+  } as any;
+
+  let lookupCount = 0;
+
+  await scrollToTimelineMessage({
+    id: 123,
+    currentChatJid: 'web:main',
+    targetChatJid: null,
+    getThread: async () => ({ thread: [{ id: 123, data: { content: 'hello' } }] }),
+    setPosts: (next) => setPostsCalls.push(next),
+    getElementById: () => {
+      lookupCount += 1;
+      return lookupCount > 1 ? element : null;
+    },
+    scheduleRaf: (callback) => callback(),
+    scheduleTimeout: (callback) => callback(),
+  });
+
+  expect(typeof setPostsCalls[0]).toBe('function');
+  const appended = setPostsCalls[0]([{ id: 1 }]);
+  expect(appended).toEqual([{ id: 1 }, { id: 123, data: { content: 'hello' } }]);
+  expect(highlighted).toEqual(['scroll', 'add', 'remove']);
 });
