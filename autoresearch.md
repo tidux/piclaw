@@ -1,83 +1,44 @@
-# Autoresearch: continue-decompose-web-app-shell
+# Autoresearch: continue-decompose-web-app-shell-toward-500-lines
 
 ## Objective
-Continue decomposing `runtime/web/src/app.ts` into bounded behavior seams while preserving UX semantics and payload shapes. Current tranches target (1) active-branch roster shaping (normalization, merge precedence, stable sorting), (2) queued follow-up SSE row normalization/append behavior, (3) generated-widget SSE event routing/fallback mapping, (4) turn-scoped SSE gating/adoption semantics, (5) real-time timeline mutation gating/operations, (6) extension-UI SSE chat/toast mapping, (7) agent-status preview/turn restore shaping, (8) SSE chat-scope/noisy-event routing context, (9) model-state payload normalization, (10) agent/user profile event normalization, (11) floating-widget dashboard snapshot shaping, (12) floating-widget host/submit event toast/context mapping, and (13) queued-followup removal/action failure mapping.
+Drive `runtime/web/src/app.ts` toward a thin orchestration entrypoint by extracting coherent behavior domains (not micro line shaves) while preserving UX semantics and payload shapes.
+
+This tranche prioritizes higher-leverage seams still remaining in `app.ts`:
+1. **Boot/load orchestration** (initial load and refresh loops)
+2. **Branch/pane lifecycle coordination** (chat branch navigation + pane popout lifecycle)
+3. **Timeline/status refresh orchestration glue** (view-driven timeline load flow)
+4. **Top-level composition helpers** (render-mode routing and grouped shell wiring)
+5. **Reusable shell utilities** (shared normalization/dedupe helpers removing repeated inline logic)
 
 ## Metrics
-- **Primary**: `seam_score` (unitless, higher is better) — structural completion for the extracted active-branch roster seam
-- **Secondary**: `targeted_test_ms` (ms, lower is better) — focused web shell test runtime
+- **Primary**: `app_ts_lines` (lines, lower is better)
+- **Secondary**:
+  - `focused_web_tests_ms` (ms, lower is better)
+  - `largest_extracted_module_lines` (lines, lower is better)
+  - `number_of_coherent_modules` (count, higher is better)
 
 ## How to Run
-`./autoresearch.sh` — runs focused web tests and emits `METRIC` lines.
-
-`./autoresearch.checks.sh` — runs `build:web`, `lint`, `typecheck`, and `check:stale-dist`.
+- `./autoresearch.sh` — runs focused seam tests and emits structured `METRIC` lines.
+- `./autoresearch.checks.sh` — runs `build:web`, `lint`, `typecheck`, and `check:stale-dist`.
 
 ## Files in Scope
-- `runtime/web/src/app.ts` — authenticated web shell orchestration, currently owns roster merge/sort logic
-- `runtime/web/src/ui/app-chat-agents.ts` — typed helper seam for active/branch roster normalization + merge ordering
-- `runtime/test/web/app-chat-agents.test.ts` — focused seam tests
-- Existing focused web seam tests under `runtime/test/web/`
-- `runtime/web/src/ui/app-sse-event-routing.ts` — typed SSE chat-scope/noisy-event routing helper seam
-- `runtime/test/web/app-sse-event-routing.test.ts` — focused routing seam tests
-- `runtime/web/src/ui/app-model-state.ts` — typed model payload normalization helper seam
-- `runtime/test/web/app-model-state.test.ts` — focused model-state normalization tests
-- `runtime/web/src/ui/app-profile-events.ts` — typed agent/user profile event normalization helper seam
-- `runtime/test/web/app-profile-events.test.ts` — focused profile event seam tests
-- `runtime/web/src/ui/app-floating-widget-dashboard.ts` — typed floating-widget dashboard snapshot builder seam
-- `runtime/test/web/app-floating-widget-dashboard.test.ts` — focused dashboard shaping seam tests
-- `runtime/web/src/ui/app-floating-widget-events.ts` — typed floating-widget event/host-toast mapping seam
-- `runtime/test/web/app-floating-widget-events.test.ts` — focused floating-widget event mapping tests
-- `runtime/web/src/ui/app-followup-actions.ts` — typed queued-followup removal/action helper seam
-- `runtime/test/web/app-followup-actions.test.ts` — focused queued-followup helper tests
+- `runtime/web/src/app.ts`
+- `runtime/web/src/ui/app-*.ts` (new or existing typed shell orchestration/util files)
+- `runtime/test/web/app-*.test.ts` for new extracted seams
 
 ## Off Limits
-- Runtime/backend services and protocol contracts
-- Auth/login flows
-- Payload shape rewrites for queue/pane/extension surfaces
-- Broad UI architecture changes
+- Backend/runtime protocol behavior changes
+- Login/auth service behavior
+- Payload contract changes for existing UI APIs/events
 
 ## Constraints
-- Keep slices small and mergeable
-- Preserve roster behavior and branch/session UX ordering semantics
-- Keep newly extracted helpers in TypeScript (`.ts`)
 - No new dependencies
-- Keep focused web tests green and pass `build:web`, `lint`, `typecheck`, `check:stale-dist`
+- Avoid creating any replacement god module
+- Prefer multiple bounded domain modules
+- Extracted modules should stay reasonably bounded (target < 600-800 LOC)
+- Preserve UX behavior and payload shapes
+- Keep focused tests green and pass: `build:web`, `lint`, `typecheck`, `check:stale-dist`
 
 ## What's Been Tried
-- Prior tranches extracted typed seams for shell state, branch actions, window actions, browser events, pane state, chat-pane state, extension status, follow-up queue, floating widget, and agent previews.
-- Baseline in this worktree initially failed `build:web` checks due a missing `beautiful-mermaid` package in `node_modules`; installing it locally (`npm install --no-save beautiful-mermaid@1.1.3`) restored full checks.
-- Extracted active/branch roster normalization + merge/sort behavior from `app.ts` into typed `runtime/web/src/ui/app-chat-agents.ts`.
-- `refreshActiveChatAgents` now delegates filtering + merge precedence + ordering to helpers (`normalizeActiveChatRows`, `mergeActiveAndBranchChats`), and `refreshCurrentChatBranches` delegates row filtering to `normalizeCurrentRootBranchRows`.
-- Added focused seam coverage in `runtime/test/web/app-chat-agents.test.ts` for filtering rules, empty-branch fallback behavior, merge precedence, `is_active` nullish fallback semantics, and current/archived/activity sorting order.
-- Extracted `agent_followup_queued` row-append shaping from `app.ts` into `appendFollowupQueueItem` in `runtime/web/src/ui/app-followup-queue.ts`, keeping dedupe + payload defaults identical.
-- Expanded `runtime/test/web/app-followup-queue.test.ts` with focused checks for valid append behavior plus identity-preserving no-op paths (duplicates/invalid payloads).
-- Extracted generated-widget SSE event-type routing from `app.ts` into typed `runtime/web/src/ui/app-generated-widget-events.ts` via `resolveLiveGeneratedWidgetEvent` (update/close mapping, fallback status, turn-adoption eligibility).
-- Added focused tests in `runtime/test/web/app-generated-widget-events.test.ts` to lock update-status mapping and close/unknown behavior.
-- Extracted repeated turn-scoped SSE guard/adoption rules from `app.ts` into typed `runtime/web/src/ui/app-agent-turn-events.ts` (`shouldIgnoreMismatchedTurn`, `shouldAdoptIncomingTurn`, `resolveSteerQueuedTurnId`).
-- Updated generated-widget turn adoption and agent draft/thought/steer/status turn guards to delegate to the new helper while preserving existing truthy/fallback semantics.
-- Added focused tests in `runtime/test/web/app-agent-turn-events.test.ts` for mismatch-ignore, turn-adopt, and steer turn-id fallback behavior.
-- Extracted timeline mutation gating and immutable append/replace/remove operations from `app.ts` into typed `runtime/web/src/ui/app-realtime-timeline.ts`.
-- `handleSseEvent` now delegates main-timeline gating (`isMainTimelineView`), append-event eligibility (`shouldAppendRealtimeTimelinePost`), interaction mutation gating (`shouldMutateInteractionTimeline`), and list updates (`appendUniqueTimelinePost`, `replaceTimelinePostById`, `removeTimelinePostsByIds`).
-- Added focused tests in `runtime/test/web/app-realtime-timeline.test.ts` for view gating, event gating, unique append behavior, and no-op identity preservation for replace/remove operations.
-- Extracted extension-UI SSE chat-id fallback and toast mapping from `app.ts` into typed `runtime/web/src/ui/app-extension-ui-sse.ts` (`resolveStatusPanelEventChatJid`, `resolveExtensionUiToast`).
-- `handleSseEvent` status-panel and generic extension-ui branches now delegate to those helpers while preserving browser-event dispatch + payload semantics.
-- Added focused tests in `runtime/test/web/app-extension-ui-sse.test.ts` for notify/error toast mapping and status-panel chat fallback.
-- Further extracted status-panel event classification into `resolveStatusPanelWidgetEventContext` so `app.ts` no longer hand-parses event type/surface/chat-id/panel-key fields inline.
-- Added focused coverage in `runtime/test/web/app-extension-ui-sse.test.ts` for status-panel widget context shaping.
-- Extracted agent-status restoration shaping into typed `runtime/web/src/ui/app-agent-status-refresh.ts` (`readAgentTurnId`, `resolveAgentPreviewRestoreState`, `shouldKeepExistingPreview`).
-- `refreshAgentStatus` and SSE `connected` recovery now delegate turn-id and draft/thought restore shaping to those helpers while preserving buffer updates and existing-length guard semantics.
-- Added focused tests in `runtime/test/web/app-agent-status-refresh.test.ts` for turn-id precedence, preview payload normalization, and existing-preview retention behavior.
-- Extracted SSE chat-scope routing/noisy-agent-event classification from `app.ts` into typed `runtime/web/src/ui/app-sse-event-routing.ts` (`resolveSseEventRoutingContext`, `isNoisyAgentSseEvent`) so `handleSseEvent` delegates chat targeting and activity-flag suppression decisions.
-- Added focused tests in `runtime/test/web/app-sse-event-routing.test.ts` for chat-jid trimming/global-event fallback behavior and noisy-agent event classification.
-- Extracted model-state payload normalization from `app.ts` into typed `runtime/web/src/ui/app-model-state.ts` (`resolveModelStateUpdate`) so both API refresh and `model_changed` SSE handling share the same nullish/boolean coercion semantics.
-- Added focused tests in `runtime/test/web/app-model-state.test.ts` to lock model/current fallback behavior plus `thinking_level`, `supports_thinking`, and `provider_usage` normalization.
-- Extracted agent/user profile SSE payload normalization from `app.ts` into typed `runtime/web/src/ui/app-profile-events.ts` (`resolveAgentProfilePatch`, `resolveUserProfileUpdate`) so profile trimming/coercion and no-op identity checks are shared helpers.
-- Added focused tests in `runtime/test/web/app-profile-events.test.ts` for unchanged-profile no-op behavior, avatar normalization, numeric agent-id compatibility, and user profile fallback semantics.
-- Further extracted initial agent-list user profile normalization into `resolveUserProfileFromAgentsPayload` so `loadAgents` no longer hand-shapes avatar/name/background fields inline.
-- Added `resolveDefaultAgentBrandingPayload` so `loadAgents` delegates default-agent branding selection before calling `applyBranding`.
-- Extracted floating-widget dashboard snapshot shaping from `app.ts` into typed `runtime/web/src/ui/app-floating-widget-dashboard.ts` (`buildFloatingWidgetDashboardSnapshot`, `readFulfilledResult`) so payload/result aggregation and fallback/clamp logic live outside the component.
-- Added focused tests in `runtime/test/web/app-floating-widget-dashboard.test.ts` for settled-result extraction, payload-first/fallback snapshot behavior, and progress-bar clamp semantics.
-- Extracted floating-widget submit/refresh toast text and refresh-context shaping from `app.ts` into typed `runtime/web/src/ui/app-floating-widget-events.ts` (`resolveFloatingWidgetSubmitToast`, `resolveFloatingWidgetHostRefreshContext`, etc.).
-- Added focused tests in `runtime/test/web/app-floating-widget-events.test.ts` for submission outcome mapping, host refresh context derivation, and dashboard/ack/failure toast defaults.
-- Extracted queued-followup removal planning and action-failure toast mapping from `app.ts` into typed `runtime/web/src/ui/app-followup-actions.ts` (`resolveFollowupQueueRemovalPlan`, `resolveFollowupActionFailureToast`) and reused it in both queue action handlers and followup SSE removal branches.
-- Added focused tests in `runtime/test/web/app-followup-actions.test.ts` for row-id validation/removal metadata and steer/remove failure-copy mapping.
+- Previous tranches already extracted many shell seams (`app-branch-actions`, `app-window-actions`, `app-status-refresh-orchestration`, `app-sse-events`, `app-main-shell-render`, etc.), but `app.ts` still carries several orchestration-heavy clusters.
+- Current tranche will explicitly target behavior-level decomposition (boot/load + branch/pane + composition + shared shell utilities) instead of helper-only nibbling.

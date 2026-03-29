@@ -5,119 +5,55 @@ cd "$(dirname "$0")"
 
 start_ms=$(date +%s%3N)
 
+# Fast syntax/import precheck for key shell seams touched in this loop.
+bun -e "await import('./runtime/web/src/ui/app-branch-actions.ts'); await import('./runtime/web/src/ui/app-window-actions.ts'); await import('./runtime/web/src/ui/app-status-refresh-orchestration.ts');" >/dev/null
+
 tests=(
-  runtime/test/web/app-shell-state.test.ts
   runtime/test/web/app-branch-actions.test.ts
-  runtime/test/web/app-browser-events.test.ts
   runtime/test/web/app-window-actions.test.ts
-  runtime/test/web/app-pane-state.test.ts
-  runtime/test/web/app-chat-pane-state.test.ts
-  runtime/test/web/app-extension-status.test.ts
-  runtime/test/web/queue-state.test.ts
-  runtime/test/web/app-followup-queue.test.ts
-  runtime/test/web/generated-widget.test.ts
-  runtime/test/web/app-floating-widget.test.ts
-  runtime/test/web/app-agent-previews.test.ts
+  runtime/test/web/app-pane-mode-render.test.ts
+  runtime/test/web/app-main-shell-render.test.ts
+  runtime/test/web/app-status-refresh-orchestration.test.ts
 )
 
-if [[ -f runtime/test/web/app-chat-agents.test.ts ]]; then
-  tests+=(runtime/test/web/app-chat-agents.test.ts)
-fi
-if [[ -f runtime/test/web/app-generated-widget-events.test.ts ]]; then
-  tests+=(runtime/test/web/app-generated-widget-events.test.ts)
-fi
-if [[ -f runtime/test/web/app-agent-turn-events.test.ts ]]; then
-  tests+=(runtime/test/web/app-agent-turn-events.test.ts)
-fi
-if [[ -f runtime/test/web/app-realtime-timeline.test.ts ]]; then
-  tests+=(runtime/test/web/app-realtime-timeline.test.ts)
-fi
-if [[ -f runtime/test/web/app-extension-ui-sse.test.ts ]]; then
-  tests+=(runtime/test/web/app-extension-ui-sse.test.ts)
-fi
-if [[ -f runtime/test/web/app-agent-status-refresh.test.ts ]]; then
-  tests+=(runtime/test/web/app-agent-status-refresh.test.ts)
-fi
-if [[ -f runtime/test/web/app-sse-event-routing.test.ts ]]; then
-  tests+=(runtime/test/web/app-sse-event-routing.test.ts)
-fi
-if [[ -f runtime/test/web/app-model-state.test.ts ]]; then
-  tests+=(runtime/test/web/app-model-state.test.ts)
-fi
-if [[ -f runtime/test/web/app-profile-events.test.ts ]]; then
-  tests+=(runtime/test/web/app-profile-events.test.ts)
-fi
-if [[ -f runtime/test/web/app-floating-widget-dashboard.test.ts ]]; then
-  tests+=(runtime/test/web/app-floating-widget-dashboard.test.ts)
-fi
-if [[ -f runtime/test/web/app-floating-widget-events.test.ts ]]; then
-  tests+=(runtime/test/web/app-floating-widget-events.test.ts)
-fi
-if [[ -f runtime/test/web/app-followup-actions.test.ts ]]; then
-  tests+=(runtime/test/web/app-followup-actions.test.ts)
-fi
+for optional_test in \
+  runtime/test/web/app-boot-load-orchestration.test.ts \
+  runtime/test/web/app-branch-pane-orchestration.test.ts \
+  runtime/test/web/app-shell-ref-utils.test.ts \
+  runtime/test/web/app-main-shell-composition.test.ts
+  do
+  if [[ -f "$optional_test" ]]; then
+    tests+=("$optional_test")
+  fi
+done
 
 PICLAW_DB_IN_MEMORY=1 bun test --max-concurrency=1 "${tests[@]}"
 
 end_ms=$(date +%s%3N)
-targeted_test_ms=$((end_ms - start_ms))
+focused_web_tests_ms=$((end_ms - start_ms))
 
-seam_score=0
-[[ -f runtime/web/src/ui/app-chat-agents.ts ]] && seam_score=$((seam_score + 1))
-[[ -f runtime/test/web/app-chat-agents.test.ts ]] && seam_score=$((seam_score + 1))
-rg -q "./ui/app-chat-agents.js" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "mergeActiveAndBranchChats" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "normalizeCurrentRootBranchRows" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "appendFollowupQueueItem" runtime/web/src/ui/app-followup-queue.ts && seam_score=$((seam_score + 1))
-rg -q "appendFollowupQueueItem" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "appendFollowupQueueItem" runtime/test/web/app-followup-queue.test.ts && seam_score=$((seam_score + 1))
-[[ -f runtime/web/src/ui/app-generated-widget-events.ts ]] && seam_score=$((seam_score + 1))
-[[ -f runtime/test/web/app-generated-widget-events.test.ts ]] && seam_score=$((seam_score + 1))
-rg -q "resolveLiveGeneratedWidgetEvent" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-[[ -f runtime/web/src/ui/app-agent-turn-events.ts ]] && seam_score=$((seam_score + 1))
-[[ -f runtime/test/web/app-agent-turn-events.test.ts ]] && seam_score=$((seam_score + 1))
-rg -q "shouldIgnoreMismatchedTurn" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "shouldAdoptIncomingTurn" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "resolveSteerQueuedTurnId" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-[[ -f runtime/web/src/ui/app-realtime-timeline.ts ]] && seam_score=$((seam_score + 1))
-[[ -f runtime/test/web/app-realtime-timeline.test.ts ]] && seam_score=$((seam_score + 1))
-rg -q "shouldAppendRealtimeTimelinePost" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "replaceTimelinePostById" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-[[ -f runtime/web/src/ui/app-extension-ui-sse.ts ]] && seam_score=$((seam_score + 1))
-[[ -f runtime/test/web/app-extension-ui-sse.test.ts ]] && seam_score=$((seam_score + 1))
-rg -q "resolveStatusPanelWidgetEventContext" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "resolveExtensionUiToast" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "resolveStatusPanelWidgetEventContext" runtime/web/src/ui/app-extension-ui-sse.ts && seam_score=$((seam_score + 1))
-rg -q "resolveStatusPanelWidgetEventContext" runtime/test/web/app-extension-ui-sse.test.ts && seam_score=$((seam_score + 1))
-[[ -f runtime/web/src/ui/app-agent-status-refresh.ts ]] && seam_score=$((seam_score + 1))
-[[ -f runtime/test/web/app-agent-status-refresh.test.ts ]] && seam_score=$((seam_score + 1))
-rg -q "resolveAgentPreviewRestoreState" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "readAgentTurnId" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-[[ -f runtime/web/src/ui/app-sse-event-routing.ts ]] && seam_score=$((seam_score + 1))
-[[ -f runtime/test/web/app-sse-event-routing.test.ts ]] && seam_score=$((seam_score + 1))
-rg -q "resolveSseEventRoutingContext" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "isNoisyAgentSseEvent" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-[[ -f runtime/web/src/ui/app-model-state.ts ]] && seam_score=$((seam_score + 1))
-[[ -f runtime/test/web/app-model-state.test.ts ]] && seam_score=$((seam_score + 1))
-rg -q "resolveModelStateUpdate" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-[[ -f runtime/web/src/ui/app-profile-events.ts ]] && seam_score=$((seam_score + 1))
-[[ -f runtime/test/web/app-profile-events.test.ts ]] && seam_score=$((seam_score + 1))
-rg -q "resolveAgentProfilePatch" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "resolveUserProfileUpdate" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "resolveUserProfileFromAgentsPayload" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "resolveDefaultAgentBrandingPayload" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-[[ -f runtime/web/src/ui/app-floating-widget-dashboard.ts ]] && seam_score=$((seam_score + 1))
-[[ -f runtime/test/web/app-floating-widget-dashboard.test.ts ]] && seam_score=$((seam_score + 1))
-rg -q "buildFloatingWidgetDashboardData" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "readFulfilledResult" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-[[ -f runtime/web/src/ui/app-floating-widget-events.ts ]] && seam_score=$((seam_score + 1))
-[[ -f runtime/test/web/app-floating-widget-events.test.ts ]] && seam_score=$((seam_score + 1))
-rg -q "resolveFloatingWidgetSubmitToast" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "resolveFloatingWidgetHostRefreshContext" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-[[ -f runtime/web/src/ui/app-followup-actions.ts ]] && seam_score=$((seam_score + 1))
-[[ -f runtime/test/web/app-followup-actions.test.ts ]] && seam_score=$((seam_score + 1))
-rg -q "resolveFollowupQueueRemovalPlan" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
-rg -q "resolveFollowupActionFailureToast" runtime/web/src/app.ts && seam_score=$((seam_score + 1))
+app_ts_lines=$(wc -l < runtime/web/src/app.ts)
 
-echo "METRIC seam_score=${seam_score}"
-echo "METRIC targeted_test_ms=${targeted_test_ms}"
+coherent_modules=(
+  runtime/web/src/ui/app-boot-load-orchestration.ts
+  runtime/web/src/ui/app-branch-pane-orchestration.ts
+  runtime/web/src/ui/app-shell-ref-utils.ts
+  runtime/web/src/ui/app-main-shell-composition.ts
+)
+
+number_of_coherent_modules=0
+largest_extracted_module_lines=0
+for module_path in "${coherent_modules[@]}"; do
+  if [[ -f "$module_path" ]]; then
+    number_of_coherent_modules=$((number_of_coherent_modules + 1))
+    module_lines=$(wc -l < "$module_path")
+    if (( module_lines > largest_extracted_module_lines )); then
+      largest_extracted_module_lines=$module_lines
+    fi
+  fi
+done
+
+echo "METRIC app_ts_lines=${app_ts_lines}"
+echo "METRIC focused_web_tests_ms=${focused_web_tests_ms}"
+echo "METRIC largest_extracted_module_lines=${largest_extracted_module_lines}"
+echo "METRIC number_of_coherent_modules=${number_of_coherent_modules}"
