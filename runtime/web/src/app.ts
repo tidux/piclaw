@@ -19,7 +19,6 @@ import {
     isIOSDevice,
     useTimestampRefresh,
 } from './ui/app-helpers.js';
-import { handleAgentPanelToggle } from './ui/app-agent-panel-toggle.js';
 import {
     isStandaloneWebAppMode,
 } from './ui/chat-window.js';
@@ -48,6 +47,9 @@ import {
 import {
     useTimelineViewActions,
 } from './ui/app-timeline-view-actions.js';
+import {
+    useAgentActivityOrchestration,
+} from './ui/app-agent-activity-orchestration.js';
 import { installStandaloneMobileViewportFix } from './ui/mobile-viewport.js';
 import { resolveOptionalApi } from './ui/optional-api.js';
 import { watchStandaloneWebAppMode } from './ui/app-resume.js';
@@ -607,78 +609,40 @@ function MainApp({ locationParams, navigate }) {
 
     removeFileRefRef.current = removeFileRef;
 
-    const noteAgentActivity = useCallback((options = {}) => {
-        const now = Date.now();
-        lastAgentEventRef.current = now;
-        if (options.running) {
-            isAgentRunningRef.current = true;
-            // Only update state if not already active to avoid redundant re-renders
-            setIsAgentTurnActive((prev) => prev ? prev : true);
-        }
-        if (options.clearSilence) {
-            lastSilenceNoticeRef.current = 0;
-        }
-    }, [setIsAgentTurnActive]);
-
-    const clearLastActivityTimer = useCallback(() => {
-        if (lastActivityTimerRef.current) {
-            clearTimeout(lastActivityTimerRef.current);
-            lastActivityTimerRef.current = null;
-        }
-        lastActivityTokenRef.current = 0;
-    }, []);
-
-    // Cleanup: cancel any pending last-activity timer on unmount.
-    // Placed after clearLastActivityTimer definition to avoid TDZ errors.
-    useEffect(() => () => {
-        clearLastActivityTimer();
-    }, [clearLastActivityTimer]);
-
-    const clearLastActivityFlag = useCallback(() => {
-        clearLastActivityTimer();
-        setAgentStatus((prev) => {
-            if (!prev) return prev;
-            if (!(prev.last_activity || prev.lastActivity)) return prev;
-            const { last_activity, lastActivity, ...rest } = prev;
-            return rest;
-        });
-    }, [clearLastActivityTimer]);
-
-    const showLastActivity = useCallback((payload) => {
-        if (!payload) return;
-        clearLastActivityTimer();
-        const token = Date.now();
-        lastActivityTokenRef.current = token;
-        // Strip tool/intent details - only show a minimal "last active" hint
-        setAgentStatus({ type: payload.type || 'active', last_activity: true });
-        lastActivityTimerRef.current = setTimeout(() => {
-            if (lastActivityTokenRef.current !== token) return;
-            setAgentStatus((prev) => {
-                if (!prev || !(prev.last_activity || prev.lastActivity)) return prev;
-                return null;
-            });
-        }, LAST_ACTIVITY_TTL_MS);
-    }, [clearLastActivityTimer]);
-
-    const clearAgentRunState = useCallback(() => {
-        isAgentRunningRef.current = false;
-        setIsAgentTurnActive(false);
-        lastAgentEventRef.current = null;
-        lastSilenceNoticeRef.current = 0;
-        draftBufferRef.current = '';
-        thoughtBufferRef.current = '';
-        pendingRequestRef.current = null;
-        lastAgentResponseRef.current = null;
-        currentTurnIdRef.current = null;
-        steerQueuedTurnIdRef.current = null;
-        agentStatusRef.current = null;
-        silentRecoveryRef.current = { inFlight: false, lastAttemptAt: 0, turnId: null };
-        clearLastActivityTimer();
-        setCurrentTurnId(null);
-        setSteerQueuedTurnId(null);
-        thoughtExpandedRef.current = false;
-        draftExpandedRef.current = false;
-    }, [clearLastActivityTimer, setCurrentTurnId, setSteerQueuedTurnId, setIsAgentTurnActive]);
+    const {
+        noteAgentActivity,
+        clearLastActivityTimer,
+        clearLastActivityFlag,
+        showLastActivity,
+        clearAgentRunState,
+        handlePanelToggle,
+    } = useAgentActivityOrchestration({
+        lastActivityTtlMs: LAST_ACTIVITY_TTL_MS,
+        lastActivityTimerRef,
+        lastActivityTokenRef,
+        lastAgentEventRef,
+        lastSilenceNoticeRef,
+        isAgentRunningRef,
+        setIsAgentTurnActive,
+        setAgentStatus,
+        draftBufferRef,
+        thoughtBufferRef,
+        pendingRequestRef,
+        lastAgentResponseRef,
+        currentTurnIdRef,
+        steerQueuedTurnIdRef,
+        agentStatusRef,
+        silentRecoveryRef,
+        thoughtExpandedRef,
+        draftExpandedRef,
+        setCurrentTurnId,
+        setSteerQueuedTurnId,
+        currentTurnIdRefForPanel: currentTurnIdRef,
+        setAgentThoughtVisibility,
+        getAgentThought,
+        setAgentThought,
+        setAgentDraft,
+    });
 
     const {
         clearQueuedSteerStateIfStale,
@@ -734,23 +698,6 @@ function MainApp({ locationParams, navigate }) {
         agentsRef,
         notify,
     });
-
-    const handlePanelToggle = useCallback(async (panelKey, expanded) => {
-        await handleAgentPanelToggle({
-            panelKey,
-            expanded,
-            currentTurnIdRef,
-            thoughtExpandedRef,
-            draftExpandedRef,
-            setAgentThoughtVisibility,
-            getAgentThought,
-            thoughtBufferRef,
-            draftBufferRef,
-            setAgentThought,
-            setAgentDraft,
-        });
-    }, []);
-
 
     // Scroll to bottom of timeline (column-reverse: bottom is scrollTop=0)
     // Only auto-scroll if user is already near the bottom (within 150px).
