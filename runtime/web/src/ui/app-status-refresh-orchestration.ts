@@ -1,0 +1,176 @@
+import {
+  applyAutoresearchStatusPayload,
+  clearPendingPanelActionPrefix,
+} from './app-extension-status.js';
+import {
+  haveSameFollowupQueueRows,
+  normalizeFollowupQueueItems,
+  type FollowupQueueItemLike,
+} from './app-followup-queue.js';
+import { isMainTimelineView } from './app-realtime-timeline.js';
+
+type StateSetter<T> = (next: T | ((prev: T) => T)) => void;
+
+interface RefBox<T> {
+  current: T;
+}
+
+export interface RefreshQueueStateForChatOptions<TItem extends FollowupQueueItemLike = FollowupQueueItemLike> {
+  currentChatJid: string;
+  queueRefreshGenRef: RefBox<number>;
+  activeChatJidRef: RefBox<string>;
+  dismissedQueueRowIdsRef: RefBox<Set<string | number>>;
+  getAgentQueueState: (chatJid: string) => Promise<{ items?: TItem[] | null | undefined }>;
+  setFollowupQueueItems: StateSetter<TItem[]>;
+  clearQueuedSteerStateIfStale: (remainingQueueCount: number) => void;
+}
+
+/**
+ * Refresh follow-up queue state for the active chat, dropping stale responses.
+ */
+export function refreshQueueStateForChat<TItem extends FollowupQueueItemLike = FollowupQueueItemLike>(
+  options: RefreshQueueStateForChatOptions<TItem>,
+): void {
+  const {
+    currentChatJid,
+    queueRefreshGenRef,
+    activeChatJidRef,
+    dismissedQueueRowIdsRef,
+    getAgentQueueState,
+    setFollowupQueueItems,
+    clearQueuedSteerStateIfStale,
+  } = options;
+
+  const gen = ++queueRefreshGenRef.current;
+  const targetChatJid = currentChatJid;
+
+  getAgentQueueState(targetChatJid)
+    .then((payload) => {
+      if (gen !== queueRefreshGenRef.current) return;
+      if (activeChatJidRef.current !== targetChatJid) return;
+
+      const dismissed = dismissedQueueRowIdsRef.current;
+      const items = normalizeFollowupQueueItems(payload?.items, dismissed);
+      if (items.length) {
+        setFollowupQueueItems((prev) => (haveSameFollowupQueueRows(prev, items) ? prev : items));
+        return;
+      }
+
+      dismissed.clear();
+      clearQueuedSteerStateIfStale(0);
+      setFollowupQueueItems((prev) => (prev.length === 0 ? prev : []));
+    })
+    .catch(() => {
+      if (gen !== queueRefreshGenRef.current) return;
+      if (activeChatJidRef.current !== targetChatJid) return;
+      setFollowupQueueItems((prev) => (prev.length === 0 ? prev : []));
+    });
+}
+
+export interface RefreshContextUsageForChatOptions {
+  currentChatJid: string;
+  activeChatJidRef: RefBox<string>;
+  getAgentContext: (chatJid: string) => Promise<any>;
+  setContextUsage: StateSetter<any>;
+}
+
+/** Best-effort context usage refresh tied to the currently active chat. */
+export async function refreshContextUsageForChat(options: RefreshContextUsageForChatOptions): Promise<void> {
+  const {
+    currentChatJid,
+    activeChatJidRef,
+    getAgentContext,
+    setContextUsage,
+  } = options;
+
+  const targetChatJid = currentChatJid;
+  try {
+    const contextPayload = await getAgentContext(targetChatJid);
+    if (activeChatJidRef.current !== targetChatJid) return;
+    if (contextPayload) setContextUsage(contextPayload);
+  } catch (error) {
+    if (activeChatJidRef.current !== targetChatJid) return;
+    console.warn('Failed to fetch agent context:', error);
+  }
+}
+
+export interface RefreshAutoresearchStatusForChatOptions {
+  currentChatJid: string;
+  activeChatJidRef: RefBox<string>;
+  getAutoresearchStatus: (chatJid: string) => Promise<any>;
+  setExtensionStatusPanels: StateSetter<Map<any, any>>;
+  setPendingExtensionPanelActions: StateSetter<Set<string>>;
+}
+
+/** Best-effort autoresearch panel refresh tied to the currently active chat. */
+export async function refreshAutoresearchStatusForChat(options: RefreshAutoresearchStatusForChatOptions): Promise<void> {
+  const {
+    currentChatJid,
+    activeChatJidRef,
+    getAutoresearchStatus,
+    setExtensionStatusPanels,
+    setPendingExtensionPanelActions,
+  } = options;
+
+  const targetChatJid = currentChatJid;
+  try {
+    const payload = await getAutoresearchStatus(targetChatJid);
+    if (activeChatJidRef.current !== targetChatJid) return;
+    setExtensionStatusPanels((prev) => applyAutoresearchStatusPayload(prev, payload));
+    setPendingExtensionPanelActions((prev) => clearPendingPanelActionPrefix(prev, 'autoresearch'));
+  } catch (error) {
+    if (activeChatJidRef.current !== targetChatJid) return;
+    console.warn('Failed to fetch autoresearch status:', error);
+  }
+}
+
+export interface RefreshModelAndQueueStateOptions {
+  refreshModelState: () => void;
+  refreshActiveChatAgents: () => void;
+  refreshCurrentChatBranches: () => void;
+  refreshQueueState: () => void;
+  refreshContextUsage: () => Promise<void> | void;
+  refreshAutoresearchStatus: () => Promise<void> | void;
+}
+
+/** Run the standard model/queue/status refresh bundle used on connect/wake. */
+export function refreshModelAndQueueState(options: RefreshModelAndQueueStateOptions): void {
+  const {
+    refreshModelState,
+    refreshActiveChatAgents,
+    refreshCurrentChatBranches,
+    refreshQueueState,
+    refreshContextUsage,
+    refreshAutoresearchStatus,
+  } = options;
+
+  refreshModelState();
+  refreshActiveChatAgents();
+  refreshCurrentChatBranches();
+  refreshQueueState();
+  void refreshContextUsage();
+  void refreshAutoresearchStatus();
+}
+
+export interface RefreshCurrentViewOptions {
+  viewStateRef: RefBox<Record<string, unknown> | null | undefined>;
+  refreshTimeline: () => Promise<void> | void;
+  refreshModelAndQueueState: () => void;
+}
+
+/**
+ * Refresh the current view and status panels without disturbing search/hashtag modes.
+ */
+export function refreshCurrentView(options: RefreshCurrentViewOptions): void {
+  const {
+    viewStateRef,
+    refreshTimeline,
+    refreshModelAndQueueState: refreshModelAndQueueStateFn,
+  } = options;
+
+  const onMainTimeline = isMainTimelineView(viewStateRef.current);
+  if (onMainTimeline) {
+    void refreshTimeline();
+  }
+  refreshModelAndQueueStateFn();
+}

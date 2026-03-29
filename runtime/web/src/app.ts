@@ -2,32 +2,16 @@
 // Main authenticated web UI entry point.
 import { html, render, useState, useEffect, useCallback, useRef, useMemo } from './vendor/preact-htm.js';
 import * as api from './api.js';
-import { ComposeBox, QueuedFollowupStack } from './components/compose-box.js';
-import { BtwPanel } from './components/btw-panel.js';
-import { FloatingWidgetPane } from './components/floating-widget-pane.js';
-import { AgentRequestModal, AgentStatus } from './components/status.js';
-import { Timeline } from './components/timeline.js';
-import { WorkspaceExplorer } from './components/workspace-explorer.js';
-import { TabStrip } from './components/tab-strip.js';
-import { MarkdownPreview } from './components/markdown-preview.js';
 import { paneRegistry, editorPaneExtension, preloadEditorBundle, terminalPaneExtension, terminalTabPaneExtension, TERMINAL_TAB_PATH, vncPaneExtension, VNC_TAB_PREFIX, workspacePreviewPaneExtension, workspaceMarkdownPreviewPaneExtension, officeViewerPaneExtension, csvViewerPaneExtension, pdfViewerPaneExtension, imageViewerPaneExtension, videoViewerPaneExtension, drawioPaneExtension, mindmapPaneExtension, kanbanPaneExtension, tabStore } from './panes/index.js';
 import { getLocalStorageBoolean, getLocalStorageNumber, setLocalStorageItem } from './utils/storage.js';
 import { useSseConnection } from './ui/use-sse-connection.js';
 import { useNotifications } from './ui/use-notifications.js';
 import { useTimeline } from './ui/use-timeline.js';
 import { dedupePosts } from './ui/timeline-utils.js';
-import {
-    appendUniqueTimelinePost,
-    isMainTimelineView,
-    removeTimelinePostsByIds,
-    replaceTimelinePostById,
-    shouldAppendRealtimeTimelinePost,
-    shouldMutateInteractionTimeline,
-} from './ui/app-realtime-timeline.js';
 import { useAgentState } from './ui/use-agent-state.js';
 import { useSplitters } from './ui/use-splitters.js';
 import { useEditorState } from './ui/use-editor-state.js';
-import { initTheme, applyThemeFromEvent } from './ui/theme.js';
+import { initTheme } from './ui/theme.js';
 import {
     LAST_ACTIVITY_TTL_MS,
     SILENCE_FINALIZE_MS,
@@ -36,18 +20,6 @@ import {
     isIOSDevice,
     useTimestampRefresh,
 } from './ui/app-helpers.js';
-import {
-    applyDraftDeltaBuffer,
-    applyThoughtDeltaBuffer,
-    buildCollapsedAgentPreviewState,
-    buildExpandedAgentPreviewState,
-    resolveAgentPlanText,
-} from './ui/app-agent-previews.js';
-import {
-    resolveSteerQueuedTurnId,
-    shouldAdoptIncomingTurn,
-    shouldIgnoreMismatchedTurn,
-} from './ui/app-agent-turn-events.js';
 import {
     readAgentTurnId,
     resolveAgentPreviewRestoreState,
@@ -61,7 +33,6 @@ import {
     isStandaloneWebAppMode,
 } from './ui/chat-window.js';
 import { shouldClearQueuedSteerState } from './ui/queue-state.js';
-import { resolveLiveGeneratedWidgetEvent } from './ui/app-generated-widget-events.js';
 import { isCompactionStatus } from './ui/status-duration.js';
 import {
     applyModelStatePayload,
@@ -75,15 +46,6 @@ import {
 } from './ui/app-auth-bootstrap.js';
 import { installStandaloneMobileViewportFix } from './ui/mobile-viewport.js';
 import { resolveOptionalApi } from './ui/optional-api.js';
-import {
-    resolveExtensionUiToast,
-    resolveStatusPanelWidgetEventContext,
-} from './ui/app-extension-ui-sse.js';
-import {
-    isNoisyAgentSseEvent,
-    resolveSseEventRoutingContext,
-} from './ui/app-sse-event-routing.js';
-import { dispatchExtensionUiBrowserEvent, isExtensionUiEventType } from './ui/extension-ui-events.js';
 import { watchReturnToApp, watchStandaloneWebAppMode } from './ui/app-resume.js';
 import { watchDockToggleShortcut, watchPaneOpenEvents, watchZenModeShortcuts } from './ui/app-browser-events.js';
 import {
@@ -127,25 +89,15 @@ import {
 } from './ui/app-chat-pane-state.js';
 import {
     addPendingPanelAction,
-    applyAutoresearchStatusPayload,
-    applyStatusPanelWidgetEvent,
-    clearPendingPanelActionPrefix,
     createPendingPanelActionKey,
     removePendingPanelAction,
     runExtensionStatusPanelAction,
-    shouldClearPendingPanelActions,
 } from './ui/app-extension-status.js';
 import {
-    appendFollowupQueueItem,
     filterQueuedTimelinePosts,
-    haveSameFollowupQueueRows,
-    normalizeFollowupQueueItems,
-    removeFollowupQueueRow,
 } from './ui/app-followup-queue.js';
-import { resolveFollowupQueueRemovalPlan } from './ui/app-followup-actions.js';
 import {
     applyLiveFloatingWidgetUpdate,
-    clearLiveFloatingWidgetState,
 } from './ui/app-floating-widget.js';
 import {
     buildFloatingWidgetDashboardData,
@@ -155,6 +107,22 @@ import {
     handleRemoveQueuedFollowupAction,
     openFloatingWidgetFromHost,
 } from './ui/app-floating-widget-followup.js';
+import {
+    renderBranchLoaderMode,
+    renderPanePopoutMode,
+    resolveAppShellRenderMode,
+} from './ui/app-pane-mode-render.js';
+import {
+    renderMainShell,
+} from './ui/app-main-shell-render.js';
+import {
+    refreshAutoresearchStatusForChat,
+    refreshContextUsageForChat,
+    refreshCurrentView as refreshCurrentViewState,
+    refreshModelAndQueueState as refreshModelAndQueueStateBundle,
+    refreshQueueStateForChat,
+} from './ui/app-status-refresh-orchestration.js';
+import { handleAppSseEvent } from './ui/app-sse-events.js';
 
 const CURRENT_APP_ASSET_VERSION = getCurrentAppAssetVersion();
 
@@ -1159,58 +1127,34 @@ function MainApp({ locationParams, navigate }) {
 
 
     const refreshQueueState = useCallback(() => {
-        const gen = ++queueRefreshGenRef.current;
-        const targetChatJid = currentChatJid;
-        getAgentQueueState(targetChatJid)
-            .then((payload) => {
-                // Discard stale responses — a newer refresh was already issued
-                if (gen !== queueRefreshGenRef.current) return;
-                if (activeChatJidRef.current !== targetChatJid) return;
-                const dismissed = dismissedQueueRowIdsRef.current;
-                const items = normalizeFollowupQueueItems(payload?.items, dismissed);
-                if (items.length) {
-                    setFollowupQueueItems((prev) => {
-                        if (haveSameFollowupQueueRows(prev, items)) return prev;
-                        return items;
-                    });
-                    return;
-                }
-
-                // Server queue is empty (after filtering dismissed) — clear dismissed set
-                dismissed.clear();
-                clearQueuedSteerStateIfStale(0);
-                setFollowupQueueItems((prev) => prev.length === 0 ? prev : []);
-            })
-            .catch(() => {
-                if (gen !== queueRefreshGenRef.current) return;
-                if (activeChatJidRef.current !== targetChatJid) return;
-                setFollowupQueueItems((prev) => prev.length === 0 ? prev : []);
-            });
-    }, [clearQueuedSteerStateIfStale, currentChatJid, setFollowupQueueItems]);
+        refreshQueueStateForChat({
+            currentChatJid,
+            queueRefreshGenRef,
+            activeChatJidRef,
+            dismissedQueueRowIdsRef,
+            getAgentQueueState,
+            setFollowupQueueItems,
+            clearQueuedSteerStateIfStale,
+        });
+    }, [clearQueuedSteerStateIfStale, currentChatJid]);
 
     const refreshContextUsage = useCallback(async () => {
-        const targetChatJid = currentChatJid;
-        try {
-            const ctx = await getAgentContext(targetChatJid);
-            if (activeChatJidRef.current !== targetChatJid) return;
-            if (ctx) setContextUsage(ctx);
-        } catch (err) {
-            if (activeChatJidRef.current !== targetChatJid) return;
-            console.warn('Failed to fetch agent context:', err);
-        }
+        await refreshContextUsageForChat({
+            currentChatJid,
+            activeChatJidRef,
+            getAgentContext,
+            setContextUsage,
+        });
     }, [currentChatJid]);
 
     const refreshAutoresearchStatus = useCallback(async () => {
-        const targetChatJid = currentChatJid;
-        try {
-            const payload = await getAutoresearchStatus(targetChatJid);
-            if (activeChatJidRef.current !== targetChatJid) return;
-            setExtensionStatusPanels((prev) => applyAutoresearchStatusPayload(prev, payload));
-            setPendingExtensionPanelActions((prev) => clearPendingPanelActionPrefix(prev, 'autoresearch'));
-        } catch (err) {
-            if (activeChatJidRef.current !== targetChatJid) return;
-            console.warn('Failed to fetch autoresearch status:', err);
-        }
+        await refreshAutoresearchStatusForChat({
+            currentChatJid,
+            activeChatJidRef,
+            getAutoresearchStatus,
+            setExtensionStatusPanels,
+            setPendingExtensionPanelActions,
+        });
     }, [currentChatJid]);
 
     const refreshAgentStatus = useCallback(async () => {
@@ -1768,13 +1712,15 @@ function MainApp({ locationParams, navigate }) {
     }, [activeChatAgents, activeModel, activeThinkingLevel, contextUsage, currentChatBranches, currentChatJid, currentRootChatJid, isAgentTurnActive, rawPosts, supportsThinking]);
 
     const refreshModelAndQueueState = useCallback(() => {
-        refreshModelState();
-        refreshActiveChatAgents();
-        refreshCurrentChatBranches();
-        refreshQueueState();
-        refreshContextUsage();
-        refreshAutoresearchStatus();
-    }, [refreshModelState, refreshActiveChatAgents, refreshCurrentChatBranches, refreshQueueState, refreshContextUsage, refreshAutoresearchStatus]);
+        refreshModelAndQueueStateBundle({
+            refreshModelState,
+            refreshActiveChatAgents,
+            refreshCurrentChatBranches,
+            refreshQueueState,
+            refreshContextUsage,
+            refreshAutoresearchStatus,
+        });
+    }, [refreshActiveChatAgents, refreshAutoresearchStatus, refreshContextUsage, refreshCurrentChatBranches, refreshModelState, refreshQueueState]);
 
     useEffect(() => {
         refreshModelAndQueueState();
@@ -1870,11 +1816,11 @@ function MainApp({ locationParams, navigate }) {
     }, [currentChatJid, refreshAgentStatus, refreshContextUsage, refreshQueueState, restoreChatPaneState, snapshotCurrentChatPaneState]);
 
     const refreshCurrentView = useCallback(() => {
-        const { currentHashtag: activeHashtag, searchQuery: activeSearch, searchOpen: activeSearchOpen } = viewStateRef.current || {};
-        if (!activeHashtag && !activeSearch && !activeSearchOpen) {
-            refreshTimeline();
-        }
-        refreshModelAndQueueState();
+        refreshCurrentViewState({
+            viewStateRef,
+            refreshTimeline,
+            refreshModelAndQueueState,
+        });
     }, [refreshModelAndQueueState, refreshTimeline]);
 
     const applyLiveGeneratedWidgetUpdate = useCallback((data, fallbackStatus = 'streaming') => {
@@ -1888,375 +1834,87 @@ function MainApp({ locationParams, navigate }) {
     }, [currentChatJid]);
 
     const handleSseEvent = useCallback((eventType, data) => {
-        const { turnId, isCurrentChatEvent } = resolveSseEventRoutingContext(eventType, data, currentChatJid);
-
-        if (isCurrentChatEvent) {
-            updateAgentProfile(data);
-            updateUserProfile(data);
-        }
-
-        if (eventType === 'ui_theme') {
-            applyThemeFromEvent(data);
-            return;
-        }
-
-        const liveWidgetEvent = resolveLiveGeneratedWidgetEvent(eventType);
-        if (liveWidgetEvent.kind === 'update') {
-            if (!isCurrentChatEvent) return;
-            if (liveWidgetEvent.shouldAdoptTurn && shouldAdoptIncomingTurn(turnId, currentTurnIdRef.current)) {
-                setActiveTurn(turnId);
-            }
-            applyLiveGeneratedWidgetUpdate(data, liveWidgetEvent.fallbackStatus || 'streaming');
-            return;
-        }
-
-        if (liveWidgetEvent.kind === 'close') {
-            if (!isCurrentChatEvent) return;
-            setFloatingWidget((current) => clearLiveFloatingWidgetState(current, data));
-            return;
-        }
-
-        if (eventType?.startsWith('agent_') && !isNoisyAgentSseEvent(eventType)) {
-            clearLastActivityFlag();
-        }
-
-        // Handle agent status updates
-        if (eventType === 'connected') {
-            if (handleUiVersionDrift(data?.app_asset_version)) {
-                return;
-            }
-            setAgentStatus(null);
-            setAgentDraft({ text: '', totalLines: 0 });
-            setAgentPlan('');
-            setAgentThought({ text: '', totalLines: 0 });
-            setPendingRequest(null);
-            pendingRequestRef.current = null;
-            clearAgentRunState();
-
-            const targetChatJid = currentChatJid;
-            getAgentStatus(targetChatJid)
-                .then((res) => {
-                    if (activeChatJidRef.current !== targetChatJid) return;
-                    if (!res || res.status !== 'active' || !res.data) return;
-                    const payload = res.data;
-                    const activeTurn = readAgentTurnId(payload);
-                    if (activeTurn) setActiveTurn(activeTurn);
-                    noteAgentActivity({ clearSilence: true });
-                    showLastActivity(payload);
-
-                    // Restore draft/thought buffers from enriched status
-                    const thoughtRestore = resolveAgentPreviewRestoreState(res.thought);
-                    if (thoughtRestore) {
-                        thoughtBufferRef.current = thoughtRestore.text;
-                        setAgentThought(thoughtRestore);
-                    }
-                    const draftRestore = resolveAgentPreviewRestoreState(res.draft);
-                    if (draftRestore) {
-                        draftBufferRef.current = draftRestore.text;
-                        setAgentDraft(draftRestore);
-                    }
-                })
-                .catch((err) => {
-                    console.warn('Failed to fetch agent status:', err);
-                });
-            const { currentHashtag: activeHashtag, searchQuery: activeSearch, searchOpen: activeSearchOpen } = viewStateRef.current || {};
-            if (!activeHashtag && !activeSearch && !activeSearchOpen) {
-                // One immediate timeline resync on SSE connect closes restart races.
-                refreshTimeline();
-            }
-            refreshModelAndQueueState();
-            return;
-        }
-
-        if (eventType === 'agent_status') {
-            if (!isCurrentChatEvent) {
-                if (data?.type === 'done' || data?.type === 'error') {
-                    void refreshActiveChatAgents();
-                    void refreshCurrentChatBranches();
-                }
-                return;
-            }
-            if (data.type === 'done' || data.type === 'error') {
-                if (shouldIgnoreMismatchedTurn(turnId, currentTurnIdRef.current)) {
-                    return;
-                }
-                if (data.type === 'done') {
-                    notifyForFinalResponse(turnId || currentTurnIdRef.current);
-                    // Refresh timeline to surface any final response missed during SSE gaps.
-                    const { currentHashtag: ah, searchQuery: sq, searchOpen: so } = viewStateRef.current || {};
-                    if (!ah && !sq && !so) refreshTimeline();
-                    // Refresh context usage from payload + canonical API state.
-                    if (data.context_usage) setContextUsage(data.context_usage);
-                }
-                void refreshContextUsage();
-                wasAgentActiveRef.current = false;
-                clearAgentRunState();
-                // Re-sync queue state from the server on terminal transitions.
-                dismissedQueueRowIdsRef.current.clear();
-                void refreshActiveChatAgents();
-                void refreshQueueState();
-                setAgentDraft({ text: '', totalLines: 0 });
-                setAgentPlan('');
-                setAgentThought({ text: '', totalLines: 0 });
-                setPendingRequest(null);
-                if (data.type === 'error') {
-                    // Show error status briefly so the user sees what failed
-                    setAgentStatus({ type: 'error', title: data.title || 'Agent error' });
-                    setTimeout(() => setAgentStatus(null), 8000);
-                } else {
-                    setAgentStatus(null);
-                }
-            } else {
-                if (turnId) setActiveTurn(turnId);
-                noteAgentActivity({ running: true, clearSilence: true });
-                if (data.type === 'thinking') {
-                    draftBufferRef.current = '';
-                    thoughtBufferRef.current = '';
-                    setAgentDraft({ text: '', totalLines: 0 });
-                    setAgentPlan('');
-                    setAgentThought({ text: '', totalLines: 0 });
-                }
-                // Throttle intermediate status updates to avoid re-render storms.
-                // Only update state if the status type changed (e.g. intent→tool_call→thinking).
-                agentStatusRef.current = data;
-                setAgentStatus((prev) => {
-                    if (prev && prev.type === data.type && prev.title === data.title) return prev;
-                    return data;
-                });
-            }
-            return;
-        }
-
-        if (eventType === 'agent_steer_queued') {
-            if (!isCurrentChatEvent) return;
-            if (shouldIgnoreMismatchedTurn(turnId, currentTurnIdRef.current)) {
-                return;
-            }
-            const targetTurn = resolveSteerQueuedTurnId(turnId, currentTurnIdRef.current);
-            if (!targetTurn) return;
-            steerQueuedTurnIdRef.current = targetTurn;
-            setSteerQueuedTurnId(targetTurn);
-            return;
-        }
-
-        if (eventType === 'agent_followup_queued') {
-            if (!isCurrentChatEvent) return;
-            setFollowupQueueItems((current) => appendFollowupQueueItem(current, data));
-            void refreshQueueState();
-            return;
-        }
-
-        if (eventType === 'agent_followup_consumed') {
-            if (!isCurrentChatEvent) return;
-            const optimisticRemoval = resolveFollowupQueueRemovalPlan(followupQueueItemsRef.current, data);
-            if (optimisticRemoval) {
-                clearQueuedSteerStateIfStale(optimisticRemoval.remainingQueueCount);
-                setFollowupQueueItems((current) => removeFollowupQueueRow(current, optimisticRemoval.rowId).items);
-            }
-            void refreshQueueState();
-            // Refresh timeline so the replaced placeholder (now the real response)
-            // appears immediately — it was filtered out while queued.
-            const { currentHashtag: activeHashtag, searchQuery: activeSearch, searchOpen: activeSearchOpen } = viewStateRef.current || {};
-            if (!activeHashtag && !activeSearch && !activeSearchOpen) {
-                void refreshTimeline();
-            }
-            return;
-        }
-
-        if (eventType === 'agent_followup_removed') {
-            if (!isCurrentChatEvent) return;
-            const optimisticRemoval = resolveFollowupQueueRemovalPlan(followupQueueItemsRef.current, data);
-            if (optimisticRemoval) {
-                dismissedQueueRowIdsRef.current.add(optimisticRemoval.rowId);
-                clearQueuedSteerStateIfStale(optimisticRemoval.remainingQueueCount);
-                setFollowupQueueItems((current) => removeFollowupQueueRow(current, optimisticRemoval.rowId).items);
-            }
-            void refreshQueueState();
-            return;
-        }
-
-        if (eventType === 'agent_draft_delta') {
-            if (!isCurrentChatEvent) return;
-            if (shouldIgnoreMismatchedTurn(turnId, currentTurnIdRef.current)) {
-                return;
-            }
-            if (shouldAdoptIncomingTurn(turnId, currentTurnIdRef.current)) {
-                setActiveTurn(turnId);
-            }
-            noteAgentActivity({ running: true, clearSilence: true });
-            draftBufferRef.current = applyDraftDeltaBuffer(draftBufferRef.current, data);
-            // Throttle draft state updates to ~10fps to avoid re-render storms
-            const now = Date.now();
-            if (!draftThrottleRef.current || now - draftThrottleRef.current >= 100) {
-                draftThrottleRef.current = now;
-                const fullText = draftBufferRef.current;
-                if (draftExpandedRef.current) {
-                    setAgentDraft((prev) => buildExpandedAgentPreviewState(fullText, prev));
-                } else {
-                    setAgentDraft(buildCollapsedAgentPreviewState(fullText, null));
-                }
-            }
-            return;
-        }
-
-        if (eventType === 'agent_draft') {
-            if (!isCurrentChatEvent) return;
-            if (shouldIgnoreMismatchedTurn(turnId, currentTurnIdRef.current)) {
-                return;
-            }
-            if (shouldAdoptIncomingTurn(turnId, currentTurnIdRef.current)) {
-                setActiveTurn(turnId);
-            }
-            noteAgentActivity({ running: true, clearSilence: true });
-            const text = data.text || '';
-            const mode = data.mode || (data.kind === 'plan' ? 'replace' : 'append');
-
-            if (data.kind === 'plan') {
-                setAgentPlan((prev) => resolveAgentPlanText(prev, text, mode));
-            } else if (!draftExpandedRef.current) {
-                draftBufferRef.current = text;
-                setAgentDraft(buildCollapsedAgentPreviewState(text, data.total_lines));
-            }
-            return;
-        }
-
-        if (eventType === 'agent_thought_delta') {
-            if (!isCurrentChatEvent) return;
-            if (shouldIgnoreMismatchedTurn(turnId, currentTurnIdRef.current)) {
-                return;
-            }
-            if (shouldAdoptIncomingTurn(turnId, currentTurnIdRef.current)) {
-                setActiveTurn(turnId);
-            }
-            noteAgentActivity({ running: true, clearSilence: true });
-            thoughtBufferRef.current = applyThoughtDeltaBuffer(thoughtBufferRef.current, data);
-            // Throttle thought state updates to ~10fps
-            const now = Date.now();
-            if (thoughtExpandedRef.current && (!thoughtThrottleRef.current || now - thoughtThrottleRef.current >= 100)) {
-                thoughtThrottleRef.current = now;
-                const fullText = thoughtBufferRef.current;
-                setAgentThought((prev) => buildExpandedAgentPreviewState(fullText, prev));
-            }
-            return;
-        }
-
-        if (eventType === 'agent_thought') {
-            if (!isCurrentChatEvent) return;
-            if (shouldIgnoreMismatchedTurn(turnId, currentTurnIdRef.current)) {
-                return;
-            }
-            if (shouldAdoptIncomingTurn(turnId, currentTurnIdRef.current)) {
-                setActiveTurn(turnId);
-            }
-            noteAgentActivity({ running: true, clearSilence: true });
-            const text = data.text || '';
-            if (!thoughtExpandedRef.current) {
-                thoughtBufferRef.current = text;
-                setAgentThought(buildCollapsedAgentPreviewState(text, data.total_lines));
-            }
-            return;
-        }
-
-        if (eventType === 'model_changed') {
-            if (!isCurrentChatEvent) return;
-            applyModelState(data);
-            // Refresh context usage - the context window size changes with the model
-            const targetChatJid = currentChatJid;
-            getAgentContext(targetChatJid)
-                .then((ctx) => {
-                    if (activeChatJidRef.current !== targetChatJid) return;
-                    if (ctx) setContextUsage(ctx);
-                })
-                .catch(() => {
-                    /* expected: context usage refresh is best-effort after model switches. */
-                });
-            return;
-        }
-
-        const statusPanelWidgetEvent = resolveStatusPanelWidgetEventContext(eventType, data, currentChatJid);
-        if (statusPanelWidgetEvent.isStatusPanelWidgetEvent) {
-            if (statusPanelWidgetEvent.eventChatJid !== currentChatJid) return;
-            if (!statusPanelWidgetEvent.panelKey) return;
-            setExtensionStatusPanels((prev) => applyStatusPanelWidgetEvent(prev, data));
-            if (shouldClearPendingPanelActions(data)) {
-                setPendingExtensionPanelActions((prev) => clearPendingPanelActionPrefix(prev, statusPanelWidgetEvent.panelKey));
-            }
-            dispatchExtensionUiBrowserEvent(eventType, data);
-            return;
-        }
-
-        if (eventType === 'workspace_update') {
-            if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('workspace-update', { detail: data }));
-            }
-            void refreshActiveEditorFromWorkspace(data?.updates);
-            return;
-        }
-
-        if (isExtensionUiEventType(eventType)) {
-            if (!isCurrentChatEvent) return;
-            dispatchExtensionUiBrowserEvent(eventType, data);
-            const toast = resolveExtensionUiToast(eventType, data);
-            if (toast) {
-                showIntentToast(toast.title, toast.detail, toast.kind, toast.durationMs);
-            }
-            return;
-        }
-
-        // Add new posts/replies to timeline (only when on main timeline) - append at end for chat style
-        const onMainTimeline = isMainTimelineView(viewStateRef.current);
-        if (eventType === 'agent_response') {
-            if (!isCurrentChatEvent) return;
-            removeStalledPost();
-            lastAgentResponseRef.current = {
-                post: data,
-                turnId: currentTurnIdRef.current,
-            };
-        }
-        if (shouldAppendRealtimeTimelinePost(eventType, isCurrentChatEvent, onMainTimeline)) {
-            setPosts((prev) => appendUniqueTimelinePost(prev, data));
-            scrollToBottomRef.current?.();
-        }
-        // Update existing post (e.g., when link previews are fetched)
-        // Skip during search/hashtag views to avoid mutating search results.
-        if (eventType === 'interaction_updated') {
-            if (!shouldMutateInteractionTimeline(isCurrentChatEvent, onMainTimeline)) return;
-            setPosts((prev) => replaceTimelinePostById(prev, data));
-        }
-        if (eventType === 'interaction_deleted') {
-            if (!shouldMutateInteractionTimeline(isCurrentChatEvent, onMainTimeline)) return;
-            const ids = data?.ids || [];
-            if (ids.length) {
-                preserveTimelineScrollTop(() => {
-                    setPosts((prev) => removeTimelinePostsByIds(prev, ids));
-                });
-                if (hasMoreRef.current) {
-                    loadMoreRef.current?.({ preserveScroll: true, preserveMode: 'top' });
-                }
-            }
-        }
+        handleAppSseEvent(eventType, data, {
+            currentChatJid,
+            updateAgentProfile,
+            updateUserProfile,
+            currentTurnIdRef,
+            activeChatJidRef,
+            pendingRequestRef,
+            draftBufferRef,
+            thoughtBufferRef,
+            steerQueuedTurnIdRef,
+            thoughtExpandedRef,
+            draftExpandedRef,
+            draftThrottleRef,
+            thoughtThrottleRef,
+            viewStateRef,
+            followupQueueItemsRef,
+            dismissedQueueRowIdsRef,
+            scrollToBottomRef,
+            hasMoreRef,
+            loadMoreRef,
+            lastAgentResponseRef,
+            wasAgentActiveRef,
+            setActiveTurn,
+            applyLiveGeneratedWidgetUpdate,
+            setFloatingWidget,
+            clearLastActivityFlag,
+            handleUiVersionDrift,
+            setAgentStatus,
+            setAgentDraft,
+            setAgentPlan,
+            setAgentThought,
+            setPendingRequest,
+            clearAgentRunState,
+            getAgentStatus,
+            noteAgentActivity,
+            showLastActivity,
+            refreshTimeline,
+            refreshModelAndQueueState,
+            refreshActiveChatAgents,
+            refreshCurrentChatBranches,
+            notifyForFinalResponse,
+            setContextUsage,
+            refreshContextUsage,
+            refreshQueueState,
+            setFollowupQueueItems,
+            clearQueuedSteerStateIfStale,
+            setSteerQueuedTurnId,
+            applyModelState,
+            getAgentContext,
+            setExtensionStatusPanels,
+            setPendingExtensionPanelActions,
+            refreshActiveEditorFromWorkspace,
+            showIntentToast,
+            removeStalledPost,
+            setPosts,
+            preserveTimelineScrollTop,
+        });
     }, [
         applyLiveGeneratedWidgetUpdate,
+        applyModelState,
         clearAgentRunState,
         clearLastActivityFlag,
+        clearQueuedSteerStateIfStale,
         currentChatJid,
-        loadMoreRef,
+        handleUiVersionDrift,
         noteAgentActivity,
         notifyForFinalResponse,
-        preserveTimelineScrollTop,
         refreshActiveChatAgents,
+        refreshActiveEditorFromWorkspace,
+        refreshContextUsage,
         refreshCurrentChatBranches,
+        refreshModelAndQueueState,
+        refreshQueueState,
         refreshTimeline,
         removeStalledPost,
         setActiveTurn,
+        setFollowupQueueItems,
+        showIntentToast,
         showLastActivity,
         updateAgentProfile,
         updateUserProfile,
-        refreshModelState,
-        refreshQueueState,
-        setFollowupQueueItems,
-        refreshContextUsage,
-        handleUiVersionDrift,
     ]);
 
     useEffect(() => {
@@ -2564,405 +2222,170 @@ function MainApp({ locationParams, navigate }) {
 
     const steerQueued = Boolean(steerQueuedTurnId && (steerQueuedTurnId === (agentStatus?.turn_id || currentTurnId)));
 
-    if (branchLoaderMode) {
-        return html`
-            <div class="app-shell chat-only">
-                <div class="container" style=${{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: '24px' }}>
-                    <div class="card" style=${{ width: 'min(560px, 100%)', padding: '24px' }}>
-                        <h1 style=${{ margin: '0 0 12px', fontSize: '1.1rem' }}>
-                            ${branchLoaderState.status === 'error' ? 'Could not open branch window' : 'Opening branch…'}
-                        </h1>
-                        <p style=${{ margin: 0, lineHeight: 1.6 }}>${branchLoaderState.message}</p>
-                    </div>
-                </div>
-            </div>
-        `;
+    const appShellRenderMode = resolveAppShellRenderMode({
+        branchLoaderMode,
+        panePopoutMode,
+    });
+
+    if (appShellRenderMode === 'branch-loader') {
+        return renderBranchLoaderMode(branchLoaderState);
     }
 
-    if (panePopoutMode) {
-        return html`
-            <div class=${`app-shell pane-popout${editorOpen ? ' editor-open' : ''}`} ref=${appShellRef}>
-                <div class="editor-pane-container pane-popout-container">
-                    ${editorOpen && !hidePanePopoutControls && html`
-                        <div class="pane-popout-controls" role="toolbar" aria-label="Pane window controls">
-                            ${panePopoutHasMenuActions
-                                ? html`
-                                    <details class="pane-popout-controls-menu">
-                                        <summary class="pane-popout-controls-trigger" aria-label="Pane window controls">
-                                            <span class="pane-popout-controls-title">${panePopoutTitle}</span>
-                                            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                <polyline points="4.5 6.5 8 10 11.5 6.5" />
-                                            </svg>
-                                        </summary>
-                                        <div class="pane-popout-controls-panel">
-                                            ${tabStripTabs.length > 1 && html`
-                                                <div class="pane-popout-controls-section">
-                                                    <div class="pane-popout-controls-section-title">Open panes</div>
-                                                    <div class="pane-popout-controls-list">
-                                                        ${tabStripTabs.map((tab) => html`
-                                                            <button
-                                                                type="button"
-                                                                class=${`pane-popout-controls-item${tab.id === tabStripActiveId ? ' active' : ''}`}
-                                                                onClick=${(e) => {
-                                                                    handleTabActivate(tab.id);
-                                                                    e.currentTarget.closest('details')?.removeAttribute('open');
-                                                                }}
-                                                            >
-                                                                ${tab.label}
-                                                            </button>
-                                                        `)}
-                                                    </div>
-                                                </div>
-                                            `}
-                                            ${tabStripActiveId && previewTabs.has(tabStripActiveId) && html`
-                                                <button type="button" class="pane-popout-controls-action" onClick=${(e) => {
-                                                    handleTabTogglePreview(tabStripActiveId);
-                                                    e.currentTarget.closest('details')?.removeAttribute('open');
-                                                }}>
-                                                    Hide preview
-                                                </button>
-                                            `}
-                                        </div>
-                                    </details>
-                                `
-                                : html`
-                                    <div class="pane-popout-controls-label" aria-label=${panePopoutTitle}>${panePopoutTitle}</div>
-                                `}
-                        </div>
-                    `}
-                    ${editorOpen
-                        ? html`<div class="editor-pane-host" ref=${editorContainerRef}></div>`
-                        : html`<div class="card" style=${{ margin: '24px', padding: '24px', maxWidth: '640px' }}>
-                            <h1 style=${{ margin: '0 0 12px', fontSize: '1.1rem' }}>Opening pane…</h1>
-                            <p style=${{ margin: 0, lineHeight: 1.6 }}>${panePopoutPath || 'No pane path provided.'}</p>
-                        </div>`}
-                    ${editorOpen && tabStripActiveId && previewTabs.has(tabStripActiveId) && html`
-                        <${MarkdownPreview}
-                            getContent=${() => editorInstanceRef.current?.getContent?.()}
-                            path=${tabStripActiveId}
-                            onClose=${() => handleTabTogglePreview(tabStripActiveId)}
-                        />
-                    `}
-                </div>
-            </div>
-        `;
+    if (appShellRenderMode === 'pane-popout') {
+        return renderPanePopoutMode({
+            appShellRef,
+            editorOpen,
+            hidePanePopoutControls,
+            panePopoutHasMenuActions,
+            panePopoutTitle,
+            tabStripTabs,
+            tabStripActiveId,
+            handleTabActivate,
+            previewTabs,
+            handleTabTogglePreview,
+            editorContainerRef,
+            getPaneContent: () => editorInstanceRef.current?.getContent?.(),
+            panePopoutPath,
+        });
     }
 
-    return html`
-        <div class=${`app-shell${workspaceOpen ? '' : ' workspace-collapsed'}${editorOpen ? ' editor-open' : ''}${chatOnlyMode ? ' chat-only' : ''}${zenMode ? ' zen-mode' : ''}`} ref=${appShellRef}>
-            ${isRenameBranchFormOpen && html`
-                <div class="rename-branch-overlay" onPointerDown=${(event) => {
-                    if (event.target === event.currentTarget) {
-                        closeRenameCurrentBranchForm();
-                    }
-                }}>
-                    <form
-                        class="rename-branch-panel"
-                        onSubmit=${(event) => {
-                            event.preventDefault();
-                            void handleRenameCurrentBranch(renameBranchNameDraft);
-                        }}
-                    >
-                        <div class="rename-branch-title">Rename branch handle</div>
-                        <input
-                            ref=${renameBranchNameInputRef}
-                            value=${renameBranchNameDraft}
-                            onInput=${(event) => {
-                                const next = event.currentTarget?.value ?? '';
-                                setRenameBranchNameDraft(String(next));
-                            }}
-                            onKeyDown=${(event) => {
-                                if (event.key === 'Escape') {
-                                    event.preventDefault();
-                                    closeRenameCurrentBranchForm();
-                                }
-                            }}
-                            autocomplete="off"
-                            placeholder="Handle (letters, numbers, - and _ only)"
-                        />
-                        <div class=${`rename-branch-help ${renameBranchDraftState.kind || 'info'}`}>
-                            ${renameBranchDraftState.message}
-                        </div>
-                        <div class="rename-branch-actions">
-                            <button type="submit" class="compose-model-popup-btn primary" disabled=${isRenamingBranch || !renameBranchDraftState.canSubmit}>
-                                ${isRenamingBranch ? 'Renaming…' : 'Save'}
-                            </button>
-                            <button
-                                type="button"
-                                class="compose-model-popup-btn"
-                                onClick=${closeRenameCurrentBranchForm}
-                                disabled=${isRenamingBranch}
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            `}
-            ${!chatOnlyMode && html`
-                <${WorkspaceExplorer}
-                    onFileSelect=${addFileRef}
-                    visible=${workspaceOpen}
-                    active=${workspaceOpen || editorOpen}
-                    onOpenEditor=${openEditor}
-                    onOpenTerminalTab=${openTerminalTab}
-                    onOpenVncTab=${openVncTab}
-                    onToggleTerminal=${hasDockPanes ? toggleDock : undefined}
-                    terminalVisible=${Boolean(hasDockPanes && dockVisible)}
-                />
-                <button
-                    class=${`workspace-toggle-tab${workspaceOpen ? ' open' : ' closed'}`}
-                    onClick=${toggleWorkspace}
-                    title=${workspaceOpen ? 'Hide workspace' : 'Show workspace'}
-                    aria-label=${workspaceOpen ? 'Hide workspace' : 'Show workspace'}
-                >
-                    <svg class="workspace-toggle-tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <polyline points="6 3 11 8 6 13" />
-                    </svg>
-                </button>
-                <div class="workspace-splitter" onMouseDown=${handleSplitterMouseDown} onTouchStart=${handleSplitterTouchStart}></div>
-            `}
-            ${showEditorPaneContainer && html`
-                <div class="editor-pane-container">
-                    ${zenMode && html`<div class="zen-hover-zone"></div>`}
-                    ${editorOpen && html`
-                        <${TabStrip}
-                            tabs=${tabStripTabs}
-                            activeId=${tabStripActiveId}
-                            onActivate=${handleTabActivate}
-                            onClose=${handleTabClose}
-                            onCloseOthers=${handleTabCloseOthers}
-                            onCloseAll=${handleTabCloseAll}
-                            onTogglePin=${handleTabTogglePin}
-                            onTogglePreview=${handleTabTogglePreview}
-                            onEditSource=${handleTabEditSource}
-                            previewTabs=${previewTabs}
-                            paneOverrides=${tabPaneOverrides}
-                            onToggleDock=${hasDockPanes ? toggleDock : undefined}
-                            dockVisible=${hasDockPanes && dockVisible}
-                            onToggleZen=${toggleZenMode}
-                            zenMode=${zenMode}
-                            onPopOutTab=${isWebAppMode ? undefined : handlePopOutPane}
-                        />
-                    `}
-                    ${editorOpen && html`<div class="editor-pane-host" ref=${editorContainerRef}></div>`}
-                    ${editorOpen && tabStripActiveId && previewTabs.has(tabStripActiveId) && html`
-                        <${MarkdownPreview}
-                            getContent=${() => editorInstanceRef.current?.getContent?.()}
-                            path=${tabStripActiveId}
-                            onClose=${() => handleTabTogglePreview(tabStripActiveId)}
-                        />
-                    `}
-                    ${hasDockPanes && dockVisible && html`<div class="dock-splitter" onMouseDown=${handleDockSplitterMouseDown} onTouchStart=${handleDockSplitterTouchStart}></div>`}
-                    ${hasDockPanes && html`<div class=${`dock-panel${dockVisible ? '' : ' hidden'}`}>
-                        <div class="dock-panel-header">
-                            <span class="dock-panel-title">Terminal</span>
-                            <div class="dock-panel-actions">
-                                ${!isWebAppMode && html`
-                                    <button class="dock-panel-action" onClick=${() => handlePopOutPane(TERMINAL_TAB_PATH, 'Terminal')} title="Open terminal in window" aria-label="Open terminal in window">
-                                        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                                            <rect x="2.25" y="2.25" width="8.5" height="8.5" rx="1.5"/>
-                                            <path d="M8.5 2.25h5.25v5.25"/>
-                                            <path d="M13.75 2.25 7.75 8.25"/>
-                                        </svg>
-                                    </button>
-                                `}
-                                <button class="dock-panel-close" onClick=${toggleDock} title="Hide terminal (Ctrl+\`)" aria-label="Hide terminal">
-                                    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-                                        <line x1="4" y1="4" x2="12" y2="12"/>
-                                        <line x1="12" y1="4" x2="4" y2="12"/>
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="dock-panel-body" ref=${dockContainerRef}></div>
-                    </div>`}
-                </div>
-                <div class="editor-splitter" onMouseDown=${handleEditorSplitterMouseDown} onTouchStart=${handleEditorSplitterTouchStart}></div>
-            `}
-            <div class="container">
-                ${searchQuery && isIOSDevice() && html`<div class="search-results-spacer"></div>`}
-                ${chatOnlyMode && html`
-                    <div class="chat-window-header">
-                        <div class="chat-window-header-main">
-                            <span class="chat-window-header-title">
-                                ${currentBranchRecord?.agent_name ? `@${currentBranchRecord.agent_name}` : currentChatJid}
-                            </span>
-                            <span class="chat-window-header-subtitle">${currentBranchRecord?.chat_jid || currentChatJid}</span>
-                        </div>
-                        <div class="chat-window-header-actions">
-                            ${currentChatBranches.length > 1 && html`
-                                <label class="chat-window-branch-picker-wrap">
-                                    <span class="chat-window-branch-picker-label">Branch</span>
-                                    <select
-                                        class="chat-window-branch-picker"
-                                        value=${currentChatJid}
-                                        onChange=${(e) => handleBranchPickerChange(e.currentTarget.value)}
-                                    >
-                                        ${currentChatBranches.map((branch) => html`
-                                            <option key=${branch.chat_jid} value=${branch.chat_jid}>
-                                                ${formatBranchPickerLabel(branch, { currentChatJid })}
-                                            </option>
-                                        `)}
-                                    </select>
-                                </label>
-                            `}
-                            ${currentBranchRecord?.chat_jid && html`
-                                <button
-                                    class="chat-window-header-button"
-                                    type="button"
-                                    onClick=${openRenameCurrentBranchForm}
-                                    title=${isRenamingBranch ? 'Renaming branch…' : 'Rename this branch'}
-                                    aria-label="Rename this branch"
-                                    disabled=${isRenamingBranch}
-                                >
-                                    ${isRenamingBranch ? 'Renaming…' : 'Rename'}
-                                </button>
-                            `}
-                            ${currentBranchRecord?.chat_jid && currentBranchRecord.chat_jid !== (currentBranchRecord.root_chat_jid || currentBranchRecord.chat_jid) && html`
-                                <button
-                                    class="chat-window-header-button"
-                                    type="button"
-                                    onClick=${handlePruneCurrentBranch}
-                                    title="Prune this branch agent"
-                                    aria-label="Prune this branch agent"
-                                >
-                                    Prune
-                                </button>
-                            `}
-                            <span class="chat-window-header-badge">Chat only</span>
-                        </div>
-                    </div>
-                `}
-                ${(currentHashtag || searchQuery) && html`
-                    <div class="hashtag-header">
-                        <button class="back-btn" onClick=${handleBackToTimeline}>
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-                        </button>
-                        <span>${currentHashtag ? `#${currentHashtag}` : `Search: ${searchQuery} · ${activeSearchScopeLabel}`}</span>
-                    </div>
-                `}
-                <${Timeline}
-                    posts=${posts}
-                    hasMore=${isMainTimelineView ? hasMore : false}
-                    onLoadMore=${isMainTimelineView ? loadMore : undefined}
-                    timelineRef=${timelineRef}
-                    onHashtagClick=${handleHashtagClick}
-                    onMessageRef=${addMessageRef}
-                    onScrollToMessage=${scrollToMessage}
-                    onFileRef=${openFileFromPill}
-                    onPostClick=${undefined}
-                    onDeletePost=${handleDeletePost}
-                    onOpenWidget=${handleOpenFloatingWidget}
-                    emptyMessage=${currentHashtag ? `No posts with #${currentHashtag}` : searchQuery ? `No results for "${searchQuery}"` : undefined}
-                    agents=${agents}
-                    user=${userProfile}
-                    reverse=${isMainTimelineView}
-                    removingPostIds=${removingPostIds}
-                    searchQuery=${searchQuery}
-                />
-                <${AgentStatus}
-                    status=${isCompactionStatus(agentStatus) ? null : agentStatus}
-                    draft=${agentDraft}
-                    plan=${agentPlan}
-                    thought=${agentThought}
-                    pendingRequest=${pendingRequest}
-                    intent=${intentToast}
-                    turnId=${currentTurnId}
-                    steerQueued=${steerQueued}
-                    onPanelToggle=${handlePanelToggle}
-                    showExtensionPanels=${false}
-                />
-                <${BtwPanel}
-                    session=${btwSession}
-                    onClose=${closeBtwPanel}
-                    onRetry=${handleBtwRetry}
-                    onInject=${handleBtwInject}
-                />
-                <${FloatingWidgetPane}
-                    widget=${floatingWidget}
-                    onClose=${handleCloseFloatingWidget}
-                    onWidgetEvent=${handleFloatingWidgetEvent}
-                />
-                <${AgentStatus}
-                    extensionPanels=${Array.from(extensionStatusPanels.values())}
-                    pendingPanelActions=${pendingExtensionPanelActions}
-                    onExtensionPanelAction=${handleExtensionPanelAction}
-                    turnId=${currentTurnId}
-                    steerQueued=${steerQueued}
-                    onPanelToggle=${handlePanelToggle}
-                    showCorePanels=${false}
-                />
-                <${QueuedFollowupStack}
-                    items=${searchOpen ? [] : followupQueueItems}
-                    onInjectQueuedFollowup=${handleInjectQueuedFollowup}
-                    onRemoveQueuedFollowup=${handleRemoveQueuedFollowup}
-                    onOpenFilePill=${openFileFromPill}
-                />
-                <${ComposeBox}
-                    onPost=${() => {
-                        const { searchQuery: sq, searchOpen: so } = viewStateRef.current || {};
-                        if (!sq && !so) { loadPosts(); scrollToBottom(); }
-                    }}
-                    onFocus=${scrollToBottom}
-                    searchMode=${searchOpen}
-                    searchScope=${searchScope}
-                    onSearch=${handleSearch}
-                    onSearchScopeChange=${setSearchScope}
-                    onEnterSearch=${enterSearchMode}
-                    onExitSearch=${exitSearchMode}
-                    fileRefs=${fileRefs}
-                    onRemoveFileRef=${removeFileRef}
-                    onClearFileRefs=${clearFileRefs}
-                    onSetFileRefs=${setFileRefsFromCompose}
-                    messageRefs=${messageRefs}
-                    onRemoveMessageRef=${removeMessageRef}
-                    onClearMessageRefs=${clearMessageRefs}
-                    onSetMessageRefs=${setMessageRefsFromCompose}
-                    onSwitchChat=${handleBranchPickerChange}
-                    onRenameSession=${handleRenameCurrentBranch}
-                    isRenameSessionInProgress=${isRenamingBranch}
-                    onCreateSession=${handleCreateSessionFromCompose}
-                    onDeleteSession=${handlePruneCurrentBranch}
-                    onRestoreSession=${handleRestoreBranch}
-                    activeEditorPath=${chatOnlyMode ? null : tabStripActiveId}
-                    onAttachEditorFile=${chatOnlyMode ? undefined : attachActiveEditorFile}
-                    onOpenFilePill=${openFileFromPill}
-                    followupQueueCount=${followupQueueCount}
-                    followupQueueItems=${followupQueueItems}
-                    showQueueStack=${false}
-                    onInjectQueuedFollowup=${handleInjectQueuedFollowup}
-                    onRemoveQueuedFollowup=${handleRemoveQueuedFollowup}
-                    onSubmitIntercept=${handleBtwIntercept}
-                    onMessageResponse=${handleMessageResponse}
-                    onSubmitError=${handleComposeSubmitError}
-                    onPopOutChat=${isWebAppMode ? undefined : handlePopOutChat}
-                    isAgentActive=${isComposeBoxAgentActive}
-                    activeChatAgents=${activeChatAgents}
-                    currentChatJid=${currentChatJid}
-                    connectionStatus=${connectionStatus}
-                    activeModel=${activeModel}
-                    modelUsage=${activeModelUsage}
-                    thinkingLevel=${activeThinkingLevel}
-                    supportsThinking=${supportsThinking}
-                    contextUsage=${contextUsage}
-                    notificationsEnabled=${notificationsEnabled}
-                    notificationPermission=${notificationPermission}
-                    onToggleNotifications=${handleToggleNotifications}
-                    onModelChange=${setActiveModel}
-                    onModelStateChange=${applyModelState}
-                    statusNotice=${isCompactionStatus(agentStatus) ? agentStatus : null}
-                />
-                <${AgentRequestModal}
-                    request=${pendingRequest}
-                    onRespond=${() => {
-                        setPendingRequest(null);
-                        pendingRequestRef.current = null;
-                    }}
-                />
-            </div>
-        </div>
-    `;
+    return renderMainShell({
+        appShellRef,
+        workspaceOpen,
+        editorOpen,
+        chatOnlyMode,
+        zenMode,
+        isRenameBranchFormOpen,
+        closeRenameCurrentBranchForm,
+        handleRenameCurrentBranch,
+        renameBranchNameDraft,
+        renameBranchNameInputRef,
+        setRenameBranchNameDraft,
+        renameBranchDraftState,
+        isRenamingBranch,
+        addFileRef,
+        openEditor,
+        openTerminalTab,
+        openVncTab,
+        hasDockPanes,
+        toggleDock,
+        dockVisible,
+        handleSplitterMouseDown,
+        handleSplitterTouchStart,
+        showEditorPaneContainer,
+        tabStripTabs,
+        tabStripActiveId,
+        handleTabActivate,
+        handleTabClose,
+        handleTabCloseOthers,
+        handleTabCloseAll,
+        handleTabTogglePin,
+        handleTabTogglePreview,
+        handleTabEditSource,
+        previewTabs,
+        tabPaneOverrides,
+        toggleZenMode,
+        handlePopOutPane,
+        isWebAppMode,
+        editorContainerRef,
+        editorInstanceRef,
+        handleDockSplitterMouseDown,
+        handleDockSplitterTouchStart,
+        TERMINAL_TAB_PATH,
+        dockContainerRef,
+        handleEditorSplitterMouseDown,
+        handleEditorSplitterTouchStart,
+        searchQuery,
+        isIOSDevice,
+        currentBranchRecord,
+        currentChatJid,
+        currentChatBranches,
+        handleBranchPickerChange,
+        formatBranchPickerLabel,
+        openRenameCurrentBranchForm,
+        handlePruneCurrentBranch,
+        currentHashtag,
+        handleBackToTimeline,
+        activeSearchScopeLabel,
+        posts,
+        isMainTimelineView,
+        hasMore,
+        loadMore,
+        timelineRef,
+        handleHashtagClick,
+        addMessageRef,
+        scrollToMessage,
+        openFileFromPill,
+        handleDeletePost,
+        handleOpenFloatingWidget,
+        agents,
+        userProfile,
+        removingPostIds,
+        agentStatus,
+        isCompactionStatus,
+        agentDraft,
+        agentPlan,
+        agentThought,
+        pendingRequest,
+        intentToast,
+        currentTurnId,
+        steerQueued,
+        handlePanelToggle,
+        btwSession,
+        closeBtwPanel,
+        handleBtwRetry,
+        handleBtwInject,
+        floatingWidget,
+        handleCloseFloatingWidget,
+        handleFloatingWidgetEvent,
+        extensionStatusPanels,
+        pendingExtensionPanelActions,
+        handleExtensionPanelAction,
+        searchOpen,
+        followupQueueItems,
+        handleInjectQueuedFollowup,
+        handleRemoveQueuedFollowup,
+        viewStateRef,
+        loadPosts,
+        scrollToBottom,
+        searchScope,
+        handleSearch,
+        setSearchScope,
+        enterSearchMode,
+        exitSearchMode,
+        fileRefs,
+        removeFileRef,
+        clearFileRefs,
+        setFileRefsFromCompose,
+        messageRefs,
+        removeMessageRef,
+        clearMessageRefs,
+        setMessageRefsFromCompose,
+        handleCreateSessionFromCompose,
+        handleRestoreBranch,
+        attachActiveEditorFile,
+        followupQueueCount,
+        handleBtwIntercept,
+        handleMessageResponse,
+        handleComposeSubmitError,
+        handlePopOutChat,
+        isComposeBoxAgentActive,
+        activeChatAgents,
+        connectionStatus,
+        activeModel,
+        activeModelUsage,
+        activeThinkingLevel,
+        supportsThinking,
+        contextUsage,
+        notificationsEnabled,
+        notificationPermission,
+        handleToggleNotifications,
+        setActiveModel,
+        applyModelState,
+        setPendingRequest,
+        pendingRequestRef,
+        toggleWorkspace,
+    });
 }
 
 function App() {

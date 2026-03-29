@@ -1,10 +1,11 @@
 ---
 id: continue-decompose-web-app-shell-below-2500-lines
 title: Continue decomposing the web app shell below 2500 lines
-status: doing
+status: done
 priority: medium
 created: 2026-03-29
 updated: 2026-03-29
+completed: 2026-03-29
 estimate: XL
 risk: medium
 tags:
@@ -25,11 +26,11 @@ blocked-by: []
 
 ## Acceptance Criteria
 
-- [ ] Extract multiple additional coherent typed seams from `runtime/web/src/app.ts`.
-- [ ] Reduce `runtime/web/src/app.ts` below 2500 lines.
-- [ ] Preserve existing web shell behavior and payload shapes.
-- [ ] Add focused tests for each new seam.
-- [ ] Pass focused web tests, `bun run build:web`, `bun run lint`, `bun run typecheck`, and `bun run check:stale-dist`.
+- [x] Extract multiple additional coherent typed seams from `runtime/web/src/app.ts`.
+- [x] Reduce `runtime/web/src/app.ts` below 2500 lines.
+- [x] Preserve existing web shell behavior and payload shapes.
+- [x] Add focused tests for each new seam.
+- [x] Pass focused web tests, `bun run build:web`, `bun run lint`, `bun run typecheck`, and `bun run check:stale-dist`.
 
 ## Implementation Paths
 
@@ -41,21 +42,31 @@ Extract broader remaining widget/pane/action clusters, especially areas that sti
 
 ## Test Plan
 
-- [ ] Add focused tests under `runtime/test/web/` for each newly extracted helper.
-- [ ] Run focused web tests covering the new helper plus the current app-shell seam suite.
-- [ ] Run `bun run build:web`.
-- [ ] Run `bun run lint`.
-- [ ] Run `bun run typecheck`.
-- [ ] Run `bun run check:stale-dist`.
+- [x] Add focused tests under `runtime/test/web/` for each newly extracted helper.
+- [x] Run focused web tests covering the new helper plus the current app-shell seam suite.
+- [x] Run `bun run build:web`.
+- [x] Run `bun run lint`.
+- [x] Run `bun run typecheck`.
+- [x] Run `bun run check:stale-dist`.
 
 ## Definition of Done
 
-- [ ] New seam(s) are landed on `main`.
-- [ ] `runtime/web/src/app.ts` is below 2500 lines.
-- [ ] Validation evidence is recorded in `## Updates`.
-- [ ] Remaining post-tranche seams are explicitly listed.
+- [x] New seam(s) are landed on `main`.
+- [x] `runtime/web/src/app.ts` is below 2500 lines.
+- [x] Validation evidence is recorded in `## Updates`.
+- [x] Remaining post-tranche seams are explicitly listed.
 
 ## Updates
+
+### 2026-03-29
+- Lane change: `20-doing` → `50-done` after a larger follow-up tranche reduced `runtime/web/src/app.ts` below the ticket threshold and cleared the focused validation gate.
+- Completion evidence:
+  - extracted typed helpers: `app-main-shell-render.ts`, `app-pane-mode-render.ts`, `app-sse-events.ts`, `app-status-refresh-orchestration.ts`
+  - `runtime/web/src/app.ts` reduced from about `2997` lines to `2420` lines
+  - focused web validation: `125 pass, 0 fail`
+  - `bun run build:web`, `bun run lint`, `bun run typecheck`, and `bun run check:stale-dist` all passed
+- Follow-up explicitly opened at `workitems/20-doing/continue-decompose-web-app-shell-toward-500-lines.md` to keep pushing toward the long-term target instead of treating 2500 as the end state.
+- Quality: ★★★★★ 9/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 2)
 
 ### 2026-03-29
 - Created immediately after `workitems/50-done/continue-decompose-web-app-shell-below-3k-lines.md` succeeded, because the shell is now under 3000 lines but still large enough to justify another dedicated tranche.
@@ -67,6 +78,11 @@ Extract broader remaining widget/pane/action clusters, especially areas that sti
   - `app-agent-panel-toggle.ts`
 - Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 1)
 
+## Implementation Paths Considered (historical)
+
+- Path A paid off by extracting more bootstrap/status orchestration and helping remove another large chunk of shell glue.
+- Path B delivered the biggest reduction in this tranche: render/SSE/status orchestration extraction removed a larger contiguous section from `app.ts` than the earlier helper-only passes.
+
 ## Notes
 
 Likely next seams:
@@ -77,6 +93,7 @@ Likely next seams:
 ## Links
 
 - `workitems/50-done/continue-decompose-web-app-shell-below-3k-lines.md`
+- `workitems/20-doing/continue-decompose-web-app-shell-toward-500-lines.md`
 - `workitems/50-done/continue-decompose-web-app-shell.md`
 - `runtime/web/src/app.ts`
 - `workitems/20-doing/split-web-styles-monolith.md`
