@@ -22,9 +22,30 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileS
 const EXT_DIR = typeof import.meta.dir === "string"
   ? import.meta.dir
   : dirname(new URL(import.meta.url).pathname);
-const VENDOR_DIR = resolve(EXT_DIR, "vendor");
 const ROUTE_PREFIX = "/drawio";
 const WORKSPACE_ROOT = "/workspace";
+const DRAWIO_VERSION = "v29.6.1";
+
+export function getDrawioVendorDirCandidates(baseDir = EXT_DIR, cwd = process.cwd()): string[] {
+  return [
+    resolve(baseDir, "vendor"),
+    resolve(cwd, "runtime/extensions/viewers/drawio-editor/vendor"),
+    resolve(cwd, "piclaw/runtime/extensions/viewers/drawio-editor/vendor"),
+    resolve(cwd, "generated/cache/vendor/drawio", DRAWIO_VERSION),
+    resolve(cwd, "piclaw/generated/cache/vendor/drawio", DRAWIO_VERSION),
+  ];
+}
+
+export function resolveDrawioVendorDir(baseDir = EXT_DIR, cwd = process.cwd()): string {
+  for (const candidate of getDrawioVendorDirCandidates(baseDir, cwd)) {
+    if (existsSync(resolve(candidate, "index.html"))) {
+      return candidate;
+    }
+  }
+  return resolve(baseDir, "vendor");
+}
+
+const VENDOR_DIR = resolveDrawioVendorDir();
 
 const DRAWIO_EXTENSIONS = [".drawio", ".drawio.xml", ".drawio.svg", ".drawio.png"];
 const EXPORT_EXTENSIONS: Record<string, string> = {
