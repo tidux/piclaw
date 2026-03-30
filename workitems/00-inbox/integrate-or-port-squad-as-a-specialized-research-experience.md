@@ -4,7 +4,7 @@ title: Integrate or port Squad as a specialized research experience
 status: inbox
 priority: medium
 created: 2026-03-27
-updated: 2026-03-27
+updated: 2026-03-30
 target_release: later
 estimate: L
 risk: medium
@@ -86,6 +86,10 @@ This ticket exists to answer:
 
 ## Updates
 
+### 2026-03-30
+- Added `https://github.com/picassio/pi-squad` as an explicit comparison reference alongside `bradygaster/squad`.
+- Follow-up evaluation should compare both repositories during the first-pass review instead of treating the older Squad reference as the only input.
+
 ### 2026-03-27
 - Created from request to track possible integration/port of `bradygaster/squad` as a specialized research experience.
 - Initial framing deliberately keeps this in `00-inbox` because the first need is comparative product/design evaluation, not immediate implementation.
@@ -97,6 +101,7 @@ This ticket exists to answer:
 ## Links
 
 - `https://github.com/bradygaster/squad`
+- `https://github.com/picassio/pi-squad`
 - `workitems/50-done/autoresearch-sub-agent-supervisor.md`
 - `workitems/00-inbox/piclaw-native-autoresearch-lite-experiment-runner.md`
 - `docs/autoresearch-lite-design.md`
