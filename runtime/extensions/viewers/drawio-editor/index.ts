@@ -311,7 +311,8 @@ function patchDrawioExportTarget(win) {
       var exportAction = ui.actions && ui.actions.get('export');
       var exportAsMenu = ui.menus && ui.menus.get('exportAs');
       var fileMenu = ui.menus && ui.menus.get('file');
-      if (!saveAsAction || !exportAction || !exportAsMenu || !fileMenu) {
+      var diagramMenu = ui.menus && ui.menus.get('diagram');
+      if (!saveAsAction || !exportAction || !exportAsMenu || !fileMenu || !diagramMenu) {
         return false;
       }
 
@@ -357,13 +358,30 @@ function patchDrawioExportTarget(win) {
         }
       });
 
+      var importFromMenu = ui.menus && ui.menus.get('importFrom');
+      if (importFromMenu) {
+        importFromMenu.setEnabled && importFromMenu.setEnabled(false);
+        importFromMenu.isEnabled = function() { return false; };
+      }
+
+      var embedMenu = ui.menus && ui.menus.get('embed');
+      if (embedMenu) {
+        embedMenu.setEnabled && embedMenu.setEnabled(false);
+        embedMenu.isEnabled = function() { return false; };
+      }
+
       exportAsMenu.funct = function(menu, parent) {
         ui.menus.addMenuItems(menu, ['exportPng', 'exportJpg', 'exportSvg'], parent);
       };
 
       fileMenu.funct = function(menu, parent) {
+        ui.menus.addMenuItems(menu, ['save', 'saveAs'], parent);
+      };
+
+      diagramMenu.funct = function(menu, parent) {
         ui.menus.addMenuItems(menu, ['save', 'saveAs', '-'], parent);
         ui.menus.addSubmenu('exportAs', menu, parent);
+        ui.menus.addMenuItems(menu, ['-', 'exit'], parent);
       };
 
       ui.__piclawMinimalExportMenuPatched = true;
