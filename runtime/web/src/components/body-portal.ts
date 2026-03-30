@@ -1,33 +1,30 @@
 // @ts-nocheck
-import { render, useEffect, useLayoutEffect, useRef } from '../vendor/preact-htm.js';
+import { render, useEffect, useLayoutEffect, useState } from '../vendor/preact-htm.js';
 
 export function BodyPortal({ children, className = '' }) {
-    const hostRef = useRef(null);
+    const [host, setHost] = useState(null);
 
     useEffect(() => {
         if (typeof document === 'undefined') return undefined;
-        const host = document.createElement('div');
-        if (className) host.className = className;
-        document.body.appendChild(host);
-        hostRef.current = host;
+        const nextHost = document.createElement('div');
+        if (className) nextHost.className = className;
+        document.body.appendChild(nextHost);
+        setHost(nextHost);
         return () => {
             try {
-                render(null, host);
+                render(null, nextHost);
             } finally {
-                host.remove();
-                if (hostRef.current === host) hostRef.current = null;
+                nextHost.remove();
+                setHost((current) => (current === nextHost ? null : current));
             }
         };
     }, [className]);
 
     useLayoutEffect(() => {
-        const host = hostRef.current;
         if (!host) return undefined;
         render(children, host);
-        return () => {
-            render(null, host);
-        };
-    }, [children]);
+        return undefined;
+    }, [children, host]);
 
     return null;
 }
