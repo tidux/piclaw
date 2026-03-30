@@ -53,6 +53,7 @@ const EXPORT_EXTENSIONS: Record<string, string> = {
   "image/png": ".png",
   "application/pdf": ".pdf",
   "image/jpeg": ".jpg",
+  "image/jpg": ".jpg",
   "text/xml": ".xml",
   "application/xml": ".xml",
 };
@@ -79,11 +80,32 @@ const DRAWIO_FRAME_CSP =
   "frame-ancestors 'self'; base-uri 'self'; form-action 'self'";
 
 export function buildEmbeddedDrawioAppUrl(isDark: boolean, readOnly = false): string {
-  let editorUrl = `${ROUTE_PREFIX}/index.html?embed=1&proto=json&spin=1&modified=0&ui=dark&dark=${isDark ? "1" : "0"}`;
+  let editorUrl = `${ROUTE_PREFIX}/index.html?embed=1&proto=json&spin=1&modified=0&noSaveBtn=1&noExitBtn=1&saveAndExit=0&libraries=0&ui=dark&dark=${isDark ? "1" : "0"}`;
   if (readOnly) {
     editorUrl += '&chrome=0&toolbar=0&layers=0&edit=0';
   }
   return editorUrl;
+}
+
+export function resolveDrawioSavePath(path: string, mimeType?: string, filename?: string): string {
+  const ext = EXPORT_EXTENSIONS[mimeType || ""] || "";
+  return replaceExtension(path, ext || extname(filename || "") || ".bin");
+}
+
+export function isBinaryDrawioSaveTarget(savePath: string, format?: string, mimeType?: string): boolean {
+  const lower = String(savePath || "").toLowerCase();
+  return lower.endsWith(".png")
+    || lower.endsWith(".jpg")
+    || lower.endsWith(".jpeg")
+    || lower.endsWith(".pdf")
+    || format === "xmlpng"
+    || format === "png"
+    || format === "jpg"
+    || format === "jpeg"
+    || mimeType === "image/png"
+    || mimeType === "image/jpeg"
+    || mimeType === "image/jpg"
+    || mimeType === "application/pdf";
 }
 
 // ── Editor wrapper page ─────────────────────────────────────────
@@ -485,30 +507,26 @@ async function handleSaveRequest(req: Request): Promise<Response> {
   }
 
   try {
-    let savePath = String(data.path);
-    if (data.filename && data.mimeType) {
-      const ext = EXPORT_EXTENSIONS[data.mimeType] || "";
-      savePath = replaceExtension(savePath, ext || extname(data.filename) || ".bin");
-    }
-
+    const savePath = resolveDrawioSavePath(String(data.path), data.mimeType, data.filename);
     const targetPath = resolveWorkspacePath(savePath);
     mkdirSync(dirname(targetPath), { recursive: true });
     const lower = savePath.toLowerCase();
 
     if (data.base64Encoded && data.data && !String(data.data).startsWith("data:")) {
-      const mime = data.mimeType || (lower.endsWith(".svg") ? "image/svg+xml" : lower.endsWith(".png") ? "image/png" : "application/octet-stream");
+      const mime = data.mimeType
+        || (lower.endsWith(".svg") ? "image/svg+xml"
+          : lower.endsWith(".png") ? "image/png"
+            : (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) ? "image/jpeg"
+              : "application/octet-stream");
       data.data = `data:${mime};base64,${data.data}`;
     }
 
-    if (lower.endsWith(".png") || data.format === "xmlpng" || data.format === "png") {
-      if (!data.data) throw new Error("Missing PNG data");
-      const decoded = decodeDataUri(data.data);
-      writeFileSync(targetPath, decoded.bytes);
-    } else if (lower.endsWith(".svg") || data.format === "xmlsvg" || data.format === "svg") {
+    if (lower.endsWith(".svg") || data.format === "xmlsvg" || data.format === "svg") {
       if (!data.data) throw new Error("Missing SVG data");
       const decoded = decodeDataUri(data.data);
       writeFileSync(targetPath, Buffer.from(decoded.bytes).toString("utf8"), "utf8");
-    } else if (data.data && data.mimeType === "application/pdf") {
+    } else if (isBinaryDrawioSaveTarget(savePath, data.format, data.mimeType)) {
+      if (!data.data) throw new Error("Missing export data");
       const decoded = decodeDataUri(data.data);
       writeFileSync(targetPath, decoded.bytes);
     } else {

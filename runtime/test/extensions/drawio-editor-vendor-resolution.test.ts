@@ -3,7 +3,13 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { buildEmbeddedDrawioAppUrl, getDrawioVendorDirCandidates, resolveDrawioVendorDir } from '../../extensions/viewers/drawio-editor/index.ts';
+import {
+  buildEmbeddedDrawioAppUrl,
+  getDrawioVendorDirCandidates,
+  isBinaryDrawioSaveTarget,
+  resolveDrawioSavePath,
+  resolveDrawioVendorDir,
+} from '../../extensions/viewers/drawio-editor/index.ts';
 
 function withTempDir(run: (root: string) => void) {
   const root = mkdtempSync(join(tmpdir(), 'piclaw-drawio-vendor-'));
@@ -36,10 +42,16 @@ test('resolveDrawioVendorDir falls back to workspace source vendor when packaged
   });
 });
 
-test('buildEmbeddedDrawioAppUrl matches the older editor route and keeps export UI enabled', () => {
-  expect(buildEmbeddedDrawioAppUrl(false)).toBe('/drawio/index.html?embed=1&proto=json&spin=1&modified=0&ui=dark&dark=0');
-  expect(buildEmbeddedDrawioAppUrl(true)).toBe('/drawio/index.html?embed=1&proto=json&spin=1&modified=0&ui=dark&dark=1');
-  expect(buildEmbeddedDrawioAppUrl(true)).not.toContain('noSaveBtn=1');
-  expect(buildEmbeddedDrawioAppUrl(true)).not.toContain('noExitBtn=1');
+test('buildEmbeddedDrawioAppUrl matches the prior editor route with save/exit chrome disabled', () => {
+  expect(buildEmbeddedDrawioAppUrl(false)).toBe('/drawio/index.html?embed=1&proto=json&spin=1&modified=0&noSaveBtn=1&noExitBtn=1&saveAndExit=0&libraries=0&ui=dark&dark=0');
+  expect(buildEmbeddedDrawioAppUrl(true)).toBe('/drawio/index.html?embed=1&proto=json&spin=1&modified=0&noSaveBtn=1&noExitBtn=1&saveAndExit=0&libraries=0&ui=dark&dark=1');
   expect(buildEmbeddedDrawioAppUrl(true, true)).toContain('chrome=0');
+});
+
+test('drawio save helpers map JPEG exports to binary jpg targets', () => {
+  expect(resolveDrawioSavePath('/workspace/foo.drawio', 'image/jpeg', 'foo.jpeg')).toBe('/workspace/foo.jpg');
+  expect(resolveDrawioSavePath('/workspace/foo.drawio', 'image/jpg', 'foo.jpg')).toBe('/workspace/foo.jpg');
+  expect(isBinaryDrawioSaveTarget('/workspace/foo.jpg', 'xml', 'image/jpeg')).toBe(true);
+  expect(isBinaryDrawioSaveTarget('/workspace/foo.jpeg', 'jpeg', 'image/jpeg')).toBe(true);
+  expect(isBinaryDrawioSaveTarget('/workspace/foo.drawio', 'xml', 'application/xml')).toBe(false);
 });
