@@ -88,6 +88,7 @@ This ticket exists to answer:
 
 ### 2026-03-30
 - Added `https://github.com/picassio/pi-squad` as an explicit comparison reference alongside `bradygaster/squad`.
+- Added `https://github.com/themeselection/exemplar-free-avatar-library-for-figma-and-sketch` as a related design/reference input for the broader Squad-style research experience investigation.
 - Follow-up evaluation should compare both repositories during the first-pass review instead of treating the older Squad reference as the only input.
 
 ### 2026-03-27
@@ -102,6 +103,7 @@ This ticket exists to answer:
 
 - `https://github.com/bradygaster/squad`
 - `https://github.com/picassio/pi-squad`
+- `https://github.com/themeselection/exemplar-free-avatar-library-for-figma-and-sketch`
 - `workitems/50-done/autoresearch-sub-agent-supervisor.md`
 - `workitems/00-inbox/piclaw-native-autoresearch-lite-experiment-runner.md`
 - `docs/autoresearch-lite-design.md`
