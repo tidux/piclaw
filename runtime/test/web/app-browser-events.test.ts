@@ -28,7 +28,7 @@ function createEventTarget() {
   };
 }
 
-test('watchPaneOpenEvents routes tab and popout custom events and disposes cleanly', () => {
+test('watchPaneOpenEvents routes supported tab and popout custom events and disposes cleanly', () => {
   const doc = createEventTarget();
   const events: string[] = [];
 
@@ -38,14 +38,20 @@ test('watchPaneOpenEvents routes tab and popout custom events and disposes clean
   }, { document: doc as any });
 
   doc.dispatch('office-viewer:open-tab', { detail: { path: '/docs/report.docx', label: 'Report' } });
+  doc.dispatch('mindmap:open-tab', { detail: { path: '/maps/plan.mindmap.yaml', label: 'Plan' } });
+  doc.dispatch('kanban:open-tab', { detail: { path: '/boards/work.kanban.md', label: 'Board' } });
   doc.dispatch('pane:popout', { detail: { path: '/tabs/terminal', label: 'Terminal' } });
   expect(events).toEqual([
     'tab:/docs/report.docx:Report',
+    'tab:/maps/plan.mindmap.yaml:Plan',
+    'tab:/boards/work.kanban.md:Board',
     'pop:/tabs/terminal:Terminal',
   ]);
 
   dispose();
   expect(doc.count('office-viewer:open-tab')).toBe(0);
+  expect(doc.count('mindmap:open-tab')).toBe(0);
+  expect(doc.count('kanban:open-tab')).toBe(0);
   expect(doc.count('pane:popout')).toBe(0);
 });
 
