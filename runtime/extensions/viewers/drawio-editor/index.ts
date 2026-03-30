@@ -205,6 +205,7 @@ if (readOnly && readonlyLock) readonlyLock.classList.add('active');
 var DEFAULT_DRAWIO_XML = ${JSON.stringify(DEFAULT_DRAWIO_XML)};
 var xmlData = DEFAULT_DRAWIO_XML;
 var modified = false;
+var pendingServerSaveAs = null;
 var format = (function() {
   var lower = String(sourceName || '').toLowerCase();
   if (lower.endsWith('.drawio.svg') || lower.endsWith('.svg')) return 'xmlsvg';
@@ -236,10 +237,53 @@ function responseToDataUri(response, fallbackMimeType) {
 
 function patchDrawioExportTarget(win) {
   try {
-    function postExport(payload) {
+    function postParentEvent(eventName, payload) {
       var target = (win && (win.parent || win.opener)) || window;
-      target.postMessage(JSON.stringify(Object.assign({ event: 'workspace-export' }, payload)), '*');
+      target.postMessage(JSON.stringify(Object.assign({ event: eventName }, payload)), '*');
       return true;
+    }
+    function postExport(payload) {
+      return postParentEvent('workspace-export', payload);
+    }
+    function resolveBaseName(filename) {
+      var text = String(filename || 'diagram.drawio').trim() || 'diagram.drawio';
+      return text
+        .replace(/\.drawio\.(svg|png|xml)$/i, '')
+        .replace(/\.(svg|png|jpe?g|pdf|xml)$/i, '')
+        .replace(/\.drawio$/i, '') || 'diagram';
+    }
+    function mimeTypeForFormat(targetFormat) {
+      switch (targetFormat) {
+        case 'svg': return 'image/svg+xml';
+        case 'png': return 'image/png';
+        case 'jpeg':
+        case 'jpg': return 'image/jpeg';
+        default: return 'application/xml';
+      }
+    }
+    function extensionForFormat(targetFormat) {
+      switch (targetFormat) {
+        case 'svg': return '.svg';
+        case 'png': return '.png';
+        case 'jpeg':
+        case 'jpg': return '.jpg';
+        default: return '.drawio';
+      }
+    }
+    function findEditorUi() {
+      try {
+        var keys = Object.keys(win || {});
+        for (var i = 0; i < keys.length; i++) {
+          var value = win[keys[i]];
+          if (!value || typeof value !== 'object') continue;
+          if (typeof value.saveFile === 'function' && value.actions && value.menus && value.editor) {
+            return value;
+          }
+        }
+      } catch (_) {
+        // ignore transient globals while draw.io is still booting
+      }
+      return null;
     }
 
     var editorUiCtor = win && win.EditorUi;
@@ -247,7 +291,7 @@ function patchDrawioExportTarget(win) {
       var originalSaveData = editorUiCtor.prototype.saveData;
       editorUiCtor.prototype.saveData = function(filename, format, data, mime, base64Encoded, defaultMode) {
         try {
-          if (filename && data != null && postExport({ filename, format, data, mimeType: mime, base64Encoded: !!base64Encoded, defaultMode: defaultMode })) {
+          if (filename && data != null && postExport({ filename, format, data, xml: mime === 'application/xml' || mime === 'text/xml' ? data : undefined, mimeType: mime, base64Encoded: !!base64Encoded, defaultMode: defaultMode })) {
             return;
           }
         } catch (err) {
@@ -274,7 +318,67 @@ function patchDrawioExportTarget(win) {
       appCtor.prototype.__piclawExportPatched = true;
     }
 
-    return !!((editorUiCtor && editorUiCtor.prototype && editorUiCtor.prototype.__piclawWorkspaceSavePatched) || (appCtor && appCtor.prototype && appCtor.prototype.__piclawExportPatched));
+    var ui = findEditorUi();
+    if (ui && !ui.__piclawServerSaveFlowPatched) {
+      var saveAsAction = ui.actions && (ui.actions.get('saveAs') || ui.actions.get('saveAs...'));
+      if (saveAsAction) {
+        var originalSaveAs = saveAsAction.funct;
+        saveAsAction.funct = function() {
+          try {
+            var currentFilename = String((ui.getCurrentFile && ui.getCurrentFile().getTitle && ui.getCurrentFile().getTitle()) || (ui.getCurrentFile && ui.getCurrentFile().title) || 'diagram.drawio');
+            var choice = String((win.prompt && win.prompt('Save on server as: drawio, svg, png, jpeg', 'drawio')) || '').trim().toLowerCase();
+            if (!choice) return;
+            var normalized = choice === 'jpg' ? 'jpeg' : choice;
+            if (['drawio', 'xml', 'svg', 'png', 'jpeg'].indexOf(normalized) === -1) {
+              win.alert && win.alert('Supported server-side save formats: drawio, svg, png, jpeg');
+              return;
+            }
+            var xml = typeof ui.getFileData === 'function' ? ui.getFileData(true) : null;
+            if (typeof xml !== 'string' || !xml.trim()) {
+              win.alert && win.alert('Could not read the current diagram XML for Save As.');
+              return;
+            }
+            var targetFormat = normalized === 'xml' ? 'drawio' : normalized;
+            var filename = resolveBaseName(currentFilename) + extensionForFormat(targetFormat);
+            postParentEvent('workspace-save-as', {
+              filename: filename,
+              format: targetFormat,
+              xml: xml,
+              mimeType: mimeTypeForFormat(targetFormat)
+            });
+          } catch (err) {
+            console.warn('[drawio] custom saveAs failed, falling back to native action', err);
+            return originalSaveAs && originalSaveAs.apply(saveAsAction, []);
+          }
+        };
+      }
+
+      var exportAction = ui.actions && ui.actions.get('export');
+      if (exportAction) {
+        exportAction.setEnabled && exportAction.setEnabled(false);
+        exportAction.isEnabled = function() { return false; };
+        exportAction.funct = function() {
+          win.alert && win.alert('Use File → Save As… to save SVG, PNG, JPEG, or Draw.io to the server.');
+        };
+      }
+
+      var exportAsMenu = ui.menus && ui.menus.get('exportAs');
+      if (exportAsMenu) {
+        exportAsMenu.setEnabled && exportAsMenu.setEnabled(false);
+        exportAsMenu.isEnabled = function() { return false; };
+      }
+
+      var fileMenu = ui.menus && ui.menus.get('file');
+      if (fileMenu) {
+        fileMenu.funct = function(menu, parent) {
+          ui.menus.addMenuItems(menu, ['new', 'open', '-', 'save', 'saveAs', '-', 'import', '-', 'pageSetup', 'print'], parent);
+        };
+      }
+
+      ui.__piclawServerSaveFlowPatched = true;
+    }
+
+    return !!((editorUiCtor && editorUiCtor.prototype && editorUiCtor.prototype.__piclawWorkspaceSavePatched) || (appCtor && appCtor.prototype && appCtor.prototype.__piclawExportPatched) || (ui && ui.__piclawServerSaveFlowPatched));
   } catch (_) {
     return false;
   }
@@ -407,21 +511,61 @@ window.addEventListener('message', function(e) {
       }
       break;
 
+    case 'workspace-save-as':
+      if (readOnly || !filePath) break;
+      if (msg.format === 'drawio' || msg.format === 'xml') {
+        if (!msg.xml) break;
+        saveWorkspace({
+          xml: msg.xml,
+          data: msg.xml,
+          format: 'xml',
+          mimeType: msg.mimeType || 'application/xml',
+          filename: msg.filename
+        }, true).catch(function(err) {
+          console.error('[drawio] save-as xml error:', err);
+        });
+        break;
+      }
+      pendingServerSaveAs = {
+        filename: msg.filename,
+        mimeType: msg.mimeType,
+        format: msg.format
+      };
+      if (msg.xml && frame.contentWindow) {
+        frame.contentWindow.postMessage(JSON.stringify({
+          action: 'export',
+          format: msg.format,
+          xml: msg.xml,
+          spinKey: 'export'
+        }), '*');
+      }
+      break;
+
     case 'export':
       if (readOnly || !filePath || !msg.data) break;
-      saveWorkspace({ data: msg.data, format: format, xml: msg.xml }, true).catch(function(err) {
+      var pendingSaveAs = pendingServerSaveAs;
+      pendingServerSaveAs = null;
+      saveWorkspace({
+        data: msg.data,
+        format: (pendingSaveAs && pendingSaveAs.format) || format,
+        xml: msg.xml,
+        mimeType: pendingSaveAs && pendingSaveAs.mimeType,
+        filename: pendingSaveAs && pendingSaveAs.filename
+      }, true).catch(function(err) {
         console.error('[drawio] export save error:', err);
       });
       break;
 
     case 'workspace-export':
       if (readOnly || !filePath || !msg.data) break;
+      var pendingWorkspaceSaveAs = pendingServerSaveAs;
+      pendingServerSaveAs = null;
       saveWorkspace({
         data: msg.data,
         xml: msg.xml,
-        format: format,
-        mimeType: msg.mimeType,
-        filename: msg.filename,
+        format: (pendingWorkspaceSaveAs && pendingWorkspaceSaveAs.format) || format,
+        mimeType: (pendingWorkspaceSaveAs && pendingWorkspaceSaveAs.mimeType) || msg.mimeType,
+        filename: (pendingWorkspaceSaveAs && pendingWorkspaceSaveAs.filename) || msg.filename,
         base64Encoded: !!msg.base64Encoded
       }, true).catch(function(err) {
         console.error('[drawio] workspace export save error:', err);
