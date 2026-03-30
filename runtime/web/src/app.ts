@@ -430,6 +430,7 @@ function MainApp({ locationParams, navigate }) {
             agentStatus,
             isAgentTurnActive: surface.isAgentTurnActive,
             openEditor: pane.editorState.openEditor,
+            activateTab: pane.editorState.handleTabActivate,
             tabStripActiveId: pane.editorState.tabStripActiveId,
             terminalTabPath: TERMINAL_TAB_PATH,
             resolveTab: (value) => tabStore.get(value),

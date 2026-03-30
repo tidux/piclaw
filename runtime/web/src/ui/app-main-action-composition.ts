@@ -154,6 +154,7 @@ interface ComposeBranchPaneActionOptionsInput {
   setActiveChatAgents: StateSetter<any[]>;
   setCurrentChatBranches: StateSetter<any[]>;
   openEditor: (path: string, options?: Record<string, unknown>) => void;
+  activateTab: (path: string) => void;
   tabStripActiveId: string | null;
   editorInstanceRef: RefBox<any>;
   dockInstanceRef: RefBox<any>;
@@ -202,6 +203,7 @@ export function composeBranchPaneActionOptions(input: ComposeBranchPaneActionOpt
     setActiveChatAgents: input.setActiveChatAgents,
     setCurrentChatBranches: input.setCurrentChatBranches,
     openEditor: input.openEditor,
+    activateTab: input.activateTab,
     tabStripActiveId: input.tabStripActiveId,
     editorInstanceRef: input.editorInstanceRef,
     dockInstanceRef: input.dockInstanceRef,

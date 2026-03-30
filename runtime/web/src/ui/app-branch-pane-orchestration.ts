@@ -42,6 +42,16 @@ export interface ResolvePanePopoutTransferOptions {
   editorInstanceRef: RefBox<PaneTransferInstanceLike | null>;
   dockInstanceRef: RefBox<PaneTransferInstanceLike | null>;
   terminalTabPath: string;
+  activateTab?: (path: string) => void;
+  getActiveTabId?: () => string | null;
+}
+
+function normalizePanePath(value: string | null | undefined): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Resolve optional popout transfer payload from the active editor/dock source pane instance. */
@@ -52,12 +62,45 @@ export async function resolvePanePopoutTransfer(options: ResolvePanePopoutTransf
     editorInstanceRef,
     dockInstanceRef,
     terminalTabPath,
+    activateTab,
+    getActiveTabId,
   } = options;
 
-  const activePath = typeof tabStripActiveId === 'string' ? tabStripActiveId.trim() : '';
-  const sourceInstance = activePath === panePath
-    ? editorInstanceRef.current
-    : (panePath === terminalTabPath ? dockInstanceRef.current : null);
+  if (panePath === terminalTabPath) {
+    const dockInstance = dockInstanceRef.current;
+    if (typeof dockInstance?.preparePopoutTransfer !== 'function') {
+      return null;
+    }
+    return await dockInstance.preparePopoutTransfer();
+  }
+
+  const readActivePath = () => normalizePanePath(getActiveTabId?.() ?? tabStripActiveId);
+  const initialActivePath = readActivePath();
+  const previousInstance = editorInstanceRef.current;
+
+  if (initialActivePath !== panePath) {
+    activateTab?.(panePath);
+  }
+
+  let sourceInstance = initialActivePath === panePath ? editorInstanceRef.current : null;
+  if (typeof sourceInstance?.preparePopoutTransfer !== 'function') {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      if (attempt > 0) {
+        await sleep(16);
+      } else {
+        await Promise.resolve();
+      }
+      const activePath = readActivePath();
+      const candidate = editorInstanceRef.current;
+      const becameActive = activePath === panePath;
+      const instanceChanged = candidate !== previousInstance;
+      if (!becameActive || typeof candidate?.preparePopoutTransfer !== 'function') continue;
+      if (initialActivePath === panePath || instanceChanged || attempt > 0) {
+        sourceInstance = candidate;
+        break;
+      }
+    }
+  }
 
   if (typeof sourceInstance?.preparePopoutTransfer !== 'function') {
     return null;

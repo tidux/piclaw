@@ -53,6 +53,33 @@ test('resolvePanePopoutTransfer uses active editor transfer first, then dock ter
   })).resolves.toEqual({ cwd: '/workspace' });
 });
 
+test('resolvePanePopoutTransfer activates an inactive tab before requesting transfer state', async () => {
+  let activeTabId = '/workspace/readme.md';
+  const staleTransfer = async () => ({ stale: '1' });
+  const nextTransfer = async () => ({ vnc_handoff: 'token-1' });
+  const editorInstanceRef = { current: { preparePopoutTransfer: staleTransfer } };
+  const activateCalls: string[] = [];
+
+  const resultPromise = resolvePanePopoutTransfer({
+    panePath: 'piclaw://vnc/lab',
+    tabStripActiveId: '/workspace/readme.md',
+    editorInstanceRef,
+    dockInstanceRef: { current: null },
+    terminalTabPath: '/__terminal__',
+    activateTab: (path) => {
+      activateCalls.push(path);
+      setTimeout(() => {
+        activeTabId = path;
+        editorInstanceRef.current = { preparePopoutTransfer: nextTransfer };
+      }, 0);
+    },
+    getActiveTabId: () => activeTabId,
+  });
+
+  await expect(resultPromise).resolves.toEqual({ vnc_handoff: 'token-1' });
+  expect(activateCalls).toEqual(['piclaw://vnc/lab']);
+});
+
 test('closeTransferredPaneSource closes clean tabs and falls back to hiding dock for terminal', () => {
   const closed: string[] = [];
   const dockVisibility: boolean[] = [];

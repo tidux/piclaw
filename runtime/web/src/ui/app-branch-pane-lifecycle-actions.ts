@@ -1,5 +1,7 @@
 import { useCallback, useEffect } from '../vendor/preact-htm.js';
-import { watchPaneOpenEvents } from './app-browser-events.js';import {
+import { tabStore } from '../panes/index.js';
+import { watchPaneOpenEvents } from './app-browser-events.js';
+import {
   closeRenameBranchForm,
   openRenameBranchForm,
   pruneCurrentBranch,
@@ -265,6 +267,7 @@ export interface PopOutPaneActionOptions {
   label?: string | null;
   showIntentToast: (title: string, detail?: string | null, kind?: string, durationMs?: number) => void;
   currentChatJid: string;
+  activateTab: (path: string) => void;
   tabStripActiveId: string | null;
   editorInstanceRef: RefBox<PaneTransferInstanceLike | null>;
   dockInstanceRef: RefBox<PaneTransferInstanceLike | null>;
@@ -284,6 +287,7 @@ export async function popOutPaneAction(options: PopOutPaneActionOptions): Promis
     label,
     showIntentToast,
     currentChatJid,
+    activateTab,
     tabStripActiveId,
     editorInstanceRef,
     dockInstanceRef,
@@ -306,6 +310,8 @@ export async function popOutPaneAction(options: PopOutPaneActionOptions): Promis
     baseHref,
     resolveSourceTransfer: (panePath: string) => resolvePanePopoutTransfer({
       panePath,
+      activateTab,
+      getActiveTabId: () => tabStore.getActiveId(),
       tabStripActiveId,
       editorInstanceRef,
       dockInstanceRef,
@@ -432,6 +438,7 @@ export interface UseBranchPaneLifecycleOptions {
   setCurrentChatBranches: StateSetter<any[]>;
 
   openEditor: (path: string, options?: Record<string, unknown>) => void;
+  activateTab: (path: string) => void;
   tabStripActiveId: string | null;
   editorInstanceRef: RefBox<PaneTransferInstanceLike | null>;
   dockInstanceRef: RefBox<PaneTransferInstanceLike | null>;
@@ -481,6 +488,7 @@ export function useBranchPaneLifecycle(options: UseBranchPaneLifecycleOptions) {
     setActiveChatAgents,
     setCurrentChatBranches,
     openEditor,
+    activateTab,
     tabStripActiveId,
     editorInstanceRef,
     dockInstanceRef,
@@ -601,6 +609,7 @@ export function useBranchPaneLifecycle(options: UseBranchPaneLifecycleOptions) {
       label,
       showIntentToast,
       currentChatJid,
+      activateTab,
       tabStripActiveId,
       editorInstanceRef,
       dockInstanceRef,
@@ -610,7 +619,7 @@ export function useBranchPaneLifecycle(options: UseBranchPaneLifecycleOptions) {
       closeTab,
       setDockVisible,
     });
-  }, [closeTab, currentChatJid, dockInstanceRef, dockVisible, editorInstanceRef, isWebAppMode, resolveTab, setDockVisible, showIntentToast, tabStripActiveId, terminalTabPath]);
+  }, [activateTab, closeTab, currentChatJid, dockInstanceRef, dockVisible, editorInstanceRef, isWebAppMode, resolveTab, setDockVisible, showIntentToast, tabStripActiveId, terminalTabPath]);
 
   useEffect(() => watchPaneOpenEventBridge({
     openEditor,
