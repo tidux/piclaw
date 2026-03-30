@@ -6,6 +6,14 @@
  * window.__mindmapEditor for the pane host to drive.
  */
 
+import {
+  cloneMindmapHistoryDocument,
+  recordMindmapHistory,
+  redoMindmapHistory,
+  undoMindmapHistory,
+  type MindmapHistoryEntry,
+} from './mindmap-history.js';
+
 // Declare globals provided by vendored scripts
 declare const d3: any;
 declare const jsyaml: any;
@@ -55,6 +63,8 @@ let _abort: AbortController | null = null;
 let mindmapData: MindmapDocument | null = null;
 let selectedNodeId: string | null = null;
 let editingNodeId: string | null = null;
+let undoStack: MindmapHistoryEntry<MindmapDocument>[] = [];
+let redoStack: MindmapHistoryEntry<MindmapDocument>[] = [];
 const nodeMap: Map<string, D3Node> = new Map();
 const imageCache: Map<string, string> = new Map(); // path -> resolved URI
 
@@ -139,6 +149,79 @@ function calculateNodeDimensions(node: MindmapNode): { width: number; height: nu
  */
 function clearDimensionsCache() {
   nodeDimensionsCache.clear();
+}
+
+function describeNodeTitle(node: MindmapNode | null | undefined): string {
+  const text = String(node?.text || '').split('\n')[0].trim();
+  if (!text) return 'node';
+  return text.length > 40 ? `${text.slice(0, 39)}…` : text;
+}
+
+function resetHistoryState() {
+  undoStack = [];
+  redoStack = [];
+  updateHistoryControls();
+}
+
+function pushHistoryDocument(document: MindmapDocument, label: string) {
+  const next = recordMindmapHistory({ undoStack, redoStack }, document, label);
+  undoStack = next.undoStack;
+  redoStack = next.redoStack;
+  updateHistoryControls();
+}
+
+function recordHistorySnapshot(label: string) {
+  if (!mindmapData) return;
+  pushHistoryDocument(mindmapData, label);
+}
+
+function applyUndo() {
+  if (!mindmapData) return;
+  const next = undoMindmapHistory({ undoStack, redoStack }, mindmapData);
+  if (!next.restored) return;
+  undoStack = next.undoStack;
+  redoStack = next.redoStack;
+  mindmapData = next.restored;
+  editingNodeId = null;
+  clearDimensionsCache();
+  saveDocument();
+  render();
+  updateHistoryControls();
+}
+
+function applyRedo() {
+  if (!mindmapData) return;
+  const next = redoMindmapHistory({ undoStack, redoStack }, mindmapData);
+  if (!next.restored) return;
+  undoStack = next.undoStack;
+  redoStack = next.redoStack;
+  mindmapData = next.restored;
+  editingNodeId = null;
+  clearDimensionsCache();
+  saveDocument();
+  render();
+  updateHistoryControls();
+}
+
+function updateHistoryControls() {
+  const undoButton = document.getElementById('mindmap-undo') as HTMLButtonElement | null;
+  const redoButton = document.getElementById('mindmap-redo') as HTMLButtonElement | null;
+  const layoutSelect = document.getElementById('layout-select') as HTMLSelectElement | null;
+
+  const latestUndo = undoStack.length > 0 ? undoStack[undoStack.length - 1] : null;
+  const latestRedo = redoStack.length > 0 ? redoStack[redoStack.length - 1] : null;
+
+  if (layoutSelect && mindmapData) {
+    layoutSelect.value = mindmapData.layout;
+  }
+  if (undoButton) {
+    undoButton.disabled = undoStack.length === 0;
+    undoButton.title = latestUndo ? `Undo: ${latestUndo.label} (Ctrl+Z)` : 'Undo (Ctrl+Z)';
+  }
+  if (redoButton) {
+    redoButton.disabled = redoStack.length === 0;
+    redoButton.title = latestRedo ? `Redo: ${latestRedo.label} (Ctrl+Shift+Z)` : 'Redo (Ctrl+Shift+Z)';
+  }
 }
 
 /**
@@ -257,6 +340,15 @@ function setupKeyboardHandlers() {
             pasteNode();
           }
           break;
+        case 'z':
+          e.preventDefault();
+          if (e.shiftKey) applyRedo();
+          else applyUndo();
+          break;
+        case 'y':
+          e.preventDefault();
+          applyRedo();
+          break;
       }
       return;
     }
@@ -330,7 +422,8 @@ function setupKeyboardHandlers() {
 function setupToolbar() {
   const layoutSelect = document.getElementById('layout-select') as HTMLSelectElement;
   layoutSelect?.addEventListener('change', () => {
-    if (mindmapData) {
+    if (mindmapData && mindmapData.layout !== layoutSelect.value) {
+      recordHistorySnapshot(`Changed layout to ${layoutSelect.value}`);
       mindmapData.layout = layoutSelect.value as MindmapDocument['layout'];
       saveAndRender();
     }
@@ -344,6 +437,9 @@ function setupToolbar() {
     svg.transition().duration(300).call(zoom.scaleBy, 0.7);
   });
   document.getElementById('reset-layout')?.addEventListener('click', resetLayout);
+  document.getElementById('mindmap-undo')?.addEventListener('click', applyUndo);
+  document.getElementById('mindmap-redo')?.addEventListener('click', applyRedo);
+  updateHistoryControls();
 }
 
 /**
@@ -352,14 +448,21 @@ function setupToolbar() {
 function resetLayout() {
   if (!mindmapData) return;
 
+  let changed = false;
   const clearPositions = (node: MindmapNode) => {
-    delete node.position;
+    if (node.position) {
+      changed = true;
+      delete node.position;
+    }
     if (node.children) {
       node.children.forEach(clearPositions);
     }
   };
 
+  const historySnapshot = cloneMindmapHistoryDocument(mindmapData);
   clearPositions(mindmapData.root);
+  if (!changed) return;
+  pushHistoryDocument(historySnapshot, 'Reset layout');
   saveAndRender();
   setTimeout(fitToView, 100);
 }
@@ -526,7 +629,9 @@ function pasteNode() {
     return false;
   };
 
-  addToParent(mindmapData.root);
+  const historySnapshot = cloneMindmapHistoryDocument(mindmapData);
+  if (!addToParent(mindmapData.root)) return;
+  pushHistoryDocument(historySnapshot, `Pasted “${describeNodeTitle(newNode)}”`);
   selectedNodeId = newNode.id;
   saveAndRender();
 }
@@ -644,9 +749,11 @@ function createLink(fromId: string, toId: string, label?: string) {
   );
   if (existingLink) return;
 
+  const historySnapshot = cloneMindmapHistoryDocument(mindmapData);
   if (!mindmapData.links) mindmapData.links = [];
   mindmapData.links.push({ from: fromId, to: toId, label });
 
+  pushHistoryDocument(historySnapshot, 'Added cross-link');
   saveAndRender();
 }
 
@@ -708,12 +815,7 @@ function loadContent(content: string) {
       l && typeof l.from === 'string' && typeof l.to === 'string',
     );
 
-    // Update layout selector
-    const layoutSelect = document.getElementById('layout-select') as HTMLSelectElement;
-    if (layoutSelect) {
-      layoutSelect.value = mindmapData.layout;
-    }
-
+    resetHistoryState();
     render();
 
     // Fit to view on first load
@@ -726,6 +828,7 @@ function loadContent(content: string) {
       root: { id: 'root', text: 'Root', children: [] },
       links: [],
     };
+    resetHistoryState();
     render();
   }
 }
@@ -1380,6 +1483,11 @@ function finishEditing() {
 function updateNodeText(nodeId: string, text: string) {
   if (!mindmapData) return;
 
+  const currentNode = findNode(mindmapData.root, nodeId);
+  if (!currentNode || currentNode.text === text) return;
+
+  recordHistorySnapshot(`Edited “${describeNodeTitle(currentNode)}”`);
+
   const updateRecursive = (node: MindmapNode): boolean => {
     if (node.id === nodeId) {
       node.text = text;
@@ -1395,6 +1503,7 @@ function updateNodeText(nodeId: string, text: string) {
 
   updateRecursive(mindmapData.root);
   saveDocument();
+  updateHistoryControls();
 }
 
 /**
@@ -1432,7 +1541,9 @@ function createChildNode() {
     return false;
   };
 
-  addChild(mindmapData.root);
+  const historySnapshot = cloneMindmapHistoryDocument(mindmapData);
+  if (!addChild(mindmapData.root)) return;
+  pushHistoryDocument(historySnapshot, 'Added child node');
   selectedNodeId = newId;
   saveAndRender();
 }
@@ -1468,7 +1579,9 @@ function createSiblingNode() {
     return false;
   };
 
-  addSibling(mindmapData.root, null);
+  const historySnapshot = cloneMindmapHistoryDocument(mindmapData);
+  if (!addSibling(mindmapData.root, null)) return;
+  pushHistoryDocument(historySnapshot, 'Added sibling node');
   selectedNodeId = newId;
   saveAndRender();
 }
@@ -1500,7 +1613,9 @@ function moveNodeUp() {
     return false;
   };
 
-  moveUp(mindmapData.root, null, null);
+  const historySnapshot = cloneMindmapHistoryDocument(mindmapData);
+  if (!moveUp(mindmapData.root, null, null)) return;
+  pushHistoryDocument(historySnapshot, 'Promoted node');
   saveAndRender();
 }
 
@@ -1524,7 +1639,11 @@ function deleteSelectedNode() {
     return false;
   };
 
-  deleteNode(mindmapData.root);
+  const nodeToDelete = findNode(mindmapData.root, selectedNodeId);
+  if (!nodeToDelete) return;
+  const historySnapshot = cloneMindmapHistoryDocument(mindmapData);
+  if (!deleteNode(mindmapData.root)) return;
+  pushHistoryDocument(historySnapshot, `Deleted “${describeNodeTitle(nodeToDelete)}”`);
 
   // Also remove any crosslinks referencing this node
   if (mindmapData.links) {
@@ -1712,8 +1831,10 @@ function onDragEnd(_event: D3DragEvent, d: D3Node) {
       
       if (wasOnLeft !== nowOnLeft) {
         // Node crossed sides - update side property and clear manual position
+        const historySnapshot = cloneMindmapHistoryDocument(mindmapData);
         d.data.side = nowOnLeft ? 'left' : 'right';
         delete d.data.position;
+        pushHistoryDocument(historySnapshot, `Moved “${describeNodeTitle(d.data)}” to ${nowOnLeft ? 'left' : 'right'} branch`);
         saveAndRender();
         dropTarget = null;
         return;
@@ -1721,7 +1842,9 @@ function onDragEnd(_event: D3DragEvent, d: D3Node) {
     }
     
     // Save manual position
+    const historySnapshot = cloneMindmapHistoryDocument(mindmapData);
     d.data.position = { x: d.x, y: d.y };
+    pushHistoryDocument(historySnapshot, `Moved “${describeNodeTitle(d.data)}”`);
     saveAndRender();
   } else {
     render();
@@ -1769,7 +1892,8 @@ function reparentNode(nodeId: string, newParentId: string) {
     return false;
   };
 
-  removeFromParent(mindmapData.root);
+  const historySnapshot = cloneMindmapHistoryDocument(mindmapData);
+  if (!removeFromParent(mindmapData.root)) return;
 
   // Clear manual position since it's being reparented
   delete nodeToMove.position;
@@ -1784,7 +1908,8 @@ function reparentNode(nodeId: string, newParentId: string) {
     return node.children?.some(c => addToParent(c)) ?? false;
   };
 
-  addToParent(mindmapData.root);
+  if (!addToParent(mindmapData.root)) return;
+  pushHistoryDocument(historySnapshot, `Moved “${describeNodeTitle(nodeToMove)}” under “${describeNodeTitle(findNode(mindmapData.root, newParentId) || undefined)}”`);
   saveAndRender();
 }
 
@@ -1957,6 +2082,8 @@ function setupGlobalListeners() {
     linkSourceNodeId = null;
     linkPreviewLine = null;
     clipboardNode = null;
+    undoStack = [];
+    redoStack = [];
     _onEdit = null;
     _resolveImage = null;
   },

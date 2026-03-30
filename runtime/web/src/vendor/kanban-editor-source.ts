@@ -6,6 +6,8 @@
  * pane host to drive — no VS Code abstractions.
  */
 
+import { moveCardInBoard, moveLaneInBoard } from './kanban-board-ops.js';
+
 // Declare globals from vendored scripts (set by kanban-pane.ts before this runs)
 declare const preact: any;
 declare const preactHooks: any;
@@ -37,6 +39,11 @@ interface KanbanMountOpts {
   content: string;
   isDark: boolean;
   onEdit: (markdownContent: string) => void;
+}
+
+interface HistoryEntry {
+  board: BoardData;
+  label: string;
 }
 
 // ── Module state ────────────────────────────────────────────────
@@ -481,13 +488,25 @@ function Archive({ cards, onRestore }: { cards: CardData[]; onRestore: (card: Ca
 
 // ── Board (root component) ──────────────────────────────────────
 
+function summarizeCardLabel(card: CardData | null | undefined): string {
+  const title = String(card?.title || '').split('\n')[0].trim();
+  if (!title) return 'card';
+  return title.length > 36 ? `${title.slice(0, 35)}…` : title;
+}
+
+function summarizeLaneLabel(lane: LaneData | null | undefined): string {
+  const title = String(lane?.title || '').trim();
+  if (!title) return 'lane';
+  return title.length > 28 ? `${title.slice(0, 27)}…` : title;
+}
+
 function Board({ initialContent }: { initialContent: string }) {
   const [board, setBoard] = useState<BoardData | null>(() =>
     parseMarkdown(initialContent ?? ''),
   );
   const [isAddingLane, setIsAddingLane] = useState(false);
-  const [undoStack, setUndoStack] = useState<BoardData[]>([]);
-  const [redoStack, setRedoStack] = useState<BoardData[]>([]);
+  const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
+  const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
   // Track external content version so the pane can push updates
   const [extVer, setExtVer] = useState(_pendingContentVersion);
 
@@ -505,9 +524,9 @@ function Board({ initialContent }: { initialContent: string }) {
     return () => clearInterval(id);
   }, [extVer]);
 
-  const saveBoard = useCallback((newBoard: BoardData) => {
+  const saveBoard = useCallback((newBoard: BoardData, label: string = 'Updated board') => {
     setBoard(newBoard);
-    setUndoStack(prev => board ? [...prev, board] : prev);
+    setUndoStack(prev => board ? [...prev, { board, label }] : prev);
     setRedoStack([]);
     _onEdit?.(serializeMarkdown(newBoard));
   }, [board]);
@@ -516,18 +535,18 @@ function Board({ initialContent }: { initialContent: string }) {
     if (!board || undoStack.length === 0) return;
     const previous = undoStack[undoStack.length - 1];
     setUndoStack(undoStack.slice(0, -1));
-    setRedoStack(prev => [...prev, board]);
-    setBoard(previous);
-    _onEdit?.(serializeMarkdown(previous));
+    setRedoStack(prev => [...prev, { board, label: previous.label }]);
+    setBoard(previous.board);
+    _onEdit?.(serializeMarkdown(previous.board));
   }, [board, undoStack]);
 
   const redo = useCallback(() => {
     if (!board || redoStack.length === 0) return;
     const next = redoStack[redoStack.length - 1];
     setRedoStack(redoStack.slice(0, -1));
-    setUndoStack(prev => [...prev, board]);
-    setBoard(next);
-    _onEdit?.(serializeMarkdown(next));
+    setUndoStack(prev => [...prev, { board, label: next.label }]);
+    setBoard(next.board);
+    _onEdit?.(serializeMarkdown(next.board));
   }, [board, redoStack]);
 
   // Keyboard shortcuts (scoped to our container, not document)
@@ -543,42 +562,97 @@ function Board({ initialContent }: { initialContent: string }) {
     return () => el.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo]);
 
-  const addLane = (title: string) => { if (!board) return; saveBoard({ ...board, lanes: [...board.lanes, { id: createId('lane'), title, cards: [] }] }); setIsAddingLane(false); };
-  const updateLane = (l: LaneData) => { if (!board) return; saveBoard({ ...board, lanes: board.lanes.map(x => x.id === l.id ? l : x) }); };
-  const deleteLane = (l: LaneData) => { if (!board) return; saveBoard({ ...board, lanes: board.lanes.filter(x => x.id !== l.id) }); };
-  const moveLane = (fromLaneId: string, toLaneId: string) => {
-    if (!board || fromLaneId === toLaneId) return;
-    const fromIndex = board.lanes.findIndex((lane) => lane.id === fromLaneId);
-    const toIndex = board.lanes.findIndex((lane) => lane.id === toLaneId);
-    if (fromIndex === -1 || toIndex === -1) return;
-    const nextLanes = [...board.lanes];
-    const [moved] = nextLanes.splice(fromIndex, 1);
-    nextLanes.splice(toIndex, 0, moved);
-    saveBoard({ ...board, lanes: nextLanes });
+  const addLane = (title: string) => {
+    if (!board) return;
+    saveBoard(
+      { ...board, lanes: [...board.lanes, { id: createId('lane'), title, cards: [] }] },
+      `Added lane “${summarizeLaneLabel({ id: '', title, cards: [] })}”`,
+    );
+    setIsAddingLane(false);
   };
-  const addCard = (laneId: string, title: string) => { if (!board) return; const c: CardData = { id: createId('card'), title, checked: false, checkChar: ' ' }; saveBoard({ ...board, lanes: board.lanes.map(l => l.id === laneId ? { ...l, cards: [...l.cards, c] } : l) }); };
-  const updateCard = (laneId: string, c: CardData) => { if (!board) return; saveBoard({ ...board, lanes: board.lanes.map(l => l.id === laneId ? { ...l, cards: l.cards.map(x => x.id === c.id ? c : x) } : l) }); };
-  const deleteCard = (laneId: string, c: CardData) => { if (!board) return; saveBoard({ ...board, lanes: board.lanes.map(l => l.id === laneId ? { ...l, cards: l.cards.filter(x => x.id !== c.id) } : l) }); };
-  const archiveCard = (c: CardData) => { if (!board) return; saveBoard({ ...board, lanes: board.lanes.map(l => ({ ...l, cards: l.cards.filter(x => x.id !== c.id) })), archive: [...board.archive, { ...c, checked: true }] }); };
-  const moveCard = (c: CardData, from: string, to: string) => { if (!board) return; saveBoard({ ...board, lanes: board.lanes.map(l => { if (l.id === from) return { ...l, cards: l.cards.filter(x => x.id !== c.id) }; if (l.id === to) return { ...l, cards: [...l.cards, c] }; return l; }) }); };
+  const updateLane = (l: LaneData) => {
+    if (!board) return;
+    saveBoard({ ...board, lanes: board.lanes.map(x => x.id === l.id ? l : x) }, `Updated lane “${summarizeLaneLabel(l)}”`);
+  };
+  const deleteLane = (l: LaneData) => {
+    if (!board) return;
+    saveBoard({ ...board, lanes: board.lanes.filter(x => x.id !== l.id) }, `Deleted lane “${summarizeLaneLabel(l)}”`);
+  };
+  const moveLane = (fromLaneId: string, toLaneId: string) => {
+    if (!board) return;
+    const fromLane = board.lanes.find((lane) => lane.id === fromLaneId) || null;
+    const toLane = board.lanes.find((lane) => lane.id === toLaneId) || null;
+    const nextBoard = moveLaneInBoard(board, { fromLaneId, toLaneId });
+    if (nextBoard === board) return;
+    saveBoard(nextBoard, `Moved lane “${summarizeLaneLabel(fromLane)}” before “${summarizeLaneLabel(toLane)}”`);
+  };
+  const addCard = (laneId: string, title: string) => {
+    if (!board) return;
+    const lane = board.lanes.find((entry) => entry.id === laneId) || null;
+    const c: CardData = { id: createId('card'), title, checked: false, checkChar: ' ' };
+    saveBoard(
+      { ...board, lanes: board.lanes.map(l => l.id === laneId ? { ...l, cards: [...l.cards, c] } : l) },
+      `Added card to “${summarizeLaneLabel(lane)}”`,
+    );
+  };
+  const updateCard = (laneId: string, c: CardData) => {
+    if (!board) return;
+    const lane = board.lanes.find((entry) => entry.id === laneId) || null;
+    saveBoard(
+      { ...board, lanes: board.lanes.map(l => l.id === laneId ? { ...l, cards: l.cards.map(x => x.id === c.id ? c : x) } : l) },
+      `Updated “${summarizeCardLabel(c)}” in “${summarizeLaneLabel(lane)}”`,
+    );
+  };
+  const deleteCard = (laneId: string, c: CardData) => {
+    if (!board) return;
+    const lane = board.lanes.find((entry) => entry.id === laneId) || null;
+    saveBoard(
+      { ...board, lanes: board.lanes.map(l => l.id === laneId ? { ...l, cards: l.cards.filter(x => x.id !== c.id) } : l) },
+      `Deleted “${summarizeCardLabel(c)}” from “${summarizeLaneLabel(lane)}”`,
+    );
+  };
+  const archiveCard = (c: CardData) => {
+    if (!board) return;
+    saveBoard(
+      { ...board, lanes: board.lanes.map(l => ({ ...l, cards: l.cards.filter(x => x.id !== c.id) })), archive: [...board.archive, { ...c, checked: true }] },
+      `Archived “${summarizeCardLabel(c)}”`,
+    );
+  };
+  const moveCard = (c: CardData, from: string, to: string) => {
+    if (!board) return;
+    const targetLane = board.lanes.find((lane) => lane.id === to) || null;
+    const nextBoard = moveCardInBoard(board, { cardId: c.id, fromLaneId: from, toLaneId: to });
+    if (nextBoard === board) return;
+    saveBoard(nextBoard, `Moved “${summarizeCardLabel(c)}” to “${summarizeLaneLabel(targetLane)}”`);
+  };
   const restoreFromArchive = (c: CardData) => {
     if (!board) return;
     if (board.lanes.length === 0) {
-      saveBoard({ ...board, lanes: [{ id: createId('lane'), title: 'Restored', cards: [{ ...c, checked: false }] }], archive: board.archive.filter(x => x.id !== c.id) });
+      saveBoard(
+        { ...board, lanes: [{ id: createId('lane'), title: 'Restored', cards: [{ ...c, checked: false }] }], archive: board.archive.filter(x => x.id !== c.id) },
+        `Restored “${summarizeCardLabel(c)}”`,
+      );
       return;
     }
     const target = board.lanes[0];
-    saveBoard({ ...board, lanes: board.lanes.map(l => l.id === target.id ? { ...l, cards: [...l.cards, { ...c, checked: false }] } : l), archive: board.archive.filter(x => x.id !== c.id) });
+    saveBoard(
+      { ...board, lanes: board.lanes.map(l => l.id === target.id ? { ...l, cards: [...l.cards, { ...c, checked: false }] } : l), archive: board.archive.filter(x => x.id !== c.id) },
+      `Restored “${summarizeCardLabel(c)}” to “${summarizeLaneLabel(target)}”`,
+    );
   };
 
   if (!board) return html`<div class="loading">Loading...</div>`;
+
+  const latestUndoEntry = undoStack.length > 0 ? undoStack[undoStack.length - 1] : null;
+  const latestRedoEntry = redoStack.length > 0 ? redoStack[redoStack.length - 1] : null;
 
   return html`
     <div class="kanban-plugin" tabindex="-1">
       <div class="kanban-plugin__search-wrapper">
         <button onClick=${() => setIsAddingLane(true)}>${icons.plus} Add lane</button>
-        <button class="secondary" onClick=${undo} disabled=${undoStack.length === 0} title="Undo (Ctrl+Z)">Undo</button>
-        <button class="secondary" onClick=${redo} disabled=${redoStack.length === 0} title="Redo (Ctrl+Y)">Redo</button>
+        <button class="secondary" onClick=${undo} disabled=${undoStack.length === 0} title=${latestUndoEntry ? `Undo: ${latestUndoEntry.label} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}>Undo</button>
+        <button class="secondary" onClick=${redo} disabled=${redoStack.length === 0} title=${latestRedoEntry ? `Redo: ${latestRedoEntry.label} (Ctrl+Y)` : 'Redo (Ctrl+Y)'}>Redo</button>
+        ${latestUndoEntry && html`<span class="kanban-plugin__history-note" title=${latestUndoEntry.label}>Last change: ${latestUndoEntry.label}</span>`}
       </div>
       <div class="kanban-plugin__board"><div>
         ${board.lanes.map((lane, laneIndex) => html`

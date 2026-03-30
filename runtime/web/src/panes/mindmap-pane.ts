@@ -80,6 +80,8 @@ function createMindmapChrome(container: HTMLElement): void {
         <button type="button" id="zoom-fit" title="Fit to view">⊞</button>
         <button type="button" id="zoom-in"  title="Zoom in">+</button>
         <button type="button" id="zoom-out" title="Zoom out">−</button>
+        <button type="button" id="mindmap-undo" title="Undo (Ctrl+Z)" disabled>Undo</button>
+        <button type="button" id="mindmap-redo" title="Redo (Ctrl+Shift+Z)" disabled>Redo</button>
         <button type="button" id="reset-layout" title="Reset layout">↻</button>
     `;
     container.appendChild(toolbar);
