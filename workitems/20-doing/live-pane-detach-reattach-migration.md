@@ -215,7 +215,12 @@ Core ideas:
   - detach flow now invokes the hook before preparing transfer data
   - host mount flow now invokes the hook after attaching a pane to the new host
   - editor is the first adopter of the lifecycle hooks
-- Remaining gap for later slices: this is still claim/ownership orchestration plus host-transfer state handoff on top of reopen-backed pane startup, not full live pane instance migration.
+- Added the first live transfer-capable pane-instance path:
+  - `PaneInstance.moveHost?(container, context)`
+  - same-origin source windows can register live-transfer-capable pane instances behind the opaque detach ids
+  - pop-out boot now attempts to claim and move a live pane instance before falling back to normal remount
+  - editor is the first adopter of `moveHost(...)`, reusing the same pane instance object while rebuilding its host DOM in the target window
+- Remaining gap for later slices: this is now a real transfer-capable pane-instance path for supported panes, but not yet universal same-runtime migration across all pane types.
 
 ## Definition of Done
 

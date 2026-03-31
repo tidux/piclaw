@@ -79,8 +79,8 @@ const headingStyle = HighlightStyle.define([
 
 // ── Helpers ─────────────────────────────────────────────────────
 
-function getThemeMode(): 'dark' | 'light' {
-    return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+function getThemeMode(doc: Document): 'dark' | 'light' {
+    return doc.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
 }
 
 function getLocalBool(key: string, fallback: boolean): boolean {
@@ -155,15 +155,15 @@ function languageForPath(path: string) {
 
 // ── Status bar panel ────────────────────────────────────────────
 
-function createStatusPanel(vimEnabledRef: { current: boolean }) {
+function createStatusPanel(doc: Document, vimEnabledRef: { current: boolean }) {
     return (view: EditorView) => {
-        const dom = document.createElement('div');
+        const dom = doc.createElement('div');
         dom.className = 'cm-statusbar';
 
-        const left = document.createElement('div');
+        const left = doc.createElement('div');
         left.className = 'cm-statusbar-left';
 
-        const right = document.createElement('div');
+        const right = doc.createElement('div');
         right.className = 'cm-statusbar-right';
 
         dom.append(left, right);
@@ -203,6 +203,8 @@ function createStatusPanel(vimEnabledRef: { current: boolean }) {
 export class StandaloneEditorInstance implements PaneInstance {
     // DOM
     private container: HTMLElement;
+    private ownerDocument: Document;
+    private ownerWindow: Window & typeof globalThis;
     private paneEl: HTMLElement;
     private headerEl: HTMLElement | null = null;
     private bodyEl: HTMLElement;
@@ -238,6 +240,8 @@ export class StandaloneEditorInstance implements PaneInstance {
 
     constructor(container: HTMLElement, context: PaneContext) {
         this.container = container;
+        this.ownerDocument = container.ownerDocument || document;
+        this.ownerWindow = (this.ownerDocument.defaultView || window) as Window & typeof globalThis;
         this.path = context.path || '';
 
         this.vimEnabled = getLocalBool('piclaw_vim_mode', false);
@@ -245,14 +249,29 @@ export class StandaloneEditorInstance implements PaneInstance {
         this.livePreviewEnabled = getLocalBool('piclaw_md_live_preview', true);
         this.vimEnabledRef = { current: this.vimEnabled };
 
-        // Build DOM
-        this.paneEl = document.createElement('div');
+        this.handleThemeChange = this.handleThemeChange.bind(this);
+        this.handleGlobalKeydown = this.handleGlobalKeydown.bind(this);
+
+        this.initializeHostDom(container);
+        this.bindHostListeners();
+        this.bootstrapInitialContext(context);
+    }
+
+    // ── DOM builders ────────────────────────────────────────────
+
+    private initializeHostDom(container: HTMLElement): void {
+        this.container = container;
+        this.ownerDocument = container.ownerDocument || this.ownerDocument || document;
+        this.ownerWindow = (this.ownerDocument.defaultView || this.ownerWindow || window) as Window & typeof globalThis;
+
+        container.innerHTML = '';
+        this.paneEl = this.ownerDocument.createElement('div');
         this.paneEl.className = 'editor-pane';
 
-        this.bodyEl = document.createElement('div');
+        this.bodyEl = this.ownerDocument.createElement('div');
         this.bodyEl.className = 'editor-body';
 
-        this.cmHost = document.createElement('div');
+        this.cmHost = this.ownerDocument.createElement('div');
         this.cmHost.className = 'editor-codemirror';
         this.bodyEl.appendChild(this.cmHost);
 
@@ -261,10 +280,21 @@ export class StandaloneEditorInstance implements PaneInstance {
         this.paneEl.appendChild(this.bodyEl);
         this.paneEl.appendChild(this.statusEl);
         container.appendChild(this.paneEl);
+    }
 
+    private bindHostListeners(): void {
+        this.ownerWindow.addEventListener('piclaw-theme-change', this.handleThemeChange as EventListener);
+        this.ownerDocument.addEventListener('keydown', this.handleGlobalKeydown as EventListener);
+    }
+
+    private unbindHostListeners(): void {
+        this.ownerWindow.removeEventListener('piclaw-theme-change', this.handleThemeChange as EventListener);
+        this.ownerDocument.removeEventListener('keydown', this.handleGlobalKeydown as EventListener);
+    }
+
+    private bootstrapInitialContext(context: PaneContext): void {
         const transferState = normalizeEditorHostTransferState(context.transferState);
 
-        // If content was provided in context, mount immediately
         if (context.content !== undefined) {
             this.mountEditor(context.content, context.mtime);
             if (transferState) {
@@ -274,31 +304,20 @@ export class StandaloneEditorInstance implements PaneInstance {
             this.mountEditor(transferState.content, transferState.mtime);
             this.applyHostTransferState(transferState);
         } else {
-            // Load from API
-            this.loadFile();
+            void this.loadFile();
         }
-
-        // Theme listener
-        this.handleThemeChange = this.handleThemeChange.bind(this);
-        window.addEventListener('piclaw-theme-change', this.handleThemeChange);
-
-        // Global keyboard shortcuts
-        this.handleGlobalKeydown = this.handleGlobalKeydown.bind(this);
-        document.addEventListener('keydown', this.handleGlobalKeydown);
 
         void this.refreshBranchHint();
     }
 
-    // ── DOM builders ────────────────────────────────────────────
-
     private buildStatusBar(): HTMLElement {
-        const row = document.createElement('div');
+        const row = this.ownerDocument.createElement('div');
         row.className = 'editor-status editor-status-row';
 
-        const meta = document.createElement('div');
+        const meta = this.ownerDocument.createElement('div');
         meta.className = 'editor-status-meta';
 
-        const branch = document.createElement('span');
+        const branch = this.ownerDocument.createElement('span');
         branch.className = 'editor-branch-hint';
         branch.hidden = true;
         branch.innerHTML = `
@@ -313,7 +332,7 @@ export class StandaloneEditorInstance implements PaneInstance {
         this._branchHint = branch;
         this._branchLabel = branch.querySelector('.editor-branch-label');
 
-        const text = document.createElement('span');
+        const text = this.ownerDocument.createElement('span');
         text.className = 'editor-status-text';
         text.textContent = 'Ready';
         this._statusText = text;
@@ -321,17 +340,17 @@ export class StandaloneEditorInstance implements PaneInstance {
         meta.appendChild(branch);
         meta.appendChild(text);
 
-        const actionsDiv = document.createElement('div');
+        const actionsDiv = this.ownerDocument.createElement('div');
         actionsDiv.className = 'editor-status-actions';
 
-        const wsBtn = document.createElement('button');
+        const wsBtn = this.ownerDocument.createElement('button');
         wsBtn.className = `editor-status-button${this.showWhitespace ? ' active' : ''}`;
         wsBtn.title = 'Toggle whitespace (Alt+W)';
         wsBtn.textContent = 'Whitespace';
         wsBtn.addEventListener('click', () => this.toggleWhitespace());
         this._wsBtn = wsBtn;
 
-        const lpBtn = document.createElement('button');
+        const lpBtn = this.ownerDocument.createElement('button');
         lpBtn.className = `editor-status-button${this.livePreviewEnabled ? ' active' : ''}`;
         lpBtn.title = 'Toggle live preview (Alt+P)';
         lpBtn.textContent = 'Live Preview';
@@ -339,14 +358,14 @@ export class StandaloneEditorInstance implements PaneInstance {
         lpBtn.addEventListener('click', () => this.toggleLivePreview());
         this._lpBtn = lpBtn;
 
-        const vimBtn = document.createElement('button');
+        const vimBtn = this.ownerDocument.createElement('button');
         vimBtn.className = `editor-status-button${this.vimEnabled ? ' active' : ''}`;
         vimBtn.title = 'Toggle Vim mode (Alt+V)';
         vimBtn.textContent = 'Vim';
         vimBtn.addEventListener('click', () => this.toggleVim());
         this._vimBtn = vimBtn;
 
-        const saveBtn = document.createElement('button');
+        const saveBtn = this.ownerDocument.createElement('button');
         saveBtn.className = 'editor-status-button editor-save-btn';
         saveBtn.title = 'Save (Ctrl+S)';
         saveBtn.textContent = 'Save';
@@ -441,7 +460,7 @@ export class StandaloneEditorInstance implements PaneInstance {
         this.currentMtime = mtime || null;
         this.setLoadingUI(false);
 
-        const isDark = getThemeMode() === 'dark';
+        const isDark = getThemeMode(this.ownerDocument) === 'dark';
         const lang = languageForPath(this.path);
 
         const extensions: any[] = [
@@ -464,7 +483,7 @@ export class StandaloneEditorInstance implements PaneInstance {
             this.vimCompartment.of(this.vimEnabled ? vim() : []),
             this.themeCompartment.of(isDark ? githubDark : githubLight),
             this.accentCompartment.of(this.buildAccentTheme()),
-            showPanel.of(createStatusPanel(this.vimEnabledRef)),
+            showPanel.of(createStatusPanel(this.ownerDocument, this.vimEnabledRef)),
             keymap.of([
                 ...searchKeymap,
                 ...completionKeymap,
@@ -661,7 +680,7 @@ export class StandaloneEditorInstance implements PaneInstance {
 
     /** Build an EditorView.theme override that uses the host's --accent-color. */
     private buildAccentTheme(): ReturnType<typeof EditorView.theme> {
-        const style = getComputedStyle(document.documentElement);
+        const style = getComputedStyle(this.ownerDocument.documentElement);
         const accent = style.getPropertyValue('--accent-color').trim() || '#1d9bf0';
         // Parse hex to extract RGB for alpha variants
         const hexToRgb = (hex: string): string => {
@@ -686,7 +705,7 @@ export class StandaloneEditorInstance implements PaneInstance {
 
     private handleThemeChange(): void {
         if (!this.view || this.disposed) return;
-        const isDark = getThemeMode() === 'dark';
+        const isDark = getThemeMode(this.ownerDocument) === 'dark';
 
         this.view.dispatch({
             effects: [
@@ -753,7 +772,7 @@ export class StandaloneEditorInstance implements PaneInstance {
         // Insert error element before body
         let errEl = this.paneEl.querySelector('.editor-error');
         if (!errEl) {
-            errEl = document.createElement('div');
+            errEl = this.ownerDocument.createElement('div');
             errEl.className = 'editor-error';
             this.paneEl.insertBefore(errEl, this.bodyEl);
         }
@@ -854,8 +873,7 @@ export class StandaloneEditorInstance implements PaneInstance {
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
-        window.removeEventListener('piclaw-theme-change', this.handleThemeChange);
-        document.removeEventListener('keydown', this.handleGlobalKeydown);
+        this.unbindHostListeners();
         if (this.view) {
             this.view.destroy();
             this.view = null;
@@ -893,6 +911,24 @@ export class StandaloneEditorInstance implements PaneInstance {
         this.updateSaveButton();
         this.updateStatusText(this.dirty ? 'Unsaved changes' : 'All changes saved');
         requestAnimationFrame(() => this.focus());
+    }
+
+    moveHost(container: HTMLElement, context: PaneHostAttachContext): boolean {
+        if (this.disposed) return false;
+        const transferState = normalizeEditorHostTransferState(context.transferState) || normalizeEditorHostTransferState(this.exportHostTransferState());
+        this.unbindHostListeners();
+        if (this.container && this.container !== container) {
+            this.container.innerHTML = '';
+        }
+        this.initializeHostDom(container);
+        this.bindHostListeners();
+        if (transferState?.content !== undefined) {
+            this.mountEditor(transferState.content, transferState.mtime);
+            this.applyHostTransferState(transferState);
+        }
+        this.afterAttachToHost(context);
+        void this.refreshBranchHint();
+        return true;
     }
 
     exportHostTransferState(): Record<string, unknown> | null {

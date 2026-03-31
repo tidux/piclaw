@@ -21,6 +21,7 @@ interface ExtendedEditorPaneInstance extends PaneInstance {
     setPath?(newPath: string): void;
     beforeDetachFromHost?(context: { path?: string; target: 'popout' }): Promise<void> | void;
     afterAttachToHost?(context: { path?: string; hostMode: 'main' | 'popout'; transferState?: Record<string, unknown> | null }): Promise<void> | void;
+    moveHost?(container: HTMLElement, context: { path?: string; hostMode: 'main' | 'popout'; transferState?: Record<string, unknown> | null }): Promise<boolean> | boolean;
     exportHostTransferState?(): Record<string, unknown> | null;
 }
 
@@ -196,6 +197,10 @@ class LazyEditorInstance implements PaneInstance {
 
     afterAttachToHost(context: { path?: string; hostMode: 'main' | 'popout'; transferState?: Record<string, unknown> | null }): Promise<void> | void {
         return this.real?.afterAttachToHost?.(context);
+    }
+
+    moveHost(container: HTMLElement, context: { path?: string; hostMode: 'main' | 'popout'; transferState?: Record<string, unknown> | null }): Promise<boolean> | boolean {
+        return this.real?.moveHost?.(container, context) ?? false;
     }
 
     exportHostTransferState(): Record<string, unknown> | null {

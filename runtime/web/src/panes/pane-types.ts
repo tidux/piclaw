@@ -89,6 +89,9 @@ export interface PaneInstance {
     /** Optional lifecycle hook after the pane attaches to a host. */
     afterAttachToHost?(context: PaneHostAttachContext): Promise<void> | void;
 
+    /** Optional live host-transfer hook to move this pane instance into a new host container. */
+    moveHost?(container: HTMLElement, context: PaneHostAttachContext): Promise<boolean> | boolean;
+
     /**
      * Optional generic host-transfer export hook.
      * Lets a pane hand state to a newly mounted host without encoding that

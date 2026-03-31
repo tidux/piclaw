@@ -14,6 +14,7 @@ import {
   type PendingPaneOwnershipState,
 } from '../panes/pane-detach-state.js';
 import { consumePaneHostTransferFromLocation, type PaneHostTransferEnvelope } from '../panes/pane-host-transfer.js';
+import { claimPaneLiveTransfer, clearPaneLiveTransferForPath } from '../panes/pane-live-transfer.js';
 import { paneRegistry, tabStore } from '../panes/index.js';
 import {
   getPanePopoutTitle,
@@ -177,6 +178,7 @@ export function usePaneRuntimeOrchestration(options: UsePaneRuntimeOrchestration
 
   const clearPendingDetachedPane = useCallback((panePath: string) => {
     if (!panePath) return;
+    clearPaneLiveTransferForPath(panePath);
     if (panePath === terminalTabPath) {
       setPendingDetachedDockPane((current) => (current?.panePath === panePath ? null : current));
       return;
@@ -565,50 +567,91 @@ export function usePaneRuntimeOrchestration(options: UsePaneRuntimeOrchestration
       return;
     }
 
-    const instance = ext.mount(container, context);
-    editorInstanceRef.current = instance;
+    let instance: any = null;
+    let disposed = false;
 
-    instance.onDirtyChange?.((dirty: boolean) => {
-      tabStore.setDirty(activeId, dirty);
-    });
+    const bindInstance = (nextInstance: any) => {
+      instance = nextInstance;
+      editorInstanceRef.current = nextInstance;
 
-    instance.onSaveRequest?.(() => {
-      // Save is handled internally by pane extensions.
-    });
-
-    instance.onClose?.(() => {
-      closeEditor();
-    });
-
-    const viewState = tabStore.getViewState(activeId);
-    if (viewState && typeof instance.restoreViewState === 'function') {
-      requestAnimationFrame(() => instance.restoreViewState(viewState));
-    }
-
-    if (typeof instance.onViewStateChange === 'function') {
-      instance.onViewStateChange((state: unknown) => {
-        tabStore.saveViewState(activeId, state);
+      nextInstance.onDirtyChange?.((dirty: boolean) => {
+        tabStore.setDirty(activeId, dirty);
       });
-    }
 
-    void invokePaneAfterAttachToHost(instance, {
-      path: activeId,
-      hostMode: panePopoutMode ? 'popout' : 'main',
-      transferState: pendingHostTransfer?.payload || null,
-    }).catch((error) => {
-      console.warn('[pane-attach] afterAttachToHost failed:', error);
-    });
+      nextInstance.onSaveRequest?.(() => {
+        // Save is handled internally by pane extensions.
+      });
 
-    requestAnimationFrame(() => instance.focus?.());
+      nextInstance.onClose?.(() => {
+        closeEditor();
+      });
 
-    if (pendingTransfer) {
-      pendingEditorPopoutTransferRef.current = null;
-    }
-    if (pendingHostTransfer) {
-      pendingPaneHostTransferRef.current = null;
-    }
+      const viewState = tabStore.getViewState(activeId);
+      if (viewState && typeof nextInstance.restoreViewState === 'function') {
+        requestAnimationFrame(() => nextInstance.restoreViewState(viewState));
+      }
+
+      if (typeof nextInstance.onViewStateChange === 'function') {
+        nextInstance.onViewStateChange((state: unknown) => {
+          tabStore.saveViewState(activeId, state);
+        });
+      }
+
+      void invokePaneAfterAttachToHost(nextInstance, {
+        path: activeId,
+        hostMode: panePopoutMode ? 'popout' : 'main',
+        transferState: pendingHostTransfer?.payload || null,
+      }).catch((error) => {
+        console.warn('[pane-attach] afterAttachToHost failed:', error);
+      });
+
+      requestAnimationFrame(() => nextInstance.focus?.());
+    };
+
+    void (async () => {
+      const detachState = paneDetachTransferRef.current;
+      if (panePopoutMode
+        && pendingHostTransfer
+        && hasPaneDetachTransferState(detachState)
+        && detachState.panePath === activeId
+        && typeof window !== 'undefined'
+        && window.opener
+        && !window.opener.closed) {
+        try {
+          const claimedInstance = await claimPaneLiveTransfer(window.opener, {
+            panePath: activeId,
+            paneInstanceId: detachState.paneInstanceId || '',
+            paneWindowId: detachState.paneWindowId || '',
+          }, container, {
+            path: activeId,
+            hostMode: 'popout',
+            transferState: pendingHostTransfer.payload || null,
+          });
+          if (!disposed && claimedInstance) {
+            bindInstance(claimedInstance);
+            if (pendingTransfer) {
+              pendingEditorPopoutTransferRef.current = null;
+            }
+            pendingPaneHostTransferRef.current = null;
+            return;
+          }
+        } catch (error) {
+          console.warn('[pane-live-transfer] Failed to claim live pane instance:', error);
+        }
+      }
+
+      if (disposed) return;
+      bindInstance(ext.mount(container, context));
+      if (pendingTransfer) {
+        pendingEditorPopoutTransferRef.current = null;
+      }
+      if (pendingHostTransfer) {
+        pendingPaneHostTransferRef.current = null;
+      }
+    })();
 
     return () => {
+      disposed = true;
       if (editorInstanceRef.current === instance) {
         instance.dispose();
         editorInstanceRef.current = null;

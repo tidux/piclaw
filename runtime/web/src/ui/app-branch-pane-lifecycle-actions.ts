@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from '../vendor/preact-htm.js';
 import { createEditorPopoutTransferPayload } from '../panes/editor-popout-transfer.js';
 import { createPaneHostTransferPayload } from '../panes/pane-host-transfer.js';
+import { registerPaneLiveTransfer } from '../panes/pane-live-transfer.js';
 import { tabStore } from '../panes/index.js';
 import { watchPaneOpenEvents } from './app-browser-events.js';
 import {
@@ -33,6 +34,7 @@ interface PaneTransferInstanceLike {
   beforeDetachFromHost?: (context: { path?: string; target: 'popout' }) => Promise<void> | void;
   preparePopoutTransfer?: () => Promise<Record<string, string> | null> | Record<string, string> | null;
   afterAttachToHost?: (context: { path?: string; hostMode: 'main' | 'popout'; transferState?: Record<string, unknown> | null }) => Promise<void> | void;
+  moveHost?: (container: HTMLElement, context: { path?: string; hostMode: 'main' | 'popout'; transferState?: Record<string, unknown> | null }) => Promise<boolean> | boolean;
   exportHostTransferState?: () => Record<string, unknown> | null;
   getContent?: () => string | undefined;
   isDirty?: () => boolean;
@@ -357,6 +359,25 @@ export async function popOutPaneAction(options: PopOutPaneActionOptions): Promis
           payload: exportedHostTransfer,
         })
         : null;
+      if (detachTransfer?.paneInstanceId && detachTransfer?.paneWindowId && sourceInstance) {
+        registerPaneLiveTransfer({
+          panePath,
+          paneInstanceId: detachTransfer.paneInstanceId,
+          paneWindowId: detachTransfer.paneWindowId,
+          instance: sourceInstance as any,
+          releaseSourceHost: () => {
+            if (panePath === terminalTabPath) {
+              if (dockInstanceRef.current === sourceInstance) {
+                dockInstanceRef.current = null;
+              }
+              return;
+            }
+            if (editorInstanceRef.current === sourceInstance) {
+              editorInstanceRef.current = null;
+            }
+          },
+        });
+      }
       return {
         ...(sourceTransfer || {}),
         ...(hostTransfer || {}),
