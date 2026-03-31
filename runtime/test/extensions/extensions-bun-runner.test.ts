@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { WORKSPACE_DIR } from "../../src/core/config.js";
+import { getToolOutput } from "../../src/tool-output.js";
 import { bunRunner } from "../../src/extensions/bun-runner.js";
 import { createFakeExtensionApi } from "./fake-extension-api.js";
 
@@ -32,7 +33,7 @@ describe("bun-runner extension", () => {
     expect(fake.tools.has("bun_run")).toBe(true);
   });
 
-  test("runs a workspace Bun script directly and captures stderr only", async () => {
+  test("runs a workspace Bun script directly and discards stdout by default", async () => {
     const fake = createFakeExtensionApi();
     bunRunner(fake.api);
     const tool = fake.tools.get("bun_run");
@@ -56,11 +57,71 @@ describe("bun-runner extension", () => {
     });
 
     expect(result.content[0].text).toContain(`bun_run completed successfully for ${prefix}/script.ts.`);
+    expect(result.content[0].text).toContain("stdout: discarded");
     expect(result.content[0].text).toContain("stderr:ok");
     expect(result.content[0].text).not.toContain("stdout should be discarded");
     expect(result.details.ok).toBe(true);
     expect(result.details.exit_code).toBe(0);
+    expect(result.details.capture_stdout).toBe(false);
+    expect(result.details.stdout_captured).toBe(false);
     expect(readFileSync(outputPath, "utf8")).toBe("done:ok");
+  });
+
+  test("captures stdout when requested", async () => {
+    const fake = createFakeExtensionApi();
+    bunRunner(fake.api);
+    const tool = fake.tools.get("bun_run");
+    if (!tool) throw new Error("bun_run not registered");
+
+    const { prefix, base } = makeTempDir();
+    const scriptPath = join(base, "capture.ts");
+    writeFileSync(scriptPath, [
+      'console.log("stdout:hello");',
+      'console.error("stderr:hello");',
+    ].join("\n"), "utf8");
+
+    const result = await tool.execute("tool-stdout", {
+      script: `${prefix}/capture.ts`,
+      cwd: prefix,
+      timeout_sec: 30,
+      capture_stdout: true,
+    });
+
+    expect(result.details.ok).toBe(true);
+    expect(result.details.capture_stdout).toBe(true);
+    expect(result.details.stdout_captured).toBe(true);
+    expect(result.content[0].text).toContain("stdout:\nstdout:hello");
+    expect(result.content[0].text).toContain("stderr:\nstderr:hello");
+  });
+
+  test("stores large captured stdout as searchable tool output", async () => {
+    const db = await import("../../src/db.js");
+    db.initDatabase();
+
+    const fake = createFakeExtensionApi();
+    bunRunner(fake.api);
+    const tool = fake.tools.get("bun_run");
+    if (!tool) throw new Error("bun_run not registered");
+
+    const { prefix, base } = makeTempDir();
+    const scriptPath = join(base, "large-stdout.ts");
+    writeFileSync(scriptPath, [
+      'for (let i = 0; i < 80; i += 1) console.log(`line:${i}:` + "x".repeat(80));',
+    ].join("\n"), "utf8");
+
+    const result = await tool.execute("tool-large", {
+      script: `${prefix}/large-stdout.ts`,
+      cwd: prefix,
+      timeout_sec: 30,
+      capture_stdout: true,
+    });
+
+    expect(result.details.ok).toBe(true);
+    expect(result.details.stdout_captured).toBe(true);
+    expect(typeof result.details.stdout_stored_output_id).toBe("string");
+    expect(String(result.details.stdout_stored_output_id)).toContain("out-");
+    expect(result.content[0].text).toContain("stdout stored as tool-output:");
+    expect(getToolOutput(String(result.details.stdout_stored_output_id))).toBeDefined();
   });
 
   test("rejects scripts outside the workspace", async () => {

@@ -2,12 +2,14 @@
  * bun-runner – registers a Bun script execution tool.
  *
  * Runs workspace Bun scripts directly (no shell), with optional argv and cwd.
- * Stdout is discarded; stderr is captured and returned.
+ * Stdout is discarded by default, but can be captured explicitly.
+ * Large captured outputs are stored as searchable tool-output logs.
  */
 
 import { Type, type Static } from "@sinclair/typebox";
 import type { AgentToolResult, ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-agent";
 
+import type { CapturedBunStreamResult } from "../tools/bun-runner.js";
 import { runBunScript } from "../tools/bun-runner.js";
 
 const BunRunSchema = Type.Object({
@@ -15,6 +17,7 @@ const BunRunSchema = Type.Object({
   args: Type.Optional(Type.Array(Type.String(), { description: "Arguments passed to the script. No shell parsing is performed." })),
   cwd: Type.Optional(Type.String({ description: "Working directory relative to the workspace (defaults to the workspace root)." })),
   timeout_sec: Type.Optional(Type.Integer({ description: "Timeout in seconds.", minimum: 1, maximum: 3600 })),
+  capture_stdout: Type.Optional(Type.Boolean({ description: "Capture stdout instead of discarding it. Large captured output is stored as searchable tool-output logs." })),
 });
 
 type BunRunParams = Static<typeof BunRunSchema>;
@@ -23,7 +26,7 @@ const HINT = [
   "## Direct Bun scripts",
   "Use bun_run to execute a workspace Bun script directly without a shell.",
   "Pass script arguments as an array; do not rely on shell features like pipes or redirects.",
-  "Scripts should write structured output to files themselves; bun_run only captures stderr.",
+  "Stdout is discarded by default; set capture_stdout=true when you need bounded inline output or searchable stored output.",
 ].join("\n");
 
 function formatArgs(args: string[]): string {
@@ -31,32 +34,58 @@ function formatArgs(args: string[]): string {
   return args.map((arg) => JSON.stringify(arg)).join(" ");
 }
 
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes)) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function buildStreamSection(label: "stdout" | "stderr", stream: CapturedBunStreamResult): string[] {
+  if (!stream.captured) {
+    return [`${label}: discarded`];
+  }
+
+  if (stream.storedOutputId) {
+    const sizeBytes = stream.storedOutputBytes ?? stream.bytes;
+    const lineCount = stream.storedOutputLines ?? stream.lineCount;
+    return [
+      `${label} stored as tool-output:${stream.storedOutputId} (${lineCount} lines, ${formatBytes(sizeBytes)}).`,
+      stream.storedOutputPreview ? `Preview:\n${stream.storedOutputPreview}` : null,
+      `Use search_tool_output with handle "${stream.storedOutputId}" and a query to retrieve relevant snippets.`,
+    ].filter((line): line is string => Boolean(line));
+  }
+
+  if (stream.text) {
+    return [`${label}:`, stream.text];
+  }
+
+  return [`${label}: (empty)`];
+}
+
 function buildResultText(result: {
   scriptDisplayPath: string;
   cwdDisplayPath: string;
   args: string[];
   exitCode: number | null;
-  stderr: string;
-  stderrTruncated: boolean;
+  stdout: CapturedBunStreamResult;
+  stderr: CapturedBunStreamResult;
 }): string {
   const status = result.exitCode === 0
     ? `bun_run completed successfully for ${result.scriptDisplayPath}.`
     : `bun_run finished with exit code ${result.exitCode ?? "unknown"} for ${result.scriptDisplayPath}.`;
-  const lines = [
-    status,
-    `cwd: ${result.cwdDisplayPath}`,
-    `args: ${formatArgs(result.args)}`,
-    "stdout: discarded",
+
+  const sections = [
+    [
+      status,
+      `cwd: ${result.cwdDisplayPath}`,
+      `args: ${formatArgs(result.args)}`,
+    ].join("\n"),
+    buildStreamSection("stdout", result.stdout).join("\n"),
+    buildStreamSection("stderr", result.stderr).join("\n"),
   ];
 
-  if (result.stderr) {
-    lines.push("stderr:");
-    lines.push(result.stderrTruncated ? `${result.stderr}\n[stderr truncated]` : result.stderr);
-  } else {
-    lines.push("stderr: (empty)");
-  }
-
-  return lines.join("\n");
+  return sections.join("\n\n");
 }
 
 export const bunRunner: ExtensionFactory = (pi: ExtensionAPI) => {
@@ -67,8 +96,8 @@ export const bunRunner: ExtensionFactory = (pi: ExtensionAPI) => {
   pi.registerTool({
     name: "bun_run",
     label: "bun_run",
-    description: "Run a workspace Bun script directly with optional arguments and cwd. No shell parsing, piping, or redirects; stdout is discarded and only stderr is captured.",
-    promptSnippet: "bun_run: execute a workspace Bun script directly with optional arguments and cwd, capturing stderr only.",
+    description: "Run a workspace Bun script directly with optional arguments and cwd. No shell parsing, piping, or redirects; stderr is always captured, and stdout can be captured optionally with large outputs stored as searchable tool-output logs.",
+    promptSnippet: "bun_run: execute a workspace Bun script directly with optional arguments and cwd, capturing stderr and optionally capturing stdout with searchable large-output storage.",
     parameters: BunRunSchema,
     async execute(
       _toolCallId: string,
@@ -81,6 +110,7 @@ export const bunRunner: ExtensionFactory = (pi: ExtensionAPI) => {
           args: params.args,
           cwd: params.cwd,
           timeoutSec: params.timeout_sec,
+          captureStdout: params.capture_stdout,
         }, signal);
 
         return {
@@ -92,9 +122,24 @@ export const bunRunner: ExtensionFactory = (pi: ExtensionAPI) => {
             args: result.args,
             bun_path: result.bunPath,
             exit_code: result.exitCode,
-            stderr: result.stderr,
-            stderr_bytes: result.stderrBytes,
-            stderr_truncated: result.stderrTruncated,
+            capture_stdout: result.captureStdout,
+            stdout: result.stdout.text,
+            stdout_captured: result.stdout.captured,
+            stdout_bytes: result.stdout.bytes,
+            stdout_lines: result.stdout.lineCount,
+            stdout_truncated: false,
+            stdout_stored_output_id: result.stdout.storedOutputId,
+            stdout_stored_output_path: result.stdout.storedOutputPath,
+            stdout_stored_output_bytes: result.stdout.storedOutputBytes,
+            stdout_stored_output_lines: result.stdout.storedOutputLines,
+            stderr: result.stderr.text,
+            stderr_bytes: result.stderr.bytes,
+            stderr_lines: result.stderr.lineCount,
+            stderr_truncated: false,
+            stderr_stored_output_id: result.stderr.storedOutputId,
+            stderr_stored_output_path: result.stderr.storedOutputPath,
+            stderr_stored_output_bytes: result.stderr.storedOutputBytes,
+            stderr_stored_output_lines: result.stderr.storedOutputLines,
           },
         };
       } catch (error) {
@@ -116,6 +161,7 @@ export const bunRunner: ExtensionFactory = (pi: ExtensionAPI) => {
             cwd: params.cwd || ".",
             args: Array.isArray(params.args) ? params.args : [],
             timeout_sec: params.timeout_sec ?? 120,
+            capture_stdout: Boolean(params.capture_stdout),
             timed_out: timedOut,
             aborted,
             error: message,
