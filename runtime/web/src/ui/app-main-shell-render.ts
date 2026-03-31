@@ -2,6 +2,7 @@ import { html } from '../vendor/preact-htm.js';
 import { ComposeBox, QueuedFollowupStack } from '../components/compose-box.js';
 import { BtwPanel } from '../components/btw-panel.js';
 import { FloatingWidgetPane } from '../components/floating-widget-pane.js';
+import { AttachmentPreviewModal } from '../components/attachment-preview-modal.js';
 import { AgentRequestModal, AgentStatus } from '../components/status.js';
 import { Timeline } from '../components/timeline.js';
 import { WorkspaceExplorer } from '../components/workspace-explorer.js';
@@ -112,6 +113,8 @@ export function renderMainShell(options: MainShellRenderOptions): any {
     floatingWidget,
     handleCloseFloatingWidget,
     handleFloatingWidgetEvent,
+    attachmentPreview,
+    setAttachmentPreview,
     extensionStatusPanels,
     pendingExtensionPanelActions,
     handleExtensionPanelAction,
@@ -367,6 +370,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
           onPostClick=${undefined}
           onDeletePost=${handleDeletePost}
           onOpenWidget=${handleOpenFloatingWidget}
+          onOpenAttachmentPreview=${setAttachmentPreview}
           emptyMessage=${currentHashtag ? `No posts with #${currentHashtag}` : searchQuery ? `No results for "${searchQuery}"` : undefined}
           agents=${agents}
           user=${userProfile}
@@ -397,6 +401,13 @@ export function renderMainShell(options: MainShellRenderOptions): any {
           onClose=${handleCloseFloatingWidget}
           onWidgetEvent=${handleFloatingWidgetEvent}
         />
+        ${attachmentPreview && html`
+          <${AttachmentPreviewModal}
+            mediaId=${attachmentPreview.mediaId}
+            info=${attachmentPreview.info}
+            onClose=${() => setAttachmentPreview(null)}
+          />
+        `}
         <${AgentStatus}
           extensionPanels=${Array.from(extensionStatusPanels.values())}
           pendingPanelActions=${pendingExtensionPanelActions}

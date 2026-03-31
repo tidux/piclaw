@@ -155,6 +155,8 @@ export function composeRenderedMainAppOptions(input: {
       fileRefs: input.surface.fileRefs,
       messageRefs: input.surface.messageRefs,
       followupQueueCount: input.surface.followupQueueCount,
+      attachmentPreview: input.surface.attachmentPreview,
+      setAttachmentPreview: input.surface.setAttachmentPreview,
       handleMessageResponse: input.orchestration.followupActions.handleMessageResponse,
       isComposeBoxAgentActive: input.orchestration.isComposeBoxAgentActive,
     },

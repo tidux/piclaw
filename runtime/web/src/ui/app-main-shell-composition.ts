@@ -112,6 +112,8 @@ export function composeMainAppShellOptions(input: ComposeMainAppShellOptionsInpu
     fileRefs: composeState.fileRefs,
     messageRefs: composeState.messageRefs,
     followupQueueCount: composeState.followupQueueCount,
+    attachmentPreview: composeState.attachmentPreview,
+    setAttachmentPreview: composeState.setAttachmentPreview,
     activeChatAgents: modelState.activeChatAgents,
     connectionStatus: modelState.connectionStatus,
     activeModel: modelState.activeModel,

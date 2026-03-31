@@ -63,6 +63,7 @@ export function useMainAppSurfaceState(options: {
   const [isAgentTurnActive, setIsAgentTurnActive] = useState(false);
   const [btwSession, setBtwSession] = useState(() => loadStoredBtwSession());
   const [floatingWidget, setFloatingWidget] = useState<any>(null);
+  const [attachmentPreview, setAttachmentPreview] = useState<any>(null);
   const dismissedLiveWidgetKeysRef = useRef(new Set<string>());
   const currentBranchRecord = useMemo(() => resolveCurrentBranchRecord({
     activeChatAgents,
@@ -174,6 +175,8 @@ export function useMainAppSurfaceState(options: {
     setBtwSession,
     floatingWidget,
     setFloatingWidget,
+    attachmentPreview,
+    setAttachmentPreview,
     dismissedLiveWidgetKeysRef,
     currentBranchRecord,
     currentRootChatJid,
