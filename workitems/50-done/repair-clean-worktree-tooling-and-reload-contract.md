@@ -1,10 +1,11 @@
 ---
 id: repair-clean-worktree-tooling-and-reload-contract
 title: Repair clean-worktree tooling and reload contract
-status: review
+status: done
 priority: high
 created: 2026-03-29
-updated: 2026-03-30
+updated: 2026-04-02
+completed: 2026-04-02
 estimate: L
 risk: medium
 tags:
@@ -41,15 +42,15 @@ The goal is not to redesign packaging. It is to make clean worktrees and agent-d
 
 ## Acceptance Criteria
 
-- [ ] A fresh clean worktree or sandbox copy can run the standard validation commands without `tsc` / `eslint` resolution failures.
-- [ ] `bun run lint`, `bun run typecheck`, and `bun run build:web` work from a clean worktree without depending on hidden host state.
-- [ ] The documented reload contract matches the implemented one:
-  - [ ] `make local-install` is install-only
-  - [ ] restart remains an explicit separate step (`make restart` or agent-driven `exit_process`)
-  - [ ] reload skill/docs reflect the real supported flow
-- [ ] The container reload path continues to install into `/usr/local/lib/bun/install/global/node_modules/piclaw` and does not depend on workspace-local Bun roots.
-- [ ] The fix does not reintroduce repo-local `.bun/` cache commits or require tracked cache state for successful builds.
-- [ ] Validation evidence is recorded from at least one clean worktree or sandbox-style checkout.
+- [x] A fresh clean worktree or sandbox copy can run the standard validation commands without `tsc` / `eslint` resolution failures.
+- [x] `bun run lint`, `bun run typecheck`, and `bun run build:web` work from a clean worktree without depending on hidden host state.
+- [x] The documented reload contract matches the implemented one:
+  - [x] `make local-install` is install-only
+  - [x] restart remains an explicit separate step (`make restart` or agent-driven `exit_process`)
+  - [x] reload skill/docs reflect the real supported flow
+- [x] The container reload path continues to install into `/usr/local/lib/bun/install/global/node_modules/piclaw` and does not depend on workspace-local Bun roots.
+- [x] The fix does not reintroduce repo-local `.bun/` cache commits or require tracked cache state for successful builds.
+- [x] Validation evidence is recorded from at least one clean worktree or sandbox-style checkout.
 
 ## Implementation Paths
 
@@ -74,27 +75,32 @@ Why this lost:
 
 ## Test Plan
 
-- [ ] Create or use a fresh clean worktree / sandbox checkout.
-- [ ] From that checkout, run:
-  - [ ] `bun run lint`
-  - [ ] `bun run typecheck`
-  - [ ] `bun run build:web`
-- [ ] Verify no `tsc: command not found` or `eslint: command not found` failures occur.
-- [ ] Validate the chosen reload contract:
-  - [ ] run `make local-install` and confirm install succeeds without restarting
-  - [ ] confirm docs/skill guidance now use `make local-install` for install and `make restart` / `exit_process` for restart
-- [ ] Confirm the install destination remains `/usr/local/lib/bun/install/global/node_modules/piclaw` in this container.
-- [ ] Record any remaining follow-up gaps in `## Updates`.
+- [x] Create or use a fresh clean worktree / sandbox checkout.
+- [x] From that checkout, run:
+  - [x] `bun run lint`
+  - [x] `bun run typecheck`
+  - [x] `bun run build:web`
+- [x] Verify no `tsc: command not found` or `eslint: command not found` failures occur.
+- [x] Validate the chosen reload contract:
+  - [x] run `make local-install` and confirm install succeeds without restarting
+  - [x] confirm docs/skill guidance now use `make local-install` for install and `make restart` / `exit_process` for restart
+- [x] Confirm the install destination remains `/usr/local/lib/bun/install/global/node_modules/piclaw` in this container.
+- [x] Record any remaining follow-up gaps in `## Updates`.
 
 ## Definition of Done
 
-- [ ] Clean worktree validation is reproducibly green for the standard commands.
-- [ ] Reload docs and implementation no longer disagree.
-- [ ] The container-specific install/restart contract is explicit and preserved.
-- [ ] No `.bun/`-style repo-local cache dependency is required for the fixed workflow.
-- [ ] Evidence and commands are recorded in `## Updates`.
+- [x] Clean worktree validation is reproducibly green for the standard commands.
+- [x] Reload docs and implementation no longer disagree.
+- [x] The container-specific install/restart contract is explicit and preserved.
+- [x] No `.bun/`-style repo-local cache dependency is required for the fixed workflow.
+- [x] Evidence and commands are recorded in `## Updates`.
 
 ## Updates
+
+### 2026-04-02
+- Lane change: `40-review` → `50-done` by user direction after confirming the recorded worktree validation evidence and simplified reload contract were sufficient for closeout.
+- Acceptance criteria and definition-of-done checklist marked complete based on the existing clean-worktree validation evidence and the install-only `make local-install` contract documented in the ticket updates.
+- Quality: ★★★★★ 9/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 2)
 
 ### 2026-03-30
 - Follow-up cleanup per explicit user request: simplified the contract further so `make local-install` no longer branches on restart behavior at all.

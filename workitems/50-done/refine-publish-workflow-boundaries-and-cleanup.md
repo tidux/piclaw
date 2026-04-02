@@ -1,10 +1,11 @@
 ---
 id: refine-publish-workflow-boundaries-and-cleanup
 title: Refine publish workflow boundaries and cleanup policy
-status: review
+status: done
 priority: medium
 created: 2026-03-30
-updated: 2026-03-30
+updated: 2026-04-02
+completed: 2026-04-02
 estimate: M
 risk: medium
 tags:
@@ -38,14 +39,14 @@ one broad “still doing” ticket.
 
 ## Acceptance Criteria
 
-- [ ] The remaining major responsibility areas in `publish.yml` are explicitly classified as either:
-  - [ ] workflow-native and intentionally left there, or
-  - [ ] repo-owned and extracted behind scripts/commands.
-- [ ] Any duplicated publish workflow logic that is worth extracting is reduced.
-- [ ] If workflow-local GitHub-script logic remains, the rationale is documented in the ticket and/or docs.
-- [ ] Release behavior remains unchanged unless a change is explicitly intended and documented.
-- [ ] Workflow YAML stays valid and references only real repo-owned commands/scripts.
-- [ ] Any follow-up work discovered during the review is split into explicit tickets instead of being left implicit.
+- [x] The remaining major responsibility areas in `publish.yml` are explicitly classified as either:
+  - [x] workflow-native and intentionally left there, or
+  - [x] repo-owned and extracted behind scripts/commands.
+- [x] Any duplicated publish workflow logic that is worth extracting is reduced.
+- [x] If workflow-local GitHub-script logic remains, the rationale is documented in the ticket and/or docs.
+- [x] Release behavior remains unchanged unless a change is explicitly intended and documented.
+- [x] Workflow YAML stays valid and references only real repo-owned commands/scripts.
+- [x] Any follow-up work discovered during the review is split into explicit tickets instead of being left implicit.
 
 ## Implementation Paths
 
@@ -70,20 +71,25 @@ Why this is riskier:
 
 ## Test Plan
 
-- [ ] Re-audit `.github/workflows/publish.yml` by responsibility area.
-- [ ] Classify each area as workflow-native vs repo-owned.
-- [ ] If code moves, validate the affected commands/scripts locally where possible.
-- [ ] Parse the updated workflow YAML successfully.
-- [ ] Record any environment limits explicitly (for example Docker/GitHub-only execution paths).
+- [x] Re-audit `.github/workflows/publish.yml` by responsibility area.
+- [x] Classify each area as workflow-native vs repo-owned.
+- [x] If code moves, validate the affected commands/scripts locally where possible.
+- [x] Parse the updated workflow YAML successfully.
+- [x] Record any environment limits explicitly (for example Docker/GitHub-only execution paths).
 
 ## Definition of Done
 
-- [ ] The remaining publish-workflow complexity is intentionally bounded.
-- [ ] Extracted logic is repo-owned only where it clearly improves maintainability.
-- [ ] Non-extracted logic has an explicit rationale for staying in workflow YAML.
-- [ ] Any new follow-up complexity is tracked explicitly.
+- [x] The remaining publish-workflow complexity is intentionally bounded.
+- [x] Extracted logic is repo-owned only where it clearly improves maintainability.
+- [x] Non-extracted logic has an explicit rationale for staying in workflow YAML.
+- [x] Any new follow-up complexity is tracked explicitly.
 
 ## Updates
+
+### 2026-04-02
+- Lane change: `40-review` → `50-done` by user direction after confirming the publish-boundary classification and documentation pass were sufficient for closeout.
+- Acceptance criteria and definition-of-done checklist marked complete based on the existing workflow-boundary audit, YAML parse validation, and explicit documentation of the Docker-capable environment constraint.
+- Quality: ★★★★★ 9/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 2)
 
 ### 2026-03-30
 - Lane change: `20-doing` → `40-review` after executing the boundary-classification pass.
@@ -122,7 +128,7 @@ Why this is riskier:
 
 ## Links
 
-- `workitems/40-review/overhaul-and-simplify-ci-process.md`
+- `workitems/50-done/overhaul-and-simplify-ci-process.md`
 - `.github/workflows/publish.yml`
 - `scripts/docker/publish-smoke-test.sh`
 - `docs/release.md`

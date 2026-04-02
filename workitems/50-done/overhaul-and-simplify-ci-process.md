@@ -1,10 +1,11 @@
 ---
 id: overhaul-and-simplify-ci-process
 title: Overhaul and simplify the CI process
-status: review
+status: done
 priority: high
 created: 2026-03-30
-updated: 2026-03-30
+updated: 2026-04-02
+completed: 2026-04-02
 estimate: L
 risk: medium
 tags:
@@ -36,12 +37,12 @@ This ticket tracks a deliberate simplification pass so that:
 
 ## Acceptance Criteria
 
-- [ ] The repo has a clearly documented canonical CI command set (for example: fast checks, full quality, release/publish validation).
-- [ ] GitHub Actions workflow steps are simplified to use those canonical commands instead of ad-hoc duplicated shell logic where practical.
-- [ ] Redundant or overlapping CI checks are identified and either removed or intentionally justified.
-- [ ] The resulting CI flow is easier to understand from workflow files and docs.
-- [ ] Local developer validation and CI validation are materially closer after the change.
-- [ ] Any follow-up work that is too large for this tranche is split into explicit linked tickets.
+- [x] The repo has a clearly documented canonical CI command set (for example: fast checks, full quality, release/publish validation).
+- [x] GitHub Actions workflow steps are simplified to use those canonical commands instead of ad-hoc duplicated shell logic where practical.
+- [x] Redundant or overlapping CI checks are identified and either removed or intentionally justified.
+- [x] The resulting CI flow is easier to understand from workflow files and docs.
+- [x] Local developer validation and CI validation are materially closer after the change.
+- [x] Any follow-up work that is too large for this tranche is split into explicit linked tickets.
 
 ## Implementation Paths
 
@@ -60,20 +61,25 @@ Why Path B is weaker:
 
 ## Test Plan
 
-- [ ] Inventory the current GitHub workflows and note which commands they run.
-- [ ] Identify overlap between CI commands, local `make` targets, and `package.json` scripts.
-- [ ] Propose or implement a smaller canonical command surface.
-- [ ] Validate the resulting commands locally.
-- [ ] If workflows change, verify the YAML remains syntactically valid and references real commands.
+- [x] Inventory the current GitHub workflows and note which commands they run.
+- [x] Identify overlap between CI commands, local `make` targets, and `package.json` scripts.
+- [x] Propose or implement a smaller canonical command surface.
+- [x] Validate the resulting commands locally.
+- [x] If workflows change, verify the YAML remains syntactically valid and references real commands.
 
 ## Definition of Done
 
-- [ ] CI entry points are smaller and clearer than before.
-- [ ] Workflow logic and local validation commands are aligned.
-- [ ] Documentation reflects the real supported CI contract.
-- [ ] Follow-up complexity is tracked explicitly instead of left implicit.
+- [x] CI entry points are smaller and clearer than before.
+- [x] Workflow logic and local validation commands are aligned.
+- [x] Documentation reflects the real supported CI contract.
+- [x] Follow-up complexity is tracked explicitly instead of left implicit.
 
 ## Updates
+
+### 2026-04-02
+- Lane change: `40-review` → `50-done` by user direction after confirming the first CI simplification tranche and explicit publish follow-up were sufficient for closeout.
+- Acceptance criteria and definition-of-done checklist marked complete based on the canonical CI command surface, workflow simplification, documentation updates, and recorded YAML/local validation evidence already captured below.
+- Quality: ★★★★★ 9/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 2)
 
 ### 2026-03-30
 - Lane change: `20-doing` → `40-review` during board cleanup because the first CI simplification tranche is now implemented on `main`.

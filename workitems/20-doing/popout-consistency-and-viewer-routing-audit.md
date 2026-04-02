@@ -182,6 +182,22 @@ For each editor/viewer surface, the project should answer explicitly:
 
 ## Updates
 
+### 2026-04-02
+- Added a focused contract regression test at
+  `runtime/test/web/pane-popout-contracts.test.ts` to pin the current
+  generic-shell-only pop-out contract for:
+  - `demo/sample-video.webm` → `video-viewer`
+  - `demo/roadmap.mindmap.yaml` → `mindmap-editor`
+  - `demo/board.kanban.md` → `kanban-editor`
+  - `piclaw://terminal` → `terminal-tab`
+- The test also asserts `getStandaloneTabUrl(..., { hasPopOutTab: true })`
+  returns `null` for those surfaces, so they keep using the shared pane-popout
+  plumbing instead of drifting onto dedicated standalone helpers by accident.
+- Live verification now matches that contract for video, mindmap, and kanban.
+- Terminal remains the exception: the UI contract is correct, but live
+  instrumentation still shows a second `/terminal/ws` socket after `Open in
+  Window`, so the transport/session preservation part is still incomplete.
+
 ### 2026-04-01
 - Created to track the broader consistency pass requested after the Draw.io
   fixes and the resumed tab/pane live regression sweep.

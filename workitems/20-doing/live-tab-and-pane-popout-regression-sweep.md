@@ -140,6 +140,32 @@ or integration-test ticket.
 ## Updates
 
 ### 2026-04-02
+- Ran a second focused Playwright pass for the remaining generic-shell surfaces:
+  - terminal tab: `piclaw://terminal`
+  - video tab: `demo/sample-video.webm`
+  - mindmap tab: `demo/roadmap.mindmap.yaml`
+  - kanban tab: `demo/board.kanban.md`
+- Result:
+  - video, mindmap, and kanban all passed through the shared `Open in Window`
+    pane-popout flow
+  - each detached window used the expected generic `pane_popout=1` URL,
+    received the correct `… · PiClaw` title, mounted the expected inner pane
+    content, and auto-reattached cleanly on window close with no detached badge
+    left behind
+  - terminal uncovered a remaining live-transfer regression:
+    - the detached terminal window connected successfully and reattached cleanly
+    - but instrumentation around `/terminal/ws` showed the pop-out created a
+      second terminal websocket instead of preserving the original live session
+      during host transfer
+    - this means terminal live transfer is still not equivalent to the editor /
+      viewer reattach path and remains open
+- Added a focused contract regression test at
+  `runtime/test/web/pane-popout-contracts.test.ts` covering the generic-shell
+  pop-out contract for:
+  - terminal
+  - video
+  - mindmap
+  - kanban
 - Ran a focused Playwright pass for the simple viewer tabs via the shared
   `Open in Window` flow using:
   - image: `/workspace/provider-model-token-chart.png`
