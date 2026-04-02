@@ -129,6 +129,85 @@ function formatK(n) {
     return String(n);
 }
 
+export function formatModelPickerContextWindow(contextWindow) {
+    const value = Number(contextWindow);
+    if (!Number.isFinite(value) || value <= 0) return '';
+    return `${formatK(value)} ctx`;
+}
+
+export function formatModelPickerDisplayLabel(label, contextWindow) {
+    const primaryLabel = typeof label === 'string' ? label.trim() : '';
+    const contextLabel = formatModelPickerContextWindow(contextWindow);
+    if (!primaryLabel) return contextLabel;
+    if (!contextLabel) return primaryLabel;
+    return `${primaryLabel} • ${contextLabel}`;
+}
+
+function normalizeModelPickerLabel(value, provider = '', id = '') {
+    const explicit = typeof value === 'string' ? value.trim() : '';
+    if (explicit) return explicit;
+    const normalizedProvider = typeof provider === 'string' ? provider.trim() : '';
+    const normalizedId = typeof id === 'string' ? id.trim() : '';
+    if (normalizedProvider && normalizedId) return `${normalizedProvider}/${normalizedId}`;
+    return normalizedId || normalizedProvider || '';
+}
+
+export function normalizeModelPickerOptions(payload) {
+    const structured = Array.isArray(payload?.model_options) ? payload.model_options : null;
+    const legacy = Array.isArray(payload?.models) ? payload.models : [];
+    const rawItems = structured && structured.length > 0 ? structured : legacy;
+    const options = [];
+
+    for (const item of rawItems) {
+        if (typeof item === 'string') {
+            const label = item.trim();
+            if (!label) continue;
+            const slashIndex = label.indexOf('/');
+            const provider = slashIndex > 0 ? label.slice(0, slashIndex).trim() : '';
+            const id = slashIndex > 0 ? label.slice(slashIndex + 1).trim() : label;
+            options.push({
+                label,
+                provider,
+                id,
+                name: null,
+                contextWindow: null,
+                reasoning: false,
+            });
+            continue;
+        }
+
+        if (!item || typeof item !== 'object') continue;
+        const provider = typeof item.provider === 'string' ? item.provider.trim() : '';
+        const id = typeof item.id === 'string' ? item.id.trim() : '';
+        const label = normalizeModelPickerLabel(item.label, provider, id);
+        if (!label) continue;
+        const name = typeof item.name === 'string' && item.name.trim() ? item.name.trim() : null;
+        const contextWindow = Number(item.context_window ?? item.contextWindow);
+        options.push({
+            label,
+            provider,
+            id,
+            name,
+            contextWindow: Number.isFinite(contextWindow) && contextWindow > 0 ? contextWindow : null,
+            reasoning: Boolean(item.reasoning),
+        });
+    }
+
+    options.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    return options;
+}
+
+export function getModelPickerOptionSearchLabel(option) {
+    if (!option || typeof option !== 'object') return '';
+    return [
+        option.label,
+        option.provider,
+        option.id,
+        option.name,
+        formatModelPickerContextWindow(option.contextWindow),
+    ].filter(Boolean).join(' ');
+}
+
 function extractQueuedFileRefs(value) {
     if (!value) return { content: value, fileRefs: [] };
     const normalized = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -777,7 +856,10 @@ export function ComposeBox({
         await runModelCommand('/cycle-model');
     };
 
-    const handleSelectModel = async (modelLabel) => {
+    const handleSelectModel = async (modelOption) => {
+        const modelLabel = typeof modelOption === 'string'
+            ? modelOption
+            : (typeof modelOption?.label === 'string' ? modelOption.label : '');
         if (!modelLabel || switchingModel) return;
         const ok = await runModelCommand(`/model ${modelLabel}`);
         if (ok) setShowModelPopup(false);
@@ -1014,7 +1096,7 @@ export function ComposeBox({
                 consume();
                 const nextBuffer = updatePopupTypeaheadBuffer(popupTypeaheadRef.current, e.key);
                 popupTypeaheadRef.current = nextBuffer;
-                const match = resolvePopupTypeaheadMatch(modelOptions, nextBuffer.value, modelPopupIndex, (item) => item);
+                const match = resolvePopupTypeaheadMatch(modelOptions, nextBuffer.value, modelPopupIndex, (item) => getModelPickerOptionSearchLabel(item));
                 if (match >= 0) setModelPopupIndex(match);
                 return true;
             }
@@ -1322,11 +1404,7 @@ export function ComposeBox({
         setLoadingModels(true);
         getAgentModels(currentChatJid)
             .then((payload) => {
-                const models = Array.isArray(payload?.models)
-                    ? payload.models.filter((model) => typeof model === 'string' && model.trim().length > 0)
-                    : [];
-                models.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-                setModelOptions(models);
+                setModelOptions(normalizeModelPickerOptions(payload));
                 emitModelState(payload);
             })
             .catch((error) => {
@@ -1357,7 +1435,7 @@ export function ComposeBox({
 
     useEffect(() => {
         if (!showModelPopup) return;
-        const activeIndex = modelOptions.findIndex((model) => model === activeModel);
+        const activeIndex = modelOptions.findIndex((model) => model?.label === activeModel);
         setModelPopupIndex(activeIndex >= 0 ? activeIndex : 0);
     }, [showModelPopup, modelOptions, activeModel]);
 
@@ -1647,18 +1725,23 @@ export function ComposeBox({
                                 ${!loadingModels && modelOptions.length === 0 && html`
                                     <div class="compose-model-popup-empty">No models available.</div>
                                 `}
-                                ${!loadingModels && modelOptions.map((modelLabel, index) => html`
-                                    <button
-                                        key=${modelLabel}
-                                        type="button"
-                                        role="menuitem"
-                                        class=${`compose-model-popup-item${modelPopupIndex === index ? ' active' : ''}${activeModel === modelLabel ? ' current-model' : ''}`}
-                                        onClick=${() => { void handleSelectModel(modelLabel); }}
-                                        disabled=${switchingModel}
-                                    >
-                                        ${modelLabel}
-                                    </button>
-                                `)}
+                                ${!loadingModels && modelOptions.map((modelOption, index) => {
+                                    const modelLabel = typeof modelOption?.label === 'string' ? modelOption.label : '';
+                                    const contextWindowLabel = formatModelPickerContextWindow(modelOption?.contextWindow);
+                                    return html`
+                                        <button
+                                            key=${modelLabel}
+                                            type="button"
+                                            role="menuitem"
+                                            class=${`compose-model-popup-item compose-model-popup-model-item${modelPopupIndex === index ? ' active' : ''}${activeModel === modelLabel ? ' current-model' : ''}`}
+                                            onClick=${() => { void handleSelectModel(modelOption); }}
+                                            disabled=${switchingModel}
+                                            title=${[modelLabel, contextWindowLabel].filter(Boolean).join(' • ')}
+                                        >
+                                            <span class="compose-model-popup-model-label">${formatModelPickerDisplayLabel(modelLabel, modelOption?.contextWindow)}</span>
+                                        </button>
+                                    `;
+                                })}
                             </div>
                             <div class="compose-model-popup-actions">
                                 <button

@@ -778,6 +778,21 @@
     cursor: pointer;
 }
 
+.compose-model-popup-model-item {
+    display: flex;
+    align-items: flex-start;
+}
+
+.compose-model-popup-model-label {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+
 .compose-model-popup-item:hover,
 .compose-model-popup-item:focus-visible {
     background: var(--bg-hover);

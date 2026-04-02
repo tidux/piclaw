@@ -15,10 +15,21 @@ import { resolveModelLabel } from "../utils/model-utils.js";
 import { withChatContext } from "../core/chat-context.js";
 import type { PoolEntry } from "./session-manager.js";
 
+/** Structured model option returned to the web model picker. */
+export interface AvailableModelOption {
+  label: string;
+  provider: string;
+  id: string;
+  name: string | null;
+  context_window: number | null;
+  reasoning: boolean;
+}
+
 /** Shape returned by available-model inspection. */
 export interface AvailableModelsResult {
   current: string | null;
   models: string[];
+  model_options: AvailableModelOption[];
   thinking_level: string | null;
   supports_thinking: boolean;
   provider_usage: Awaited<ReturnType<typeof getProviderUsage>>;
@@ -61,7 +72,17 @@ export class AgentRuntimeFacade {
     const registry = (session as AgentSession & { modelRegistry?: ModelRegistry }).modelRegistry ?? this.options.modelRegistry;
     registry.refresh();
     const available = registry.getAvailable();
-    const models = available.map((model) => `${model.provider}/${model.id}`);
+    const modelOptions = available.map((model) => ({
+      label: `${model.provider}/${model.id}`,
+      provider: model.provider,
+      id: model.id,
+      name: typeof model.name === "string" && model.name.trim() ? model.name.trim() : null,
+      context_window: typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow) && model.contextWindow > 0
+        ? model.contextWindow
+        : null,
+      reasoning: Boolean(model.reasoning),
+    }));
+    const models = modelOptions.map((model) => model.label);
     const currentModel = session.model ? `${session.model.provider}/${session.model.id}` : null;
     const thinkingLevel = session.thinkingLevel ?? null;
     const supportsThinking = typeof (session as AgentSession & { supportsThinking?: () => boolean }).supportsThinking === "function"
@@ -73,6 +94,7 @@ export class AgentRuntimeFacade {
     return {
       current: currentModel,
       models,
+      model_options: modelOptions,
       thinking_level: thinkingLevel,
       supports_thinking: supportsThinking,
       provider_usage: providerUsage,

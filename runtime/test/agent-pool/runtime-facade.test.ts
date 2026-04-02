@@ -39,8 +39,8 @@ test("AgentRuntimeFacade reports available models and context usage", async () =
     modelRegistry: {
       refresh: () => { refreshCalls += 1; },
       getAvailable: () => [
-        { provider: "openai", id: "gpt-test" },
-        { provider: "anthropic", id: "claude-test" },
+        { provider: "openai", id: "gpt-test", name: "GPT Test", contextWindow: 128000, reasoning: true },
+        { provider: "anthropic", id: "claude-test", name: "Claude Test", contextWindow: 200000, reasoning: true },
       ],
     },
   };
@@ -52,6 +52,24 @@ test("AgentRuntimeFacade reports available models and context usage", async () =
   expect(refreshCalls).toBe(1);
   expect(available.current).toBe("openai/gpt-test");
   expect(available.models).toEqual(["openai/gpt-test", "anthropic/claude-test"]);
+  expect(available.model_options).toEqual([
+    {
+      label: "openai/gpt-test",
+      provider: "openai",
+      id: "gpt-test",
+      name: "GPT Test",
+      context_window: 128000,
+      reasoning: true,
+    },
+    {
+      label: "anthropic/claude-test",
+      provider: "anthropic",
+      id: "claude-test",
+      name: "Claude Test",
+      context_window: 200000,
+      reasoning: true,
+    },
+  ]);
   expect(available.thinking_level).toBe("high");
   expect(available.supports_thinking).toBe(true);
   expect(fixture.facade.getContextUsageForChat("web:default")).toEqual({
