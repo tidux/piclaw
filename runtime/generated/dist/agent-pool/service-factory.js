@@ -2,7 +2,7 @@
  * agent-pool/service-factory.ts – Constructor wiring for AgentPool helper services.
  */
 import { getAttachmentRegistry } from "./attachments.js";
-import { getChatSshConfig } from "../db.js";
+import { getSshConfig } from "../db.js";
 import { createChatSshCoreExtension, resolveSshCoreConfigFromChatConfig } from "../extensions/ssh-core.js";
 import { AgentBranchManager } from "./branch-manager.js";
 import { AgentRuntimeFacade } from "./runtime-facade.js";
@@ -14,10 +14,11 @@ import { recordMessageUsage } from "./usage.js";
 async function resolveSessionExtensionFactories(chatJid) {
     let sshConfig;
     try {
-        sshConfig = getChatSshConfig(chatJid);
+        sshConfig = getSshConfig(chatJid);
     }
     catch (error) {
-        if (!(error instanceof Error) || error.message !== "Database not initialized") {
+        if (!(error instanceof Error) ||
+            (error.message !== "Database not initialized" && error.message !== "Cannot use a closed database")) {
             throw error;
         }
     }

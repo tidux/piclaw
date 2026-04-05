@@ -111,7 +111,7 @@ export interface TaskRunLog {
 }
 
 /** Per-chat SSH remote execution profile used to enable remote core tools. */
-export interface ChatSshConfig {
+export interface SshConfig {
   /** Owning chat/session JID. */
   chat_jid: string;
   /** SSH target as user@host or host, optionally with :/remote/path suffix. */
@@ -131,18 +131,74 @@ export interface ChatSshConfig {
 }
 
 /** When an SSH config change takes effect for a chat session. */
-export type ChatSshConfigApplyTiming = "immediate" | "next_turn" | "next_session";
+export type SshConfigApplyTiming = "immediate" | "next_turn" | "next_session";
 
 /** Result of storing/updating a chat SSH config. */
-export interface ChatSshConfigSetResult {
-  config: ChatSshConfig;
-  apply_timing: ChatSshConfigApplyTiming;
+export interface SshConfigSetResult {
+  config: SshConfig;
+  apply_timing: SshConfigApplyTiming;
 }
 
 /** Result of clearing a chat SSH config. */
-export interface ChatSshConfigClearResult {
+export interface SshConfigClearResult {
   deleted: boolean;
-  apply_timing: ChatSshConfigApplyTiming;
+  apply_timing: SshConfigApplyTiming;
+}
+
+/** Per-chat Proxmox API profile used by the native proxmox tool. */
+export interface ProxmoxConfig {
+  /** Owning chat/session JID. */
+  chat_jid: string;
+  /** Proxmox API base URL, typically ending in /api2/json. */
+  base_url: string;
+  /** Keychain entry name containing the Proxmox API token credentials. */
+  api_token_keychain: string;
+  /** Whether to allow insecure/self-signed TLS when calling the API. */
+  allow_insecure_tls: boolean;
+  /** Creation timestamp. */
+  created_at: string;
+  /** Last update timestamp. */
+  updated_at: string;
+}
+
+/** Result of storing/updating a chat Proxmox config. */
+export interface ProxmoxConfigSetResult {
+  config: ProxmoxConfig;
+  apply_timing: "immediate";
+}
+
+/** Result of clearing a chat Proxmox config. */
+export interface ProxmoxConfigClearResult {
+  deleted: boolean;
+  apply_timing: "immediate";
+}
+
+/** Per-chat Portainer API profile used by the native portainer tool. */
+export interface PortainerConfig {
+  /** Owning chat/session JID. */
+  chat_jid: string;
+  /** Portainer API base URL, typically https://host:9443. */
+  base_url: string;
+  /** Keychain entry name containing the Portainer API token. */
+  api_token_keychain: string;
+  /** Whether to allow insecure/self-signed TLS when calling the API. */
+  allow_insecure_tls: boolean;
+  /** Creation timestamp. */
+  created_at: string;
+  /** Last update timestamp. */
+  updated_at: string;
+}
+
+/** Result of storing/updating a chat Portainer config. */
+export interface PortainerConfigSetResult {
+  config: PortainerConfig;
+  apply_timing: "immediate";
+}
+
+/** Result of clearing a chat Portainer config. */
+export interface PortainerConfigClearResult {
+  deleted: boolean;
+  apply_timing: "immediate";
 }
 
 /**

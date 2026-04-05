@@ -3,7 +3,6 @@ import { messagesCrud } from "./messages-crud.js";
 import { modelControl } from "./model-control.js";
 import { internalTools } from "./internal-tools.js";
 import { toolActivation } from "./tool-activation.js";
-import { keychainTools } from "./keychain-tools.js";
 import { sqlIntrospect } from "./sql-introspect.js";
 import { scheduledTasks } from "./scheduled-tasks.js";
 import { workspaceSearch } from "./workspace-search.js";
@@ -13,7 +12,6 @@ import { sendAdaptiveCard } from "./send-adaptive-card.js";
 import { sendDashboardWidget } from "./send-dashboard-widget.js";
 import { exitProcess } from "./exit-process.js";
 import { autoresearchSupervisor } from "./autoresearch-supervisor.js";
-import { sshTool } from "./ssh.js";
 /** Array of all built-in extension factories to register on session creation. */
 export const builtinExtensionFactories = [
     fileAttachments,
@@ -21,7 +19,6 @@ export const builtinExtensionFactories = [
     modelControl,
     internalTools,
     toolActivation,
-    keychainTools,
     sqlIntrospect,
     scheduledTasks,
     workspaceSearch,
@@ -31,5 +28,4 @@ export const builtinExtensionFactories = [
     sendDashboardWidget,
     exitProcess,
     autoresearchSupervisor,
-    sshTool,
 ];

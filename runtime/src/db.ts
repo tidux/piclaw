@@ -64,11 +64,23 @@ export {
   getTaskRunLogs,
 } from "./db/tasks.js";
 export {
-  getChatSshConfig,
-  upsertChatSshConfig,
-  deleteChatSshConfig,
-  listChatSshConfigs,
-} from "./db/chat-ssh-configs.js";
+  getSshConfig,
+  upsertSshConfig,
+  deleteSshConfig,
+  listSshConfigs,
+} from "./db/ssh-configs.js";
+export {
+  getProxmoxConfig,
+  upsertProxmoxConfig,
+  deleteProxmoxConfig,
+  listProxmoxConfigs,
+} from "./db/proxmox-configs.js";
+export {
+  getPortainerConfig,
+  upsertPortainerConfig,
+  deletePortainerConfig,
+  listPortainerConfigs,
+} from "./db/portainer-configs.js";
 export {
   storeToolOutput,
   insertToolOutputChunk,
@@ -127,8 +139,14 @@ export type {
   ToolOutputRecord,
 } from "./db/types.js";
 export type {
-  ChatSshConfig,
-  ChatSshConfigApplyTiming,
-  ChatSshConfigClearResult,
-  ChatSshConfigSetResult,
+  SshConfig,
+  SshConfigApplyTiming,
+  SshConfigClearResult,
+  SshConfigSetResult,
+  ProxmoxConfig,
+  ProxmoxConfigClearResult,
+  ProxmoxConfigSetResult,
+  PortainerConfig,
+  PortainerConfigClearResult,
+  PortainerConfigSetResult,
 } from "./types.js";

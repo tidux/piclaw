@@ -46,6 +46,28 @@ let dbPathCache = null;
  *   - workspace_files – file metadata cache for workspace search
  *   - workspace_fts – FTS5 index over workspace file contents
  */
+function renameLegacyConfigTable(database, fromName, toName) {
+    const rows = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?) ORDER BY name").all(fromName, toName);
+    const names = new Set(rows.map((row) => row.name));
+    if (!names.has(fromName) || names.has(toName))
+        return;
+    try {
+        database.exec(`ALTER TABLE ${fromName} RENAME TO ${toName}`);
+    }
+    catch (err) {
+        log.warn("Failed to rename legacy config table", {
+            operation: "rename_legacy_config_table",
+            fromName,
+            toName,
+            err,
+        });
+    }
+}
+function migrateLegacyConfigTables(database) {
+    renameLegacyConfigTable(database, "chat_ssh_configs", "ssh_configs");
+    renameLegacyConfigTable(database, "chat_proxmox_configs", "proxmox_configs");
+    renameLegacyConfigTable(database, "chat_portainer_configs", "portainer_configs");
+}
 function createSchema(database) {
     database.exec(`
     CREATE TABLE IF NOT EXISTS chats (
@@ -201,7 +223,7 @@ function createSchema(database) {
     CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_created_at ON scheduled_tasks(created_at);
     CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_last_run ON scheduled_tasks(last_run);
 
-    CREATE TABLE IF NOT EXISTS chat_ssh_configs (
+    CREATE TABLE IF NOT EXISTS ssh_configs (
       chat_jid TEXT PRIMARY KEY,
       ssh_target TEXT NOT NULL,
       ssh_port INTEGER NOT NULL DEFAULT 22,
@@ -212,7 +234,29 @@ function createSchema(database) {
       updated_at TEXT NOT NULL,
       FOREIGN KEY (chat_jid) REFERENCES chats(jid)
     );
-    CREATE INDEX IF NOT EXISTS idx_chat_ssh_configs_updated_at ON chat_ssh_configs(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_ssh_configs_updated_at ON ssh_configs(updated_at);
+
+    CREATE TABLE IF NOT EXISTS proxmox_configs (
+      chat_jid TEXT PRIMARY KEY,
+      base_url TEXT NOT NULL,
+      api_token_keychain TEXT NOT NULL,
+      allow_insecure_tls INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (chat_jid) REFERENCES chats(jid)
+    );
+    CREATE INDEX IF NOT EXISTS idx_proxmox_configs_updated_at ON proxmox_configs(updated_at);
+
+    CREATE TABLE IF NOT EXISTS portainer_configs (
+      chat_jid TEXT PRIMARY KEY,
+      base_url TEXT NOT NULL,
+      api_token_keychain TEXT NOT NULL,
+      allow_insecure_tls INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (chat_jid) REFERENCES chats(jid)
+    );
+    CREATE INDEX IF NOT EXISTS idx_portainer_configs_updated_at ON portainer_configs(updated_at);
 
     CREATE TABLE IF NOT EXISTS task_run_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -638,6 +682,7 @@ export function initDatabase() {
     db.exec(useMemory ? "PRAGMA journal_mode = MEMORY;" : "PRAGMA journal_mode = WAL;");
     db.exec("PRAGMA busy_timeout = 5000;");
     db.exec("PRAGMA secure_delete = ON;");
+    migrateLegacyConfigTables(db);
     createSchema(db);
     ensureChatBranchConstraints(db);
     ensureMessageColumns(db);

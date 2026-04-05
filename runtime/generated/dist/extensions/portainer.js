@@ -1,0 +1,681 @@
+import { Type } from "@sinclair/typebox";
+import { getChatJid } from "../core/chat-context.js";
+import { discoverPortainerInstances, } from "../portainer/client.js";
+let registeredHandlers = null;
+export function setPortainerToolHandlers(handlers) {
+    registeredHandlers = handlers ?? null;
+}
+const PortainerWorkflowSchema = Type.Union([
+    Type.Literal("endpoint.list"),
+    Type.Literal("endpoint.resolve"),
+    Type.Literal("endpoint.inspect"),
+    Type.Literal("endpoint.ping"),
+    Type.Literal("endpoint.docker_info"),
+    Type.Literal("endpoint.docker_version"),
+    Type.Literal("endpoint.system_df"),
+    Type.Literal("stack.list"),
+    Type.Literal("stack.resolve"),
+    Type.Literal("stack.file"),
+    Type.Literal("stack.create_standalone"),
+    Type.Literal("stack.update"),
+    Type.Literal("stack.pull_and_update"),
+    Type.Literal("stack.delete"),
+    Type.Literal("container.list"),
+    Type.Literal("container.resolve"),
+    Type.Literal("container.inspect"),
+    Type.Literal("container.compose"),
+    Type.Literal("container.start"),
+    Type.Literal("container.stop"),
+    Type.Literal("container.restart"),
+    Type.Literal("container.logs"),
+    Type.Literal("container.mounts"),
+    Type.Literal("container.exec"),
+    Type.Literal("container.upgrade"),
+    Type.Literal("container.upgrade_many"),
+    Type.Literal("container.delete"),
+    Type.Literal("image.list"),
+    Type.Literal("image.inspect"),
+    Type.Literal("image.pull"),
+    Type.Literal("image.delete"),
+    Type.Literal("image.prune"),
+    Type.Literal("image.update_check"),
+    Type.Literal("network.list"),
+    Type.Literal("network.inspect"),
+    Type.Literal("network.create"),
+    Type.Literal("network.delete"),
+    Type.Literal("volume.list"),
+    Type.Literal("volume.inspect"),
+    Type.Literal("volume.create"),
+    Type.Literal("volume.delete"),
+    Type.Literal("volume.prune"),
+], { description: "Named higher-level Portainer workflow to run." });
+const PortainerToolSchema = Type.Object({
+    action: Type.Union([
+        Type.Literal("get"),
+        Type.Literal("set"),
+        Type.Literal("clear"),
+        Type.Literal("discover"),
+        Type.Literal("capabilities"),
+        Type.Literal("workflow_help"),
+        Type.Literal("recommend"),
+        Type.Literal("request"),
+        Type.Literal("workflow"),
+    ], {
+        description: "Operation to perform for the current chat Portainer config, API request, or workflow.",
+    }),
+    chat_jid: Type.Optional(Type.String({ description: "Target chat JID. Defaults to the current chat context." })),
+    base_url: Type.Optional(Type.String({ description: "Portainer base URL, typically like https://host:9443." })),
+    api_token_keychain: Type.Optional(Type.String({ description: "Keychain entry containing the Portainer API token secret." })),
+    allow_insecure_tls: Type.Optional(Type.Boolean({ description: "Allow insecure/self-signed TLS when calling the API." })),
+    method: Type.Optional(Type.String({ description: "HTTP method for action=request (GET, POST, PUT, DELETE)." })),
+    path: Type.Optional(Type.String({ description: "Relative Portainer API path for action=request." })),
+    query: Type.Optional(Type.Any({ description: "Optional query-string parameters for action=request." })),
+    body: Type.Optional(Type.Any({ description: "Optional request body for action=request." })),
+    body_mode: Type.Optional(Type.Union([
+        Type.Literal("json"),
+        Type.Literal("text"),
+    ], { description: "How to encode the request body for action=request." })),
+    headers: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "Optional extra headers for action=request." })),
+    workflow: Type.Optional(PortainerWorkflowSchema),
+    category: Type.Optional(Type.String({ description: "Optional workflow family/category filter for action=capabilities or action=recommend." })),
+    include_workflows: Type.Optional(Type.Boolean({ description: "Include detailed workflow entries for action=capabilities. Defaults to false unless category is set." })),
+    include_examples: Type.Optional(Type.Boolean({ description: "Include generated example payloads for action=workflow_help." })),
+    intent: Type.Optional(Type.String({ description: "Short goal description for action=recommend, e.g. 'update a standalone container' or 'find stack compose'." })),
+    max_recommendations: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: "Maximum workflow recommendations for action=recommend (default 3)." })),
+    endpoint_id: Type.Optional(Type.Integer({ minimum: 1, description: "Endpoint ID for endpoint/stack/container workflows." })),
+    stack_id: Type.Optional(Type.Integer({ minimum: 1, description: "Stack ID for stack workflows." })),
+    container_id: Type.Optional(Type.String({ description: "Container ID/prefix for container workflows." })),
+    network_id: Type.Optional(Type.String({ description: "Network ID/prefix for network workflows." })),
+    name: Type.Optional(Type.String({ description: "Generic lookup name for endpoint/container/network workflows, or a fallback image/volume name where applicable." })),
+    image: Type.Optional(Type.String({ description: "Image reference for image workflows." })),
+    volume_name: Type.Optional(Type.String({ description: "Volume name for volume.inspect." })),
+    stack_name: Type.Optional(Type.String({ description: "Stack name for create workflows." })),
+    stack_file_content: Type.Optional(Type.String({ description: "Compose content for stack create/update workflows." })),
+    unmanaged: Type.Optional(Type.Boolean({ description: "Only keep unmanaged containers for container.list." })),
+    force: Type.Optional(Type.Boolean({ description: "Force deletion for container.delete, container.upgrade cleanup, or image.delete." })),
+    all_unused: Type.Optional(Type.Boolean({ description: "Prune all unused images for image.prune, not just dangling ones." })),
+    tail: Type.Optional(Type.Integer({ minimum: 1, description: "Tail line count for container.logs." })),
+    timestamps: Type.Optional(Type.Boolean({ description: "Include timestamps for container.logs." })),
+    timeout_sec: Type.Optional(Type.Integer({ minimum: 1, description: "Stop/restart timeout seconds for container workflows." })),
+    command: Type.Optional(Type.String({ description: "Command for bounded container.exec workflows." })),
+    command_args: Type.Optional(Type.Array(Type.String(), { description: "Command arguments for bounded container.exec workflows." })),
+    driver: Type.Optional(Type.String({ description: "Network driver for network.create." })),
+    internal: Type.Optional(Type.Boolean({ description: "Whether network.create should create an internal network." })),
+    attachable: Type.Optional(Type.Boolean({ description: "Whether network.create should create an attachable network." })),
+    enable_ipv6: Type.Optional(Type.Boolean({ description: "Whether network.create should enable IPv6." })),
+    labels: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "Optional labels for network.create." })),
+    options: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "Optional driver options for network.create or volume.create." })),
+    names: Type.Optional(Type.Array(Type.String(), { description: "Container names for bulk workflows like container.upgrade_many." })),
+});
+const PORTAINER_WORKFLOW_FAMILY_SUMMARIES = {
+    container: "Container lifecycle, logs, exec, and standalone upgrade workflows.",
+    endpoint: "Endpoint discovery and Docker host inspection workflows.",
+    image: "Image inventory, pull, cleanup, and update-planning workflows.",
+    network: "Docker network inventory and lifecycle workflows.",
+    stack: "Stack lookup, file, create, update, and pull-update workflows.",
+    volume: "Docker volume inventory and lifecycle workflows.",
+};
+const PORTAINER_WORKFLOW_CAPABILITIES = {
+    "endpoint.list": { category: "endpoint", summary: "List Portainer endpoints.", required_fields: [] },
+    "endpoint.resolve": { category: "endpoint", summary: "Resolve an endpoint by ID or name.", required_fields: [], optional_fields: ["endpoint_id", "name"], recommended_for: ["finding an endpoint ID before inspect or mutate flows"] },
+    "endpoint.inspect": { category: "endpoint", summary: "Inspect one endpoint.", required_fields: ["endpoint_id"] },
+    "endpoint.ping": { category: "endpoint", summary: "Ping a Docker endpoint.", required_fields: ["endpoint_id"] },
+    "endpoint.docker_info": { category: "endpoint", summary: "Read Docker daemon info.", required_fields: ["endpoint_id"] },
+    "endpoint.docker_version": { category: "endpoint", summary: "Read Docker version info.", required_fields: ["endpoint_id"] },
+    "endpoint.system_df": { category: "endpoint", summary: "Read Docker disk-usage summary.", required_fields: ["endpoint_id"], recommended_for: ["checking host storage pressure before cleanup or upgrades"] },
+    "stack.list": { category: "stack", summary: "List stacks, optionally for one endpoint.", required_fields: [], optional_fields: ["endpoint_id"] },
+    "stack.resolve": { category: "stack", summary: "Resolve a stack by ID or name.", required_fields: [], optional_fields: ["endpoint_id", "stack_id", "stack_name", "name"], recommended_for: ["finding a stack ID before file, update, or delete work"] },
+    "stack.file": { category: "stack", summary: "Read stack compose content.", required_fields: [], optional_fields: ["endpoint_id", "stack_id", "stack_name", "name"] },
+    "stack.create_standalone": { category: "stack", summary: "Create a standalone stack from compose content.", required_fields: ["endpoint_id", "stack_name", "stack_file_content"], mutating: true },
+    "stack.update": { category: "stack", summary: "Update a stack with supplied compose content.", required_fields: ["endpoint_id", "stack_id", "stack_file_content"], mutating: true },
+    "stack.pull_and_update": { category: "stack", summary: "Resolve a stack, re-read its compose, and update with pull enabled.", required_fields: [], optional_fields: ["endpoint_id", "stack_id", "stack_name", "name"], mutating: true, recommended_for: ["refreshing stack-managed workloads", "safe stack image refreshes"], guidance: ["Prefer this over container.upgrade for stack-managed workloads."] },
+    "stack.delete": { category: "stack", summary: "Delete a stack.", required_fields: ["endpoint_id", "stack_id"], mutating: true, destructive: true },
+    "container.list": { category: "container", summary: "List containers for an endpoint.", required_fields: ["endpoint_id"], optional_fields: ["unmanaged"] },
+    "container.resolve": { category: "container", summary: "Resolve a container by ID or name.", required_fields: ["endpoint_id"], optional_fields: ["container_id", "name"], recommended_for: ["finding a precise container ID before inspect, delete, or upgrade flows"] },
+    "container.inspect": { category: "container", summary: "Inspect a container.", required_fields: ["endpoint_id"], optional_fields: ["container_id", "name"] },
+    "container.compose": { category: "container", summary: "Export a container as practical compose YAML.", required_fields: ["endpoint_id"], optional_fields: ["container_id", "name"] },
+    "container.start": { category: "container", summary: "Start a container.", required_fields: ["endpoint_id"], optional_fields: ["container_id", "name"], mutating: true },
+    "container.stop": { category: "container", summary: "Stop a container.", required_fields: ["endpoint_id"], optional_fields: ["container_id", "name", "timeout_sec"], mutating: true },
+    "container.restart": { category: "container", summary: "Restart a container.", required_fields: ["endpoint_id"], optional_fields: ["container_id", "name", "timeout_sec"], mutating: true },
+    "container.logs": { category: "container", summary: "Read bounded container logs.", required_fields: ["endpoint_id"], optional_fields: ["container_id", "name", "tail", "timestamps"] },
+    "container.mounts": { category: "container", summary: "Inspect container mount attachments.", required_fields: ["endpoint_id"], optional_fields: ["container_id", "name"] },
+    "container.exec": { category: "container", summary: "Run a bounded non-interactive exec command.", required_fields: ["endpoint_id", "command"], optional_fields: ["container_id", "name", "command_args"], mutating: true, recommended_for: ["one-off diagnostics inside a container without opening a terminal"], guidance: ["Keep commands short and non-interactive; streaming attach is not supported here."] },
+    "container.upgrade": { category: "container", summary: "Upgrade one standalone container in place with rollback on start failure.", required_fields: ["endpoint_id"], optional_fields: ["container_id", "name", "image", "timeout_sec", "force"], mutating: true, recommended_for: ["refreshing standalone containers"], guidance: ["Prefer stack.pull_and_update for stack-managed workloads."] },
+    "container.upgrade_many": { category: "container", summary: "Upgrade multiple standalone containers using the single-container upgrade flow.", required_fields: ["endpoint_id", "names"], optional_fields: ["image", "timeout_sec", "force"], mutating: true, recommended_for: ["batch refreshing standalone containers"], guidance: ["Prefer stack.pull_and_update for stack-managed workloads."] },
+    "container.delete": { category: "container", summary: "Delete a container.", required_fields: ["endpoint_id"], optional_fields: ["container_id", "name", "force"], mutating: true, destructive: true },
+    "image.list": { category: "image", summary: "List endpoint images.", required_fields: ["endpoint_id"] },
+    "image.inspect": { category: "image", summary: "Inspect one image.", required_fields: ["endpoint_id", "image"] },
+    "image.pull": { category: "image", summary: "Pull an image.", required_fields: ["endpoint_id", "image"], mutating: true },
+    "image.delete": { category: "image", summary: "Delete an image.", required_fields: ["endpoint_id", "image"], optional_fields: ["force"], mutating: true, destructive: true },
+    "image.prune": { category: "image", summary: "Prune images.", required_fields: ["endpoint_id"], optional_fields: ["all_unused"], mutating: true, destructive: true },
+    "image.update_check": { category: "image", summary: "Compare local and remote image digests.", required_fields: ["endpoint_id", "image"], recommended_for: ["update planning", "drift checks before pull or upgrade"] },
+    "network.list": { category: "network", summary: "List Docker networks.", required_fields: ["endpoint_id"] },
+    "network.inspect": { category: "network", summary: "Inspect a Docker network.", required_fields: ["endpoint_id"], optional_fields: ["network_id", "name"] },
+    "network.create": { category: "network", summary: "Create a Docker network.", required_fields: ["endpoint_id", "name"], optional_fields: ["driver", "internal", "attachable", "enable_ipv6", "labels", "options"], mutating: true },
+    "network.delete": { category: "network", summary: "Delete a Docker network.", required_fields: ["endpoint_id"], optional_fields: ["network_id", "name"], mutating: true, destructive: true },
+    "volume.list": { category: "volume", summary: "List Docker volumes.", required_fields: ["endpoint_id"] },
+    "volume.inspect": { category: "volume", summary: "Inspect a Docker volume.", required_fields: ["endpoint_id"], optional_fields: ["volume_name", "name"] },
+    "volume.create": { category: "volume", summary: "Create a Docker volume.", required_fields: ["endpoint_id"], optional_fields: ["volume_name", "name", "driver", "labels", "options"], mutating: true },
+    "volume.delete": { category: "volume", summary: "Delete a Docker volume.", required_fields: ["endpoint_id"], optional_fields: ["volume_name", "name", "force"], mutating: true, destructive: true },
+    "volume.prune": { category: "volume", summary: "Prune unused Docker volumes.", required_fields: ["endpoint_id"], mutating: true, destructive: true },
+};
+function resolveRuntimePortainerWorkflowName(value) {
+    return value;
+}
+function uniqueStrings(values) {
+    return [...new Set(values.filter((value) => typeof value === "string" && value.trim().length > 0))];
+}
+function normalizeCategoryFilter(value) {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    return trimmed || undefined;
+}
+function getPortainerWorkflowEntries(category) {
+    const entries = Object.entries(PORTAINER_WORKFLOW_CAPABILITIES)
+        .map(([name, spec]) => ({ name, ...spec }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    if (!category)
+        return entries;
+    const filtered = entries.filter((entry) => entry.category === category);
+    if (filtered.length === 0) {
+        throw new Error(`Unknown Portainer workflow family: ${category}`);
+    }
+    return filtered;
+}
+function buildPortainerFamilySummaries() {
+    return Object.entries(PORTAINER_WORKFLOW_FAMILY_SUMMARIES)
+        .map(([name, summary]) => {
+        const entries = getPortainerWorkflowEntries(name);
+        return {
+            name,
+            summary,
+            workflow_count: entries.length,
+            mutating_workflow_count: entries.filter((entry) => entry.mutating === true).length,
+            destructive_workflow_count: entries.filter((entry) => entry.destructive === true).length,
+        };
+    })
+        .sort((a, b) => a.name.localeCompare(b.name));
+}
+function getPortainerDefaultRecommendedFor(category) {
+    switch (category) {
+        case "container":
+        case "stack":
+            return ["day-2 application operations", "maintenance and rollout work"];
+        case "endpoint":
+            return ["endpoint inventory", "Docker host inspection"];
+        case "image":
+            return ["image hygiene", "update planning"];
+        case "network":
+        case "volume":
+            return ["Docker environment inspection", "configuration changes"];
+        default:
+            return [];
+    }
+}
+function getPortainerDefaultSeeAlso(workflow, category) {
+    switch (category) {
+        case "endpoint":
+            return ["endpoint.list", "endpoint.resolve", "endpoint.inspect", "endpoint.docker_info", "endpoint.system_df"];
+        case "stack":
+            return ["stack.list", "stack.resolve", "stack.file", "stack.pull_and_update", "stack.update"];
+        case "container":
+            return ["container.list", "container.resolve", "container.inspect", "container.logs", "container.upgrade"];
+        case "image":
+            return ["image.list", "image.inspect", "image.update_check", "image.pull", "image.prune"];
+        case "network":
+            return ["network.list", "network.inspect", "network.create", "network.delete"];
+        case "volume":
+            return ["volume.list", "volume.inspect", "volume.create", "volume.delete"];
+        default:
+            return getPortainerWorkflowEntries(category).map((entry) => entry.name);
+    }
+}
+function getPortainerDefaultGuidance(workflow, spec) {
+    const guidance = [...(spec.guidance || [])];
+    if (spec.category === "endpoint" && spec.required_fields.includes("endpoint_id") && workflow !== "endpoint.resolve") {
+        guidance.push("Use endpoint.resolve first when starting from an endpoint name.");
+    }
+    if (spec.category === "stack" && (spec.optional_fields?.includes("stack_name") || spec.optional_fields?.includes("name"))) {
+        guidance.push("Use stack.resolve first when starting from a stack name.");
+    }
+    if (spec.category === "container" && spec.optional_fields?.includes("name")) {
+        guidance.push("Use container.resolve first when a container name may be ambiguous.");
+    }
+    if (workflow === "container.logs") {
+        guidance.push("Use tail to keep log results small.");
+    }
+    if (workflow === "image.update_check") {
+        guidance.push("Run this before upgrade/pull work when you only need to know whether an update exists.");
+    }
+    if (spec.mutating) {
+        guidance.push("Inspect current state first if you need a pre-change snapshot.");
+    }
+    if (spec.destructive) {
+        guidance.push("Double-check identifiers and scope before destructive workflows.");
+    }
+    return uniqueStrings(guidance);
+}
+function buildPortainerRequiredFieldExample(field, workflow) {
+    switch (field) {
+        case "endpoint_id": return 2;
+        case "stack_id": return 7;
+        case "container_id": return "e90e34656806";
+        case "network_id": return "frontend-net";
+        case "name": return workflow.startsWith("endpoint.") ? "diskstation" : workflow.startsWith("network.") ? "frontend" : workflow.startsWith("volume.") ? "gitea-data" : "gitea";
+        case "image": return "gitea/gitea:latest";
+        case "volume_name": return "gitea-data";
+        case "stack_name": return "gitea";
+        case "stack_file_content": return "services:\n  app:\n    image: nginx:latest\n";
+        case "command": return "echo";
+        case "command_args": return ["ok"];
+        case "driver": return workflow.startsWith("volume.") ? "local" : "bridge";
+        case "timeout_sec": return 20;
+        case "names": return ["gitea", "registry"];
+        default: return `<${field}>`;
+    }
+}
+function buildPortainerCommonOptionalExample(workflow) {
+    switch (workflow) {
+        case "endpoint.resolve":
+            return { name: "diskstation" };
+        case "stack.resolve":
+        case "stack.file":
+        case "stack.pull_and_update":
+            return { endpoint_id: 2, stack_name: "gitea" };
+        case "container.inspect":
+        case "container.compose":
+        case "container.mounts":
+        case "container.start":
+        case "container.stop":
+        case "container.restart":
+        case "container.delete":
+        case "container.upgrade":
+            return { name: "gitea" };
+        case "container.logs":
+            return { name: "gitea", tail: 200, timestamps: true };
+        case "container.exec":
+            return { name: "gitea", command_args: ["ok"] };
+        case "container.upgrade_many":
+            return { timeout_sec: 20 };
+        case "image.prune":
+            return { all_unused: true };
+        case "network.inspect":
+        case "network.delete":
+            return { name: "frontend" };
+        case "network.create":
+            return { driver: "bridge", attachable: true };
+        case "volume.inspect":
+        case "volume.delete":
+            return { volume_name: "gitea-data" };
+        case "volume.create":
+            return { volume_name: "gitea-data", driver: "local" };
+        default:
+            return {};
+    }
+}
+function buildPortainerWorkflowExamples(workflow, spec) {
+    const base = { action: "workflow", workflow };
+    for (const field of spec.required_fields) {
+        base[field] = buildPortainerRequiredFieldExample(field, workflow);
+    }
+    const common = { ...base, ...buildPortainerCommonOptionalExample(workflow), ...(spec.example_fields || {}) };
+    const serializedBase = JSON.stringify(base);
+    const serializedCommon = JSON.stringify(common);
+    return serializedBase === serializedCommon ? [base] : [base, common];
+}
+function buildPortainerCapabilitiesPayload(options) {
+    const category = normalizeCategoryFilter(options?.category);
+    const familySummaries = buildPortainerFamilySummaries();
+    if (category && !familySummaries.some((entry) => entry.name === category)) {
+        throw new Error(`Unknown Portainer workflow family: ${category}`);
+    }
+    const includeWorkflows = options?.include_workflows === true || Boolean(category);
+    const entries = includeWorkflows ? getPortainerWorkflowEntries(category) : [];
+    return {
+        actions: ["get", "set", "clear", "discover", "capabilities", "workflow_help", "recommend", "request", "workflow"],
+        workflow_count: Object.keys(PORTAINER_WORKFLOW_CAPABILITIES).length,
+        workflow_families: familySummaries.map((entry) => entry.name),
+        family_summaries: category ? familySummaries.filter((entry) => entry.name === category) : familySummaries,
+        ...(category ? { category } : {}),
+        include_workflows: includeWorkflows,
+        ...(includeWorkflows ? {
+            matching_workflow_count: entries.length,
+            workflows: entries.map(({ name, category: workflowCategory, summary, required_fields, optional_fields, mutating, destructive }) => ({
+                name,
+                category: workflowCategory,
+                summary,
+                required_fields,
+                optional_fields: optional_fields || [],
+                mutating: mutating === true,
+                destructive: destructive === true,
+            })),
+        } : {}),
+        next_steps: [
+            "Set category to inspect one workflow family without pulling the whole surface.",
+            "Use workflow_help with one workflow for required fields, guidance, and see_also suggestions.",
+            "Set include_examples=true on workflow_help only when you need example payloads.",
+        ],
+    };
+}
+function getPortainerWorkflowHelp(value, options) {
+    const raw = typeof value === "string" ? value.trim() : "";
+    if (!raw)
+        throw new Error("Provide workflow for action=workflow_help.");
+    const spec = PORTAINER_WORKFLOW_CAPABILITIES[raw];
+    if (!spec)
+        throw new Error(`Unknown Portainer workflow: ${raw}`);
+    const recommendedFor = uniqueStrings([...(spec.recommended_for || []), ...getPortainerDefaultRecommendedFor(spec.category)]);
+    const seeAlso = uniqueStrings([...(spec.see_also || []), ...getPortainerDefaultSeeAlso(raw, spec.category)]).filter((entry) => entry !== raw).slice(0, 5);
+    const guidance = getPortainerDefaultGuidance(raw, spec);
+    return {
+        canonical_workflow: raw,
+        runtime_workflow: resolveRuntimePortainerWorkflowName(raw),
+        spec,
+        recommended_for: recommendedFor,
+        see_also: seeAlso,
+        guidance,
+        ...(options?.include_examples ? { examples: buildPortainerWorkflowExamples(raw, spec) } : {}),
+    };
+}
+function tokenizeIntent(value) {
+    return value.toLowerCase().split(/[^a-z0-9]+/).map((entry) => entry.trim()).filter((entry) => entry.length >= 2);
+}
+function scorePortainerWorkflowForIntent(workflow, spec, tokens) {
+    if (tokens.length === 0)
+        return 0;
+    const haystacks = [workflow, spec.category, spec.summary, ...(spec.recommended_for || []), ...(spec.guidance || []), ...(spec.see_also || [])]
+        .join(" ")
+        .toLowerCase();
+    let score = 0;
+    for (const token of tokens) {
+        if (workflow.toLowerCase().includes(token))
+            score += 5;
+        if (spec.category.toLowerCase().includes(token))
+            score += 3;
+        if (haystacks.includes(token))
+            score += 2;
+    }
+    if (tokens.some((token) => ["update", "upgrade", "refresh"].includes(token)) && workflow === "stack.pull_and_update")
+        score += 8;
+    if (tokens.some((token) => ["update", "upgrade", "refresh"].includes(token)) && workflow === "container.upgrade")
+        score += 6;
+    if (tokens.some((token) => ["logs", "log"].includes(token)) && workflow === "container.logs")
+        score += 8;
+    if (tokens.some((token) => ["exec", "command", "diagnostic"].includes(token)) && workflow === "container.exec")
+        score += 8;
+    if (tokens.some((token) => ["compose", "stackfile", "yaml"].includes(token)) && workflow === "stack.file")
+        score += 8;
+    return score;
+}
+function buildPortainerRecommendations(intent, options) {
+    const rawIntent = typeof intent === "string" ? intent.trim() : "";
+    if (!rawIntent)
+        throw new Error("Provide intent for action=recommend.");
+    const category = normalizeCategoryFilter(options?.category);
+    const tokens = tokenizeIntent(rawIntent);
+    const entries = getPortainerWorkflowEntries(category)
+        .map((entry) => {
+        const help = getPortainerWorkflowHelp(entry.name);
+        return {
+            workflow: entry.name,
+            category: entry.category,
+            summary: entry.summary,
+            score: scorePortainerWorkflowForIntent(entry.name, entry, tokens),
+            required_fields: entry.required_fields,
+            recommended_for: help.recommended_for,
+            guidance: help.guidance.slice(0, 2),
+        };
+    })
+        .filter((entry) => entry.score > 0)
+        .sort((a, b) => b.score - a.score || a.workflow.localeCompare(b.workflow));
+    const maxRecommendations = Math.min(Math.max(Math.trunc(options?.max_recommendations ?? 3), 1), 10);
+    const recommendations = entries.slice(0, maxRecommendations);
+    return {
+        intent: rawIntent,
+        ...(category ? { category } : {}),
+        token_count: tokens.length,
+        recommendation_count: recommendations.length,
+        recommendations,
+        next_steps: recommendations.length > 0
+            ? [
+                "Use workflow_help for the top workflow to fetch required fields and guidance.",
+                "Set include_examples=true on workflow_help only if you need an example payload.",
+            ]
+            : [
+                "Try a broader category or a more specific intent phrase.",
+                "Use capabilities to inspect available families if the intent is still ambiguous.",
+            ],
+    };
+}
+const PORTAINER_TOOL_HINT = [
+    "## Portainer",
+    "Use portainer to inspect or change the Portainer API profile for the current session.",
+    "Use portainer discover to find a likely existing Portainer instance from keychain/env hints.",
+    "Use portainer capabilities to list workflow families, portainer recommend for intent-based shortlists, and portainer workflow_help for one workflow's fields/guidance.",
+    "Use portainer request for ad-hoc Portainer API calls and portainer workflow for reusable endpoint/stack/container/image/network/volume orchestration.",
+    "Keep the raw request path available so future inventory/charting and other Portainer API surfaces do not need bespoke runtime primitives.",
+].join("\n");
+function normalizeChatJid(value) {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    return trimmed || getChatJid("web:default");
+}
+function buildWorkflowSummary(workflow, result) {
+    const maybeArrayCount = Array.isArray(result.result) ? ` (${result.result.length} items)` : "";
+    return `Portainer workflow ${workflow} completed${maybeArrayCount}.`;
+}
+export const portainerTool = (pi) => {
+    pi.on("before_agent_start", async (event) => ({
+        systemPrompt: `${event.systemPrompt}\n\n${PORTAINER_TOOL_HINT}`,
+    }));
+    pi.registerTool({
+        name: "portainer",
+        label: "portainer",
+        description: "Get, set, or clear the session-scoped Portainer API profile, perform ad-hoc API requests, or run common Portainer workflows.",
+        promptSnippet: "portainer: inspect/update the current session Portainer API profile, send ad-hoc API requests, or run common endpoint/stack/container/image/volume workflows.",
+        parameters: PortainerToolSchema,
+        async execute(_toolCallId, params) {
+            const chatJid = normalizeChatJid(params.chat_jid);
+            if (params.action === "capabilities") {
+                const payload = buildPortainerCapabilitiesPayload({
+                    category: params.category,
+                    include_workflows: params.include_workflows,
+                });
+                const familyCount = Array.isArray(payload.workflow_families) ? payload.workflow_families.length : 0;
+                const filteredCount = typeof payload.matching_workflow_count === "number" ? payload.matching_workflow_count : null;
+                return {
+                    content: [{
+                            type: "text",
+                            text: typeof payload.category === "string"
+                                ? `Portainer family ${payload.category} exposes ${filteredCount ?? 0} workflows. Use workflow_help for one workflow and include_examples=true only when needed.`
+                                : `Portainer supports ${String(payload.workflow_count)} documented workflows across ${familyCount} families. Use category to drill into one family without pulling the whole surface.`,
+                        }],
+                    details: { action: "capabilities", chat_jid: chatJid, ...payload },
+                };
+            }
+            if (params.action === "workflow_help") {
+                const help = getPortainerWorkflowHelp(params.workflow, { include_examples: params.include_examples === true });
+                return {
+                    content: [{ type: "text", text: `Portainer workflow ${help.canonical_workflow}: ${help.spec.summary}` }],
+                    details: {
+                        action: "workflow_help",
+                        chat_jid: chatJid,
+                        canonical_workflow: help.canonical_workflow,
+                        runtime_workflow: help.runtime_workflow,
+                        ...help.spec,
+                        recommended_for: help.recommended_for,
+                        see_also: help.see_also,
+                        guidance: help.guidance,
+                        ...(help.examples ? { examples: help.examples } : {}),
+                    },
+                };
+            }
+            if (params.action === "recommend") {
+                const payload = buildPortainerRecommendations(params.intent, {
+                    category: params.category,
+                    max_recommendations: params.max_recommendations,
+                });
+                const recommendationCount = typeof payload.recommendation_count === "number" ? payload.recommendation_count : 0;
+                const intent = typeof payload.intent === "string" ? payload.intent : "";
+                return {
+                    content: [{
+                            type: "text",
+                            text: recommendationCount
+                                ? `Portainer found ${String(recommendationCount)} workflow recommendation(s) for \"${intent}\".`
+                                : `Portainer found no strong workflow matches for \"${intent}\".`,
+                        }],
+                    details: { action: "recommend", chat_jid: chatJid, ...payload },
+                };
+            }
+            const handlers = registeredHandlers;
+            if (!handlers) {
+                return {
+                    content: [{ type: "text", text: "portainer is not available in this runtime." }],
+                    details: { available: false },
+                };
+            }
+            if (params.action === "get") {
+                const config = handlers.get(chatJid);
+                if (!config) {
+                    return {
+                        content: [{ type: "text", text: `No Portainer config stored for ${chatJid}.` }],
+                        details: { action: "get", chat_jid: chatJid, configured: false, config: null },
+                    };
+                }
+                return {
+                    content: [{
+                            type: "text",
+                            text: `Portainer config for ${chatJid}: ${config.base_url} (key ${config.api_token_keychain}, insecure TLS ${config.allow_insecure_tls ? "on" : "off"}).`,
+                        }],
+                    details: { action: "get", chat_jid: chatJid, configured: true, config },
+                };
+            }
+            if (params.action === "set") {
+                const result = await handlers.set(chatJid, {
+                    base_url: typeof params.base_url === "string" ? params.base_url.trim() : "",
+                    api_token_keychain: typeof params.api_token_keychain === "string" ? params.api_token_keychain.trim() : "",
+                    allow_insecure_tls: params.allow_insecure_tls ?? true,
+                });
+                return {
+                    content: [{
+                            type: "text",
+                            text: `Stored Portainer config for ${chatJid}: ${result.config.base_url} (key ${result.config.api_token_keychain}). Applies immediately.`,
+                        }],
+                    details: {
+                        action: "set",
+                        chat_jid: chatJid,
+                        updated: true,
+                        apply_timing: result.apply_timing,
+                        config: result.config,
+                    },
+                };
+            }
+            if (params.action === "clear") {
+                const result = await handlers.clear(chatJid);
+                return {
+                    content: [{
+                            type: "text",
+                            text: result.deleted
+                                ? `Cleared Portainer config for ${chatJid}. Applies immediately.`
+                                : `No Portainer config existed for ${chatJid}. Applies immediately.`,
+                        }],
+                    details: {
+                        action: "clear",
+                        chat_jid: chatJid,
+                        deleted: result.deleted,
+                        apply_timing: result.apply_timing,
+                    },
+                };
+            }
+            if (params.action === "discover") {
+                const discovery = await discoverPortainerInstances();
+                return {
+                    content: [{
+                            type: "text",
+                            text: discovery.default_candidate
+                                ? `Discovered ${discovery.candidates.length} Portainer candidate(s); default ${discovery.default_candidate.api_token_keychain}${discovery.default_candidate.base_url ? ` @ ${discovery.default_candidate.base_url}` : ""}.`
+                                : "No Portainer instances discovered from current keychain/env hints.",
+                        }],
+                    details: {
+                        action: "discover",
+                        chat_jid: chatJid,
+                        ...discovery,
+                    },
+                };
+            }
+            if (params.action === "workflow") {
+                if (!params.workflow) {
+                    return {
+                        content: [{ type: "text", text: "Provide workflow for action=workflow." }],
+                        details: { action: "workflow", chat_jid: chatJid, ok: false },
+                    };
+                }
+                const help = getPortainerWorkflowHelp(params.workflow);
+                const workflowResult = await handlers.workflow(chatJid, {
+                    workflow: help.runtime_workflow,
+                    ...(typeof params.endpoint_id === "number" ? { endpoint_id: params.endpoint_id } : {}),
+                    ...(typeof params.stack_id === "number" ? { stack_id: params.stack_id } : {}),
+                    ...(typeof params.container_id === "string" ? { container_id: params.container_id } : {}),
+                    ...(typeof params.network_id === "string" ? { network_id: params.network_id } : {}),
+                    ...(typeof params.name === "string" ? { name: params.name } : {}),
+                    ...(typeof params.stack_name === "string" ? { stack_name: params.stack_name } : {}),
+                    ...(typeof params.stack_file_content === "string" ? { stack_file_content: params.stack_file_content } : {}),
+                    ...(typeof params.image === "string" ? { image: params.image } : {}),
+                    ...(typeof params.volume_name === "string" ? { volume_name: params.volume_name } : {}),
+                    ...(typeof params.unmanaged === "boolean" ? { unmanaged: params.unmanaged } : {}),
+                    ...(typeof params.force === "boolean" ? { force: params.force } : {}),
+                    ...(typeof params.all_unused === "boolean" ? { all_unused: params.all_unused } : {}),
+                    ...(typeof params.tail === "number" ? { tail: params.tail } : {}),
+                    ...(typeof params.timestamps === "boolean" ? { timestamps: params.timestamps } : {}),
+                    ...(typeof params.timeout_sec === "number" ? { timeout_sec: params.timeout_sec } : {}),
+                    ...(typeof params.command === "string" ? { command: params.command } : {}),
+                    ...(Array.isArray(params.command_args) ? { command_args: params.command_args } : {}),
+                    ...(typeof params.driver === "string" ? { driver: params.driver } : {}),
+                    ...(typeof params.internal === "boolean" ? { internal: params.internal } : {}),
+                    ...(typeof params.attachable === "boolean" ? { attachable: params.attachable } : {}),
+                    ...(typeof params.enable_ipv6 === "boolean" ? { enable_ipv6: params.enable_ipv6 } : {}),
+                    ...(params.labels ? { labels: params.labels } : {}),
+                    ...(params.options ? { options: params.options } : {}),
+                    ...(Array.isArray(params.names) ? { names: params.names } : {}),
+                });
+                return {
+                    content: [{ type: "text", text: buildWorkflowSummary(help.canonical_workflow, workflowResult) }],
+                    details: {
+                        action: "workflow",
+                        chat_jid: chatJid,
+                        ok: true,
+                        canonical_workflow: help.canonical_workflow,
+                        runtime_workflow: help.runtime_workflow,
+                        response: workflowResult,
+                    },
+                };
+            }
+            const path = typeof params.path === "string" ? params.path.trim() : "";
+            const method = typeof params.method === "string" && params.method.trim() ? params.method.trim().toUpperCase() : "GET";
+            if (!path) {
+                return {
+                    content: [{ type: "text", text: "Provide path for action=request." }],
+                    details: { action: "request", chat_jid: chatJid, ok: false },
+                };
+            }
+            const response = await handlers.request(chatJid, {
+                method,
+                path,
+                ...(params.query !== undefined ? { query: params.query } : {}),
+                ...(params.body !== undefined ? { body: params.body } : {}),
+                ...(params.body_mode ? { body_mode: params.body_mode } : {}),
+                ...(params.headers ? { headers: params.headers } : {}),
+            });
+            return {
+                content: [{
+                        type: "text",
+                        text: `Portainer ${response.method} ${response.path} succeeded with HTTP ${response.status}.`,
+                    }],
+                details: {
+                    action: "request",
+                    chat_jid: chatJid,
+                    ok: true,
+                    response,
+                },
+            };
+        },
+    });
+};

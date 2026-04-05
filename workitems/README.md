@@ -19,6 +19,7 @@ This board is the **project-local workitems board** for piclaw.
 - This board mirrors the standard lane layout used elsewhere.
 - Prefer keeping piclaw work here instead of in a shared global board.
 - Keep non-piclaw tickets in a shared/global workitems board outside this repo unless the user requests a different home.
+- When moving a ticket from `10-next/` to `20-doing/`, consult `workitems/regression-test-planning-reference.md` and record the applicable regression classes in the ticket's `## Test Plan`.
 
 ## Layout
 

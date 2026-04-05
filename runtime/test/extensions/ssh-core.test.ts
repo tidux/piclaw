@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 import sshCoreExtension, {
-  applyLiveChatSshConfig,
+  applyLiveSshConfig,
   hasLiveChatSshSession,
   parseSshFlag,
   parseSshPort,
@@ -99,7 +99,7 @@ describe("ssh-core live state", () => {
     await registerLiveChatSshSession("web:default", { localCwd: "/workspace", localHome: "/home/agent" });
     expect(hasLiveChatSshSession("web:default")).toBe(true);
 
-    const connection = await applyLiveChatSshConfig("web:default", {
+    const connection = await applyLiveSshConfig("web:default", {
       target: "agent@example.com:/srv/project",
       port: 22,
       privateKeyKeychain: "ssh-prod",

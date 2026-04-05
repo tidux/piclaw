@@ -3,19 +3,19 @@ import { Type } from "@sinclair/typebox";
 
 import { getChatJid } from "../core/chat-context.js";
 import type {
-  ChatSshConfig,
-  ChatSshConfigApplyTiming,
-  ChatSshConfigClearResult,
-  ChatSshConfigSetResult,
+  SshConfig,
+  SshConfigApplyTiming,
+  SshConfigClearResult,
+  SshConfigSetResult,
 } from "../types.js";
 
-type SessionSshConfigInput = Omit<ChatSshConfig, "chat_jid" | "created_at" | "updated_at">;
+type SessionSshConfigInput = Omit<SshConfig, "chat_jid" | "created_at" | "updated_at">;
 type SshToolResult = { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> };
 
 export interface SshToolHandlers {
-  get(chatJid: string): ChatSshConfig | null;
-  set(chatJid: string, config: SessionSshConfigInput): Promise<ChatSshConfigSetResult>;
-  clear(chatJid: string): Promise<ChatSshConfigClearResult>;
+  get(chatJid: string): SshConfig | null;
+  set(chatJid: string, config: SessionSshConfigInput): Promise<SshConfigSetResult>;
+  clear(chatJid: string): Promise<SshConfigClearResult>;
 }
 
 let registeredHandlers: SshToolHandlers | null = null;
@@ -59,7 +59,7 @@ function normalizeKnownHostsKeychain(value: string | undefined): string | null {
   return trimmed || null;
 }
 
-function formatApplyTiming(value: ChatSshConfigApplyTiming): string {
+function formatApplyTiming(value: SshConfigApplyTiming): string {
   if (value === "immediate") return "Applied immediately to the live session.";
   if (value === "next_turn") return "Applies on the next turn for the active session.";
   return "Applies when the next session is created.";

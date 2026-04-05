@@ -178,7 +178,7 @@ test("agent pool stores SSH config for future sessions when no live SSH session 
   const ws = getTestWorkspace();
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
 
-  const { initDatabase, getChatSshConfig } = await importFresh<typeof import("../src/db.js")>("../src/db.js");
+  const { initDatabase, getSshConfig } = await importFresh<typeof import("../src/db.js")>("../src/db.js");
   initDatabase();
   const { AgentPool } = await importFresh<typeof import("../src/agent-pool.js")>("../src/agent-pool.js");
 
@@ -196,7 +196,7 @@ test("agent pool stores SSH config for future sessions when no live SSH session 
     async prompt(_prompt: string) {
       this.isStreaming = true;
       try {
-        const result = await pool.setChatSshConfig("web:other", {
+        const result = await pool.setSshConfig("web:other", {
           ssh_target: "agent@example.com:/srv/project",
           ssh_port: 22,
           private_key_keychain: "ssh-prod",
@@ -204,7 +204,7 @@ test("agent pool stores SSH config for future sessions when no live SSH session 
           strict_host_key_checking: "yes",
         });
         expect(result.apply_timing).toBe("next_session");
-        expect(getChatSshConfig("web:other")?.ssh_target).toBe("agent@example.com:/srv/project");
+        expect(getSshConfig("web:other")?.ssh_target).toBe("agent@example.com:/srv/project");
       } finally {
         this.isStreaming = false;
       }

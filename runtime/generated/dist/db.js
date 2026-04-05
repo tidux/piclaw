@@ -14,7 +14,9 @@ export { storeChatMetadata, storeMessage, getMessageByRowId, getMessageByAnyRowI
 export { attachMediaToMessage, getMediaIdsForMessage, createMedia, getMediaById, getMediaInfoById, deleteUnreferencedMedia, } from "./db/media.js";
 export { getLinkPreviewImageCache, upsertLinkPreviewImageCache, touchLinkPreviewImageCache, purgeExpiredLinkPreviewImageCache, } from "./db/link-preview-image-cache.js";
 export { createTask, getTaskById, updateTask, deleteTask, getDueTasks, updateTaskAfterRun, logTaskRun, getTaskRunLogs, } from "./db/tasks.js";
-export { getChatSshConfig, upsertChatSshConfig, deleteChatSshConfig, listChatSshConfigs, } from "./db/chat-ssh-configs.js";
+export { getSshConfig, upsertSshConfig, deleteSshConfig, listSshConfigs, } from "./db/ssh-configs.js";
+export { getProxmoxConfig, upsertProxmoxConfig, deleteProxmoxConfig, listProxmoxConfigs, } from "./db/proxmox-configs.js";
+export { getPortainerConfig, upsertPortainerConfig, deletePortainerConfig, listPortainerConfigs, } from "./db/portainer-configs.js";
 export { storeToolOutput, insertToolOutputChunk, getToolOutputById, deleteToolOutputsBefore, searchToolOutputSnippets, } from "./db/tool-outputs.js";
 export { getRouterState, setRouterState } from "./db/router-state.js";
 export { getChatCursor, getAllChatCursors, getInflightMessageId, setChatCursor, beginChatRun, endChatRun, endChatRunWithError, getFailedRun, clearFailedRun, getInflightRuns, rollbackInflightRun, clearInflightMarker, getAgentReplyStateAfter, hasAgentRepliesAfter, getDeferredQueuedFollowups, setDeferredQueuedFollowups, } from "./db/chat-cursors.js";

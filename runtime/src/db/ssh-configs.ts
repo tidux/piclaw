@@ -1,20 +1,20 @@
-import type { ChatSshConfig } from "../types.js";
+import type { SshConfig } from "../types.js";
 import { getDb } from "./connection.js";
 
-type StrictMode = ChatSshConfig["strict_host_key_checking"];
+type StrictMode = SshConfig["strict_host_key_checking"];
 
 function normalizeStrictMode(value: string | null | undefined): StrictMode {
   return value === "accept-new" || value === "no" ? value : "yes";
 }
 
-export function getChatSshConfig(chatJid: string): ChatSshConfig | null {
+export function getSshConfig(chatJid: string): SshConfig | null {
   const db = getDb();
   const row = db.prepare(
     `SELECT chat_jid, ssh_target, ssh_port, private_key_keychain, known_hosts_keychain,
             strict_host_key_checking, created_at, updated_at
-       FROM chat_ssh_configs
+       FROM ssh_configs
       WHERE chat_jid = ?`
-  ).get(chatJid) as ChatSshConfig | undefined;
+  ).get(chatJid) as SshConfig | undefined;
   if (!row) return null;
   return {
     ...row,
@@ -24,12 +24,12 @@ export function getChatSshConfig(chatJid: string): ChatSshConfig | null {
   };
 }
 
-export function upsertChatSshConfig(config: Omit<ChatSshConfig, "created_at" | "updated_at">): ChatSshConfig {
+export function upsertSshConfig(config: Omit<SshConfig, "created_at" | "updated_at">): SshConfig {
   const db = getDb();
   const now = new Date().toISOString();
   const strictMode = normalizeStrictMode(config.strict_host_key_checking);
   db.prepare(
-    `INSERT INTO chat_ssh_configs (
+    `INSERT INTO ssh_configs (
         chat_jid, ssh_target, ssh_port, private_key_keychain, known_hosts_keychain,
         strict_host_key_checking, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -50,23 +50,23 @@ export function upsertChatSshConfig(config: Omit<ChatSshConfig, "created_at" | "
     now,
     now,
   );
-  return getChatSshConfig(config.chat_jid)!;
+  return getSshConfig(config.chat_jid)!;
 }
 
-export function deleteChatSshConfig(chatJid: string): boolean {
+export function deleteSshConfig(chatJid: string): boolean {
   const db = getDb();
-  const result = db.prepare("DELETE FROM chat_ssh_configs WHERE chat_jid = ?").run(chatJid);
+  const result = db.prepare("DELETE FROM ssh_configs WHERE chat_jid = ?").run(chatJid);
   return result.changes > 0;
 }
 
-export function listChatSshConfigs(): ChatSshConfig[] {
+export function listSshConfigs(): SshConfig[] {
   const db = getDb();
   const rows = db.prepare(
     `SELECT chat_jid, ssh_target, ssh_port, private_key_keychain, known_hosts_keychain,
             strict_host_key_checking, created_at, updated_at
-       FROM chat_ssh_configs
+       FROM ssh_configs
       ORDER BY updated_at DESC, chat_jid ASC`
-  ).all() as ChatSshConfig[];
+  ).all() as SshConfig[];
   return rows.map((row) => ({
     ...row,
     ssh_port: Number.isFinite(row.ssh_port) ? row.ssh_port : 22,

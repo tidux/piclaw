@@ -18,7 +18,7 @@ experimental path and not a generally supported deployment target.
 
 The repository root is the package/install boundary for this flow. The nested
 `runtime/` directory is the packaged implementation subtree that contains the
-runtime sources, web app, extensions, vendored assets, skills, packaged helper
+runtime sources, web app, extensions, vendored assets, skills, packaged runtime
 scripts, and packaged runtime docs.
 
 For maintainer-facing placement rules inside the repo, see

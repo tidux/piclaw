@@ -654,7 +654,7 @@ async function disposeLiveChatSshTransport(state) {
 export function hasLiveChatSshSession(chatJid) {
     return (liveChatSshStates.get(chatJid)?.refCount ?? 0) > 0;
 }
-export async function applyLiveChatSshConfig(chatJid, config, options = {}) {
+export async function applyLiveSshConfig(chatJid, config, options = {}) {
     const state = getOrCreateLiveChatSshState(chatJid, options.localCwd ?? process.cwd(), options.localHome ?? homedir());
     return await state.mutations.enqueue(async () => {
         if (state.connection && state.transport && sameResolvedConfig(state.config, config)) {
@@ -671,7 +671,7 @@ export async function applyLiveChatSshConfig(chatJid, config, options = {}) {
         return nextConnection;
     });
 }
-export async function clearLiveChatSshConfig(chatJid) {
+export async function clearLiveSshConfig(chatJid) {
     const state = getLiveChatSshState(chatJid);
     if (!state)
         return;
@@ -686,7 +686,7 @@ export async function registerLiveChatSshSession(chatJid, options = {}) {
     const state = getOrCreateLiveChatSshState(chatJid, options.localCwd ?? process.cwd(), options.localHome ?? homedir());
     state.refCount += 1;
     if (options.config)
-        await applyLiveChatSshConfig(chatJid, options.config, options);
+        await applyLiveSshConfig(chatJid, options.config, options);
 }
 export async function unregisterLiveChatSshSession(chatJid) {
     const state = getLiveChatSshState(chatJid);

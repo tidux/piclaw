@@ -15,7 +15,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 
 import { getKeychainEntry } from "../secure/keychain.js";
-import type { ChatSshConfig } from "../types.js";
+import type { SshConfig } from "../types.js";
 
 interface SshBootstrapConnection {
   sshTarget: string;
@@ -749,7 +749,7 @@ function resolveConfigFromEnvOrFlags(pi: ExtensionAPI): SshCoreResolvedConfig | 
   };
 }
 
-export function resolveSshCoreConfigFromChatConfig(config: Pick<ChatSshConfig, "ssh_target" | "ssh_port" | "private_key_keychain" | "known_hosts_keychain" | "strict_host_key_checking">): SshCoreResolvedConfig {
+export function resolveSshCoreConfigFromChatConfig(config: Pick<SshConfig, "ssh_target" | "ssh_port" | "private_key_keychain" | "known_hosts_keychain" | "strict_host_key_checking">): SshCoreResolvedConfig {
   return {
     target: config.ssh_target,
     port: parseSshPort(String(config.ssh_port)),
@@ -818,7 +818,7 @@ export function hasLiveChatSshSession(chatJid: string): boolean {
   return (liveChatSshStates.get(chatJid)?.refCount ?? 0) > 0;
 }
 
-export async function applyLiveChatSshConfig(
+export async function applyLiveSshConfig(
   chatJid: string,
   config: SshCoreResolvedConfig,
   options: { localCwd?: string; localHome?: string } = {},
@@ -850,7 +850,7 @@ export async function applyLiveChatSshConfig(
   });
 }
 
-export async function clearLiveChatSshConfig(chatJid: string): Promise<void> {
+export async function clearLiveSshConfig(chatJid: string): Promise<void> {
   const state = getLiveChatSshState(chatJid);
   if (!state) return;
   await state.mutations.enqueue(async () => {
@@ -866,7 +866,7 @@ export async function registerLiveChatSshSession(
 ): Promise<void> {
   const state = getOrCreateLiveChatSshState(chatJid, options.localCwd ?? process.cwd(), options.localHome ?? homedir());
   state.refCount += 1;
-  if (options.config) await applyLiveChatSshConfig(chatJid, options.config, options);
+  if (options.config) await applyLiveSshConfig(chatJid, options.config, options);
 }
 
 export async function unregisterLiveChatSshSession(chatJid: string): Promise<void> {

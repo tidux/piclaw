@@ -11,16 +11,15 @@
  *   - modelControl: get_model_state, list_models, switch_model, switch_thinking.
  *   - internalTools: list_internal_tools for tool discovery.
  *   - toolActivation: activate_tools/reset_active_tools for lazy tool activation.
- *   - keychainTools: keychain for listing/retrieving keychain entries.
  *   - sqlIntrospect: introspect_sql for read-only DB introspection.
  *   - scheduledTasks: /tasks and /scheduled commands for task listing.
  *   - workspaceSearch: search_workspace tool for FTS over workspace files.
  *   - sendAdaptiveCard: send_adaptive_card for agent-owned Adaptive Card posting.
  *   - sendDashboardWidget: send_dashboard_widget for posting the built-in live dashboard widget.
  *
- * Note: bun_run now lives as a packaged runtime extension under
- * runtime/extensions/integrations/bun-runner and is loaded via the
- * additionalExtensionPaths wiring in agent-pool/session.ts.
+ * Note: bun_run, keychain, ssh, proxmox, and portainer now live as packaged
+ * runtime extensions under runtime/extensions/integrations/* and are loaded via
+ * the additionalExtensionPaths wiring in agent-pool/session.ts.
  *
  * Consumers:
  *   - agent-pool/session.ts passes builtinExtensionFactories to the resource loader.
@@ -31,7 +30,6 @@ import { messagesCrud } from "./messages-crud.js";
 import { modelControl } from "./model-control.js";
 import { internalTools } from "./internal-tools.js";
 import { toolActivation } from "./tool-activation.js";
-import { keychainTools } from "./keychain-tools.js";
 import { sqlIntrospect } from "./sql-introspect.js";
 import { scheduledTasks } from "./scheduled-tasks.js";
 import { workspaceSearch } from "./workspace-search.js";
@@ -41,7 +39,6 @@ import { sendAdaptiveCard } from "./send-adaptive-card.js";
 import { sendDashboardWidget } from "./send-dashboard-widget.js";
 import { exitProcess } from "./exit-process.js";
 import { autoresearchSupervisor } from "./autoresearch-supervisor.js";
-import { sshTool } from "./ssh.js";
 
 /** Array of all built-in extension factories to register on session creation. */
 export const builtinExtensionFactories: ExtensionFactory[] = [
@@ -50,7 +47,6 @@ export const builtinExtensionFactories: ExtensionFactory[] = [
   modelControl,
   internalTools,
   toolActivation,
-  keychainTools,
   sqlIntrospect,
   scheduledTasks,
   workspaceSearch,
@@ -60,5 +56,4 @@ export const builtinExtensionFactories: ExtensionFactory[] = [
   sendDashboardWidget,
   exitProcess,
   autoresearchSupervisor,
-  sshTool,
 ];

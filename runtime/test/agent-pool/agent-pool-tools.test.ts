@@ -2,9 +2,9 @@
  * test/agent-pool/agent-pool-tools.test.ts – Tests for built-in extension tool registration.
  *
  * Verifies that builtinExtensionFactories register the expected tools
- * (attach_file, messages, model control, tool discovery + activation, keychain, SQL introspection, workspace search,
+ * (attach_file, messages, model control, tool discovery + activation, SQL introspection, workspace search,
  * adaptive cards, dashboard widget posting, graceful exit, and autoresearch controls).
- * bun_run is now provided by a packaged runtime extension rather than a builtin factory.
+ * bun_run, keychain, ssh, and proxmox are provided by packaged runtime extensions rather than builtin factories.
  * and slash commands (/tasks, /scheduled, /theme, /tint) on a mock ExtensionAPI.
  */
 
@@ -65,7 +65,6 @@ describe("builtin extension factories", () => {
     expect(fake.tools.has("list_internal_tools")).toBe(true);
     expect(fake.tools.has("activate_tools")).toBe(true);
     expect(fake.tools.has("reset_active_tools")).toBe(true);
-    expect(fake.tools.has("keychain")).toBe(true);
     expect(fake.tools.has("introspect_sql")).toBe(true);
     expect(fake.tools.has("send_adaptive_card")).toBe(true);
     expect(fake.tools.has("send_dashboard_widget")).toBe(true);
@@ -73,7 +72,6 @@ describe("builtin extension factories", () => {
     expect(fake.tools.has("start_autoresearch")).toBe(true);
     expect(fake.tools.has("stop_autoresearch")).toBe(true);
     expect(fake.tools.has("autoresearch_status")).toBe(true);
-    expect(fake.tools.has("ssh")).toBe(true);
 
     // Commands from scheduled-tasks + ui-theme extensions
     expect(fake.commands.has("tasks")).toBe(true);
@@ -83,6 +81,6 @@ describe("builtin extension factories", () => {
   });
 
   test("factories array has expected length", () => {
-    expect(builtinExtensionFactories.length).toBe(16);
+    expect(builtinExtensionFactories.length).toBe(14);
   });
 });

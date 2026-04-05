@@ -225,7 +225,7 @@ A chat can optionally switch its core file/shell tools to a remote host over SSH
 
 - Control surface: agent-only `ssh` tool
 - Scope: one chat JID at a time
-- Persistence: SQLite `chat_ssh_configs`
+- Persistence: SQLite `ssh_configs`
 - Affected tools: `read`, `write`, `edit`, `bash`
 
 The important runtime property is that SSH mode is **live mutable**. If a warm session already exists, `ssh set` and `ssh clear` can flip the backend immediately for the next tool/model step without rebuilding the whole session.
@@ -240,15 +240,15 @@ sequenceDiagram
   participant Host as Local or Remote host
 
   Agent->>ssh: action=set target+keychain
-  ssh->>Pool: setChatSshConfig(chatJid, config)
-  Pool->>DB: upsert chat_ssh_configs
-  Pool->>Core: applyLiveChatSshConfig(chatJid)
+  ssh->>Pool: setSshConfig(chatJid, config)
+  Pool->>DB: upsert ssh_configs
+  Pool->>Core: applyLiveSshConfig(chatJid)
   Core-->>Host: next read/write/edit/bash uses SSH
 
   Agent->>ssh: action=clear
-  ssh->>Pool: clearChatSshConfig(chatJid)
-  Pool->>DB: delete chat_ssh_configs row
-  Pool->>Core: clearLiveChatSshConfig(chatJid)
+  ssh->>Pool: clearSshConfig(chatJid)
+  Pool->>DB: delete ssh_configs row
+  Pool->>Core: clearLiveSshConfig(chatJid)
   Core-->>Host: next core tool call runs locally
 ```
 

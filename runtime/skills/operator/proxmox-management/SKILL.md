@@ -1,26 +1,33 @@
 ---
 name: proxmox-management
-description: Manage Proxmox VMs and USB passthrough using bundled helper scripts (status/inspect/start/stop/resume, USB discovery, USB mapping attach, and backup-restore moves).
+description: Manage Proxmox using the native proxmox tool first, with shell wrappers retained for USB passthrough and backup-restore move flows.
 distribution: public
 ---
 
 # Proxmox Management
 
-Use this skill for routine Proxmox VM operations and USB passthrough tasks.
+Use this skill for Proxmox work when you need:
+
+- native `proxmox` workflow examples for routine infra operations
+- shell-oriented wrappers for USB passthrough tasks
+- the backup-restore VM move helper when direct migration is blocked by storage constraints
 
 ## Scope
 
 This skill is focused on:
 
-- VM inspect/status/start/stop/resume (`qemu`)
+- native-tool-first Proxmox operations
+- bounded VM/LXC/storage provisioning examples
+- ISO/media and VM disk workflow examples
+- VM lifecycle wrappers (`qemu`)
 - USB discovery on a node
-- Cluster USB mapping create/update
+- cluster USB mapping create/update
 - USB mapping attach to a VM slot (`usb0`..`usb4`)
 - VM move via backup+restore when direct migration is blocked by storage-type constraints
 
 ## Setup
 
-Set Proxmox API environment variables first.
+Set Proxmox API environment variables first when using the shell wrappers directly.
 
 > Keep examples sanitized in prompts/logs. Use placeholders in documentation and avoid sharing real secrets.
 
@@ -33,12 +40,42 @@ export PVE_TOKEN_SECRET="$(printf '%s' "$TOKEN_JSON" | jq -r '.secret')"
 
 If `PVE_TOKEN_USER` / `PVE_TOKEN_SECRET` are omitted, scripts try keychain entry `proxmox/piclaw-management-token`.
 
+## Native tool first
+
+Prefer the native `proxmox` tool for routine work when the session already has a
+session-scoped Proxmox profile. Use:
+
+- `action: "request"` for ad-hoc API calls
+- `action: "workflow"` for native VM/LXC/storage/task/metrics workflows
+- `action: "capabilities"`, `"workflow_help"`, and `"recommend"` to discover the right workflow with low context
+
+Common native workflow examples:
+
+- `workflow: "vm.inspect"`
+- `workflow: "vm.create"`
+- `workflow: "lxc.create"`
+- `workflow: "storage.create"`
+- `workflow: "storage.download_url"`
+- `workflow: "vm.iso.attach"`
+- `workflow: "vm.iso.detach"`
+- `workflow: "vm.disk.resize"`
+- `workflow: "vm.disk.detach"`
+- `workflow: "vm.disk.remove"`
+- `workflow: "backup.restore"`
+- `workflow: "metrics.node"`
+- `workflow: "metrics.vm"`
+- `workflow: "metrics.storage"`
+
+Use the shell scripts below only when a shell-oriented wrapper is more convenient
+or when working with the remaining skill-specific flows.
+
 ## Scripts
 
-This skill now uses the packaged helper at `runtime/scripts/proxmox.ts` for the
-core VM lifecycle actions. The thin wrappers in this skill directory delegate to
-that helper so node discovery, task polling, and keychain resolution stay
-centralized.
+The old packaged `runtime/scripts/proxmox.ts` helper was removed once the native
+session-scoped `proxmox` tool became the canonical path. The wrappers in this
+skill directory call the shared runtime Proxmox client/workflow layer directly so
+node resolution, task polling, guest-IP lookup, metrics retrieval, and keychain-backed
+API access stay centralized without a duplicate repo-level CLI.
 
 Wrappers in this skill directory:
 
@@ -51,26 +88,38 @@ Wrappers in this skill directory:
 - `proxmox-attach-usb-mapping-to-vm.ts`
 - `proxmox-move-vm-via-backup-restore.ts`
 
-Packaged helper commands:
-
-- `bun run runtime/scripts/proxmox.ts vm status --vmid <id>`
-- `bun run runtime/scripts/proxmox.ts vm inspect --vmid <id>`
-- `bun run runtime/scripts/proxmox.ts vm start --vmid <id>`
-- `bun run runtime/scripts/proxmox.ts vm stop --vmid <id>`
-- `bun run runtime/scripts/proxmox.ts vm resume --vmid <id>`
-- `bun run runtime/scripts/proxmox.ts vm restart --vmid <id>`
-- `bun run runtime/scripts/proxmox.ts vm ip --vmid <id>`
-
 ## Common workflows
 
-### 1) Check VM status/config
+### 1) Inspect or create a VM with the native tool
+
+Use the native tool when the session already has a Proxmox profile:
+
+- inspect an existing VM: `workflow: "vm.inspect"`
+- create a VM: `workflow: "vm.create"`
+- attach installer media: `workflow: "vm.iso.attach"`
+- grow or remove a disk: `workflow: "vm.disk.resize"` / `"vm.disk.remove"`
+
+When you are unsure which fields are needed, prefer:
+
+- `action: "recommend"` with a short intent
+- `action: "workflow_help"` for the selected workflow
+
+### 2) Download public ISO media into storage
+
+Use the native workflow:
+
+- `workflow: "storage.download_url"`
+
+This is a server-side Proxmox pull into storage, so it avoids agent-side file upload.
+
+### 3) Check VM status/config with the wrapper
 
 ```bash
 export PVE_VMID="<vmid>"
 bun ./proxmox-vm-status.ts
 ```
 
-### 2) Start/stop/resume VM
+### 4) Start/stop/resume VM with wrappers
 
 ```bash
 export PVE_VMID="<vmid>"
@@ -81,7 +130,7 @@ bun ./proxmox-stop-vm.ts
 bun ./proxmox-resume-vm.ts
 ```
 
-### 3) Find Bluetooth USB dongles on a node
+### 5) Find Bluetooth USB dongles on a node
 
 ```bash
 export PVE_NODE="<node>"
@@ -95,7 +144,7 @@ Optional filters:
 - `PVE_USB_PRODID` (e.g. `0001`)
 - `PVE_USB_CLASS` (e.g. `224` or `e0`)
 
-### 4) Upsert USB mapping + attach to VM
+### 6) Upsert USB mapping + attach to VM
 
 Prefer mapping-based attach with API tokens.
 
@@ -113,7 +162,7 @@ export PVE_USB_SLOT="usb0"
 bun ./proxmox-attach-usb-mapping-to-vm.ts
 ```
 
-### 5) Move VM across nodes/storage via backup+restore
+### 7) Move VM across nodes/storage via backup+restore
 
 Use when direct migration fails due to incompatible storage types.
 
@@ -136,4 +185,5 @@ bun ./proxmox-move-vm-via-backup-restore.ts
 - With token auth, direct `usbX=host=VID:PID` may be rejected by Proxmox ACL checks.
 - Mapping path (`usbX=mapping=<id>`) is the safe default for token-based automation.
 - If guest-level confirmation is needed, use QEMU guest agent endpoints after attach.
-- The packaged helper auto-discovers the VM node from cluster resources for VM lifecycle actions, so `PVE_NODE` is no longer required for the basic status/start/stop/resume wrappers.
+- The skill-local wrappers auto-discover the VM node from cluster resources for VM lifecycle actions, so `PVE_NODE` is no longer required for the basic status/start/stop/resume wrappers.
+- Interactive console/session flows are still outside the current request/response runtime model and belong to the v2 streaming/session backlog.

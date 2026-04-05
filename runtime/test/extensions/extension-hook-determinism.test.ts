@@ -17,7 +17,6 @@ describe("built-in extension hook determinism", () => {
       "modelControl",
       "internalTools",
       "toolActivation",
-      "keychainTools",
       "sqlIntrospect",
       "sendAdaptiveCard",
       "sendDashboardWidget",

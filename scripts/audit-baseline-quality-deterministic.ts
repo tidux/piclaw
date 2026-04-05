@@ -302,6 +302,8 @@ const groupDefinitions: GroupDefinition[] = [
       "core/",
       "db/",
       "ipc/",
+      "portainer/",
+      "proxmox/",
       "queue/",
       "remote/",
       "router/",
@@ -410,6 +412,7 @@ const groupDefinitions: GroupDefinition[] = [
           "workspace-auto-open.test.ts",
           "workspace-preview-pane.test.ts",
           "workspace-scale.test.ts",
+          "workspace-visibility.test.ts",
         ])
         || isAppRemoteWorkspaceTest(relativePath)
       ),

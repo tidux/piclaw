@@ -1,6 +1,6 @@
 export {
-  applyLiveChatSshConfig,
-  clearLiveChatSshConfig,
+  applyLiveSshConfig,
+  clearLiveSshConfig,
   createChatSshCoreExtension,
   createSshCoreExtension,
   hasLiveChatSshSession,

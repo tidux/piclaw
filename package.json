@@ -66,8 +66,6 @@
     "audit:web-control-plane-fuzz": "PICLAW_DB_IN_MEMORY=1 bun run runtime/scripts/web-control-plane-fuzz-audit.ts",
     "check:repo-install": "bun pm pack --dry-run",
     "smoke:repo-install": "./scripts/smoke-install-from-repo.sh",
-    "proxmox": "bun run runtime/scripts/proxmox.ts",
-    "portainer": "bun run runtime/scripts/portainer.ts",
     "vnc:harness": "bun run runtime/scripts/vnc-harness-standalone.ts",
     "vnc:harness:report": "bun run runtime/scripts/playwright/vnc-harness-report.ts"
   },
