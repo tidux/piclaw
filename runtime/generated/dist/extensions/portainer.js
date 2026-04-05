@@ -458,6 +458,23 @@ function normalizeChatJid(value) {
     const trimmed = typeof value === "string" ? value.trim() : "";
     return trimmed || getChatJid("web:default");
 }
+function formatContentPreview(value, maxChars = 1200) {
+    if (value === undefined)
+        return null;
+    try {
+        const rendered = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+        if (!rendered)
+            return null;
+        return rendered.length > maxChars ? `${rendered.slice(0, maxChars)}\n…` : rendered;
+    }
+    catch {
+        return null;
+    }
+}
+function appendContentPreview(summary, label, value) {
+    const preview = formatContentPreview(value);
+    return preview ? `${summary}\n${label}:\n${preview}` : summary;
+}
 function buildWorkflowSummary(workflow, result) {
     const maybeArrayCount = Array.isArray(result.result) ? ` (${result.result.length} items)` : "";
     return `Portainer workflow ${workflow} completed${maybeArrayCount}.`;
@@ -637,7 +654,7 @@ export const portainerTool = (pi) => {
                     ...(Array.isArray(params.names) ? { names: params.names } : {}),
                 });
                 return {
-                    content: [{ type: "text", text: buildWorkflowSummary(help.canonical_workflow, workflowResult) }],
+                    content: [{ type: "text", text: appendContentPreview(buildWorkflowSummary(help.canonical_workflow, workflowResult), "Result preview", workflowResult.result) }],
                     details: {
                         action: "workflow",
                         chat_jid: chatJid,
@@ -667,7 +684,7 @@ export const portainerTool = (pi) => {
             return {
                 content: [{
                         type: "text",
-                        text: `Portainer ${response.method} ${response.path} succeeded with HTTP ${response.status}.`,
+                        text: appendContentPreview(`Portainer ${response.method} ${response.path} succeeded with HTTP ${response.status}.`, "Response preview", response.body),
                     }],
                 details: {
                     action: "request",

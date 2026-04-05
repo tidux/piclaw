@@ -113,6 +113,8 @@ test("portainer request delegates through registered handlers", async () => {
     body: [{ Id: 2, Name: "diskstation" }],
   });
   expect(result.content[0].text).toContain("HTTP 200");
+  expect(result.content[0].text).toContain("Response preview");
+  expect(result.content[0].text).toContain("diskstation");
 });
 
 test("portainer workflow delegates through registered handlers", async () => {
@@ -157,6 +159,8 @@ test("portainer workflow delegates through registered handlers", async () => {
     result: [{ Id: 2, Name: "diskstation" }],
   });
   expect(result.content[0].text).toContain("(1 items)");
+  expect(result.content[0].text).toContain("Result preview");
+  expect(result.content[0].text).toContain("diskstation");
 });
 
 test("portainer capabilities and workflow_help are available without handlers", async () => {
@@ -164,10 +168,23 @@ test("portainer capabilities and workflow_help are available without handlers", 
   portainerTool(fake.api);
   const tool = fake.tools.get("portainer");
 
+  const contract = await tool.execute("tool-contract", { action: "contract" });
+  expect(contract.details.actions).toContain("request_help");
+  expect(contract.details.request_contract.required_fields).toContain("path");
+  expect(contract.details.request_contract.response_shape.body_access_path).toBe("details.response.body");
+  expect(Array.isArray(contract.details.request_contract.examples)).toBe(true);
+  expect(contract.content[0].text).toContain("discover");
+
+  const requestHelp = await tool.execute("tool-request-help", { action: "request_help" });
+  expect(requestHelp.details.request_contract.optional_fields).toContain("headers");
+  expect(requestHelp.details.request_contract.inventory_patterns[0].steps[0]).toContain("/api/endpoints");
+  expect(requestHelp.content[0].text).toContain("path is required");
+
   const capabilities = await tool.execute("tool-cap", { action: "capabilities" });
   expect(capabilities.details.workflow_count).toBeGreaterThan(10);
   expect(capabilities.details.workflow_families).toContain("container");
   expect(capabilities.details.actions).toContain("recommend");
+  expect(capabilities.details.actions).toContain("request_help");
   expect(capabilities.details.include_workflows).toBe(false);
   expect(capabilities.details.workflows).toBeUndefined();
 

@@ -99,8 +99,10 @@ const PortainerToolSchema = Type.Object({
     Type.Literal("set"),
     Type.Literal("clear"),
     Type.Literal("discover"),
+    Type.Literal("contract"),
     Type.Literal("capabilities"),
     Type.Literal("workflow_help"),
+    Type.Literal("request_help"),
     Type.Literal("recommend"),
     Type.Literal("request"),
     Type.Literal("workflow"),
@@ -400,6 +402,115 @@ function buildPortainerWorkflowExamples(workflow: string, spec: WorkflowCapabili
   return serializedBase === serializedCommon ? [base] : [base, common];
 }
 
+function buildPortainerRequestExamples(): Array<Record<string, unknown>> {
+  return [
+    {
+      action: "request",
+      method: "GET",
+      path: "/api/endpoints",
+      purpose: "List endpoints before resolving a target endpoint ID.",
+    },
+    {
+      action: "request",
+      method: "GET",
+      path: "/api/endpoints/2/docker/containers/json",
+      query: { all: true },
+      purpose: "List endpoint containers through the raw Docker-compatible Portainer proxy path.",
+    },
+    {
+      action: "request",
+      method: "GET",
+      path: "/api/stacks/7/file",
+      query: { endpointId: 2 },
+      purpose: "Fetch stack compose content when you know the stack and endpoint IDs.",
+    },
+  ];
+}
+
+function buildPortainerRequestHelpPayload(): Record<string, unknown> {
+  return {
+    action: "request_help",
+    request_contract: {
+      summary: "Use request for raw Portainer API calls when the workflow surface is too narrow or when you need a Docker-proxy-style endpoint path.",
+      required_fields: ["path"],
+      optional_fields: ["method", "query", "body", "body_mode", "headers"],
+      defaults: {
+        method: "GET",
+        body_mode: "json",
+      },
+      path_rules: [
+        "path may be given with or without a leading slash; the runtime normalizes it against the configured Portainer base URL.",
+        "Use query for endpointId and list-style filters.",
+        "Use body_mode=text only when an endpoint expects raw text instead of JSON.",
+      ],
+      response_shape: {
+        content_text: "Success summary plus a bounded Response preview block.",
+        details_path: "details.response",
+        fields: {
+          status: "HTTP status number",
+          method: "normalized HTTP method",
+          path: "normalized Portainer API path starting with /",
+          body: "parsed JSON body when possible, otherwise raw text",
+        },
+        body_access_path: "details.response.body",
+      },
+      examples: buildPortainerRequestExamples(),
+      inventory_patterns: [
+        {
+          goal: "Inspect a live Docker surface through Portainer",
+          steps: [
+            "GET /api/endpoints to resolve an endpoint ID.",
+            "GET /api/endpoints/{id}/docker/... for Docker-native list/inspect surfaces not yet modeled as workflows.",
+            "Render the returned inventory/log/config data locally as needed.",
+          ],
+        },
+      ],
+      next_steps: [
+        "Use capabilities or recommend first if you are not sure whether a native workflow already exists.",
+        "Use workflow_help for a curated workflow before falling back to request when the task fits a native flow.",
+      ],
+    },
+  };
+}
+
+function buildPortainerContractPayload(): Record<string, unknown> {
+  return {
+    tool: "portainer",
+    actions: ["get", "set", "clear", "discover", "contract", "capabilities", "workflow_help", "request_help", "recommend", "request", "workflow"],
+    shared_discovery_flow: [
+      "discover",
+      "capabilities or recommend",
+      "workflow_help",
+      "workflow or request",
+    ],
+    context_conservation: [
+      "Use capabilities for family-level summaries before enumerating workflows.",
+      "Use recommend for short intent-based shortlists.",
+      "Set include_examples=true on workflow_help only when you need example payloads.",
+      "Use request only when the curated workflow surface is not the right fit.",
+    ],
+    session_profile_contract: {
+      get: ["chat_jid"],
+      set: ["base_url", "api_token_keychain", "allow_insecure_tls"],
+      clear: ["chat_jid"],
+      discover: ["env hints", "keychain hints"],
+    },
+    request_contract: buildPortainerRequestHelpPayload().request_contract,
+    workflow_contract: {
+      discovery: "Use capabilities/recommend/workflow_help to choose one workflow before execution.",
+      response_shape: {
+        content_text: "Workflow completion summary plus a bounded Result preview block.",
+        details_path: "details.response",
+        fields: {
+          workflow: "canonical workflow name",
+          result: "workflow-specific result payload",
+        },
+        result_access_path: "details.response.result",
+      },
+    },
+  };
+}
+
 function buildPortainerCapabilitiesPayload(options?: { category?: string; include_workflows?: boolean }): Record<string, unknown> {
   const category = normalizeCategoryFilter(options?.category);
   const familySummaries = buildPortainerFamilySummaries();
@@ -409,7 +520,7 @@ function buildPortainerCapabilitiesPayload(options?: { category?: string; includ
   const includeWorkflows = options?.include_workflows === true || Boolean(category);
   const entries = includeWorkflows ? getPortainerWorkflowEntries(category) : [];
   return {
-    actions: ["get", "set", "clear", "discover", "capabilities", "workflow_help", "recommend", "request", "workflow"],
+    actions: ["get", "set", "clear", "discover", "contract", "capabilities", "workflow_help", "request_help", "recommend", "request", "workflow"],
     workflow_count: Object.keys(PORTAINER_WORKFLOW_CAPABILITIES).length,
     workflow_families: familySummaries.map((entry) => entry.name),
     family_summaries: category ? familySummaries.filter((entry) => entry.name === category) : familySummaries,
@@ -430,6 +541,7 @@ function buildPortainerCapabilitiesPayload(options?: { category?: string; includ
     next_steps: [
       "Set category to inspect one workflow family without pulling the whole surface.",
       "Use workflow_help with one workflow for required fields, guidance, and see_also suggestions.",
+      "Use request_help when you need raw API request fields, response shape, or Docker-proxy request examples.",
       "Set include_examples=true on workflow_help only when you need example payloads.",
     ],
   };
@@ -522,6 +634,7 @@ const PORTAINER_TOOL_HINT = [
   "Use portainer to inspect or change the Portainer API profile for the current session.",
   "Use portainer discover to find a likely existing Portainer instance from keychain/env hints.",
   "Use portainer capabilities to list workflow families, portainer recommend for intent-based shortlists, and portainer workflow_help for one workflow's fields/guidance.",
+  "Use portainer contract for the overall tool contract and request_help for raw request fields, response shape, and Docker-proxy request examples.",
   "Use portainer request for ad-hoc Portainer API calls and portainer workflow for reusable endpoint/stack/container/image/network/volume orchestration.",
   "Keep the raw request path available so future inventory/charting and other Portainer API surfaces do not need bespoke runtime primitives.",
 ].join("\n");
@@ -529,6 +642,22 @@ const PORTAINER_TOOL_HINT = [
 function normalizeChatJid(value: string | undefined): string {
   const trimmed = typeof value === "string" ? value.trim() : "";
   return trimmed || getChatJid("web:default");
+}
+
+function formatContentPreview(value: unknown, maxChars = 1200): string | null {
+  if (value === undefined) return null;
+  try {
+    const rendered = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    if (!rendered) return null;
+    return rendered.length > maxChars ? `${rendered.slice(0, maxChars)}\n…` : rendered;
+  } catch {
+    return null;
+  }
+}
+
+function appendContentPreview(summary: string, label: string, value: unknown): string {
+  const preview = formatContentPreview(value);
+  return preview ? `${summary}\n${label}:\n${preview}` : summary;
 }
 
 function buildWorkflowSummary(workflow: string, result: PortainerWorkflowResponse): string {
@@ -549,6 +678,17 @@ export const portainerTool: ExtensionFactory = (pi: ExtensionAPI) => {
     parameters: PortainerToolSchema,
     async execute(_toolCallId, params): Promise<PortainerToolResult> {
       const chatJid = normalizeChatJid(params.chat_jid);
+
+      if (params.action === "contract") {
+        const payload = buildPortainerContractPayload();
+        return {
+          content: [{
+            type: "text",
+            text: "Portainer contract: discover → capabilities/recommend → workflow_help → workflow/request. Use request_help for raw request examples and response-shape guidance.",
+          }],
+          details: { action: "contract", chat_jid: chatJid, ...payload },
+        };
+      }
 
       if (params.action === "capabilities") {
         const payload = buildPortainerCapabilitiesPayload({
@@ -583,6 +723,17 @@ export const portainerTool: ExtensionFactory = (pi: ExtensionAPI) => {
             guidance: help.guidance,
             ...(help.examples ? { examples: help.examples } : {}),
           },
+        };
+      }
+
+      if (params.action === "request_help") {
+        const payload = buildPortainerRequestHelpPayload();
+        return {
+          content: [{
+            type: "text",
+            text: "Portainer request help: path is required; method defaults to GET; use details.request_contract for examples and response-shape guidance.",
+          }],
+          details: { chat_jid: chatJid, ...payload },
         };
       }
 
@@ -722,7 +873,7 @@ export const portainerTool: ExtensionFactory = (pi: ExtensionAPI) => {
         });
 
         return {
-          content: [{ type: "text", text: buildWorkflowSummary(help.canonical_workflow, workflowResult) }],
+          content: [{ type: "text", text: appendContentPreview(buildWorkflowSummary(help.canonical_workflow, workflowResult), "Result preview", workflowResult.result) }],
           details: {
             action: "workflow",
             chat_jid: chatJid,
@@ -755,7 +906,7 @@ export const portainerTool: ExtensionFactory = (pi: ExtensionAPI) => {
       return {
         content: [{
           type: "text",
-          text: `Portainer ${response.method} ${response.path} succeeded with HTTP ${response.status}.`,
+          text: appendContentPreview(`Portainer ${response.method} ${response.path} succeeded with HTTP ${response.status}.`, "Response preview", response.body),
         }],
         details: {
           action: "request",

@@ -116,8 +116,10 @@ const ProxmoxToolSchema = Type.Object({
     Type.Literal("set"),
     Type.Literal("clear"),
     Type.Literal("discover"),
+    Type.Literal("contract"),
     Type.Literal("capabilities"),
     Type.Literal("workflow_help"),
+    Type.Literal("request_help"),
     Type.Literal("recommend"),
     Type.Literal("request"),
     Type.Literal("workflow"),
@@ -528,6 +530,123 @@ function buildProxmoxWorkflowExamples(workflow: string, spec: WorkflowCapability
   return serializedBase === serializedCommon ? [base] : [base, common];
 }
 
+function buildProxmoxRequestExamples(): Array<Record<string, unknown>> {
+  return [
+    {
+      action: "request",
+      method: "GET",
+      path: "/cluster/resources",
+      query: { type: "vm" },
+      purpose: "List VM/LXC cluster resources so you can resolve names, nodes, and VMIDs before charting or mutation.",
+    },
+    {
+      action: "request",
+      method: "GET",
+      path: "/nodes/tnas/lxc/103/rrddata",
+      query: { timeframe: "day", cf: "AVERAGE" },
+      purpose: "Fetch 24h LXC RRD metrics for charting or comparison work.",
+    },
+    {
+      action: "request",
+      method: "POST",
+      path: "/nodes/pve/storage/local/download-url",
+      body_mode: "form",
+      body: {
+        content: "iso",
+        filename: "debian-12.iso",
+        url: "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.10.0-amd64-netinst.iso",
+      },
+      purpose: "Server-side pull of public ISO media into storage.",
+    },
+  ];
+}
+
+function buildProxmoxRequestHelpPayload(): Record<string, unknown> {
+  return {
+    action: "request_help",
+    request_contract: {
+      summary: "Use request for raw Proxmox API calls when the workflow surface is too narrow or you need an endpoint such as RRD metrics/charting.",
+      required_fields: ["path"],
+      optional_fields: ["method", "query", "body", "body_mode"],
+      defaults: {
+        method: "GET",
+        body_mode: "form",
+      },
+      path_rules: [
+        "path may be given with or without a leading slash; the runtime normalizes it against the configured /api2/json base URL.",
+        "Use query for GET-style filters such as type=vm or timeframe=day.",
+        "Use body + body_mode=json only for JSON-native endpoints; Proxmox form endpoints should stay in body_mode=form.",
+      ],
+      response_shape: {
+        content_text: "Success summary plus a bounded Response preview block.",
+        details_path: "details.response",
+        fields: {
+          status: "HTTP status number",
+          method: "normalized HTTP method",
+          path: "normalized API path starting with /",
+          body: "parsed JSON body when possible, otherwise raw text",
+        },
+        body_access_path: "details.response.body",
+      },
+      examples: buildProxmoxRequestExamples(),
+      metrics_charting_patterns: [
+        {
+          goal: "Compare two guests by name using Proxmox metrics",
+          steps: [
+            "GET /cluster/resources?type=vm to resolve guest name → node/type/vmid.",
+            "GET /nodes/{node}/{lxc|qemu}/{vmid}/rrddata?timeframe=day&cf=AVERAGE for each guest.",
+            "Render the returned series locally into SVG/CSV/chart artifacts.",
+          ],
+        },
+      ],
+      next_steps: [
+        "Use capabilities or recommend first if you are not sure whether a native workflow already exists.",
+        "Use workflow_help for one workflow before falling back to request when the task fits a curated flow.",
+      ],
+    },
+  };
+}
+
+function buildProxmoxContractPayload(): Record<string, unknown> {
+  return {
+    tool: "proxmox",
+    actions: ["get", "set", "clear", "discover", "contract", "capabilities", "workflow_help", "request_help", "recommend", "request", "workflow"],
+    shared_discovery_flow: [
+      "discover",
+      "capabilities or recommend",
+      "workflow_help",
+      "workflow or request",
+    ],
+    context_conservation: [
+      "Use capabilities for family-level summaries before enumerating workflows.",
+      "Use recommend for short intent-based shortlists.",
+      "Set include_examples=true on workflow_help only when you need example payloads.",
+      "Use request only when the curated workflow surface is not the right fit.",
+    ],
+    session_profile_contract: {
+      get: ["chat_jid"],
+      set: ["base_url", "api_token_keychain", "allow_insecure_tls"],
+      clear: ["chat_jid"],
+      discover: ["env hints", "keychain hints"],
+    },
+    request_contract: buildProxmoxRequestHelpPayload().request_contract,
+    workflow_contract: {
+      discovery: "Use capabilities/recommend/workflow_help to choose one workflow before execution.",
+      response_shape: {
+        content_text: "Workflow completion summary plus a bounded Result preview block.",
+        details_path: "details.response",
+        fields: {
+          workflow: "canonical workflow name",
+          vmid: "optional VM/LXC identifier when applicable",
+          node: "optional resolved node",
+          result: "workflow-specific result payload",
+        },
+        result_access_path: "details.response.result",
+      },
+    },
+  };
+}
+
 function buildProxmoxCapabilitiesPayload(options?: { category?: string; include_workflows?: boolean }): Record<string, unknown> {
   const category = normalizeCategoryFilter(options?.category);
   const familySummaries = buildProxmoxFamilySummaries();
@@ -537,7 +656,7 @@ function buildProxmoxCapabilitiesPayload(options?: { category?: string; include_
   const includeWorkflows = options?.include_workflows === true || Boolean(category);
   const entries = includeWorkflows ? getProxmoxWorkflowEntries(category) : [];
   return {
-    actions: ["get", "set", "clear", "discover", "capabilities", "workflow_help", "recommend", "request", "workflow"],
+    actions: ["get", "set", "clear", "discover", "contract", "capabilities", "workflow_help", "request_help", "recommend", "request", "workflow"],
     workflow_count: Object.keys(PROXMOX_WORKFLOW_CAPABILITIES).length,
     workflow_families: familySummaries.map((entry) => entry.name),
     family_summaries: category ? familySummaries.filter((entry) => entry.name === category) : familySummaries,
@@ -558,6 +677,7 @@ function buildProxmoxCapabilitiesPayload(options?: { category?: string; include_
     next_steps: [
       "Set category to inspect one workflow family without pulling the whole surface.",
       "Use workflow_help with one workflow for required fields, guidance, and see_also suggestions.",
+      "Use request_help when you need raw API request fields, response shape, or charting-oriented request examples.",
       "Set include_examples=true on workflow_help only when you need example payloads.",
     ],
   };
@@ -658,6 +778,7 @@ const PROXMOX_TOOL_HINT = [
   "Use proxmox to inspect or change the Proxmox API profile for the current session.",
   "Use proxmox discover to find a likely existing Proxmox instance from keychain/env hints.",
   "Use proxmox capabilities to list workflow families, proxmox recommend for intent-based shortlists, and proxmox workflow_help for one workflow's fields/guidance.",
+  "Use proxmox contract for the overall tool contract and request_help for raw request fields, response shape, and charting-oriented request examples.",
   "Use proxmox request for ad-hoc API calls and proxmox workflow for reusable VM/LXC/node/storage/backup/task/metrics orchestration.",
   "Keep the raw request path available so future metrics/charting and other Proxmox API surfaces do not need bespoke runtime primitives.",
 ].join("\n");
@@ -665,6 +786,22 @@ const PROXMOX_TOOL_HINT = [
 function normalizeChatJid(value: string | undefined): string {
   const trimmed = typeof value === "string" ? value.trim() : "";
   return trimmed || getChatJid("web:default");
+}
+
+function formatContentPreview(value: unknown, maxChars = 1200): string | null {
+  if (value === undefined) return null;
+  try {
+    const rendered = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    if (!rendered) return null;
+    return rendered.length > maxChars ? `${rendered.slice(0, maxChars)}\n…` : rendered;
+  } catch {
+    return null;
+  }
+}
+
+function appendContentPreview(summary: string, label: string, value: unknown): string {
+  const preview = formatContentPreview(value);
+  return preview ? `${summary}\n${label}:\n${preview}` : summary;
 }
 
 function buildWorkflowSummary(workflow: string, result: ProxmoxWorkflowResponse): string {
@@ -690,6 +827,17 @@ export const proxmoxTool: ExtensionFactory = (pi: ExtensionAPI) => {
     parameters: ProxmoxToolSchema,
     async execute(_toolCallId, params): Promise<ProxmoxToolResult> {
       const chatJid = normalizeChatJid(params.chat_jid);
+
+      if (params.action === "contract") {
+        const payload = buildProxmoxContractPayload();
+        return {
+          content: [{
+            type: "text",
+            text: "Proxmox contract: discover → capabilities/recommend → workflow_help → workflow/request. Use request_help for raw request examples and response-shape guidance.",
+          }],
+          details: { action: "contract", chat_jid: chatJid, ...payload },
+        };
+      }
 
       if (params.action === "capabilities") {
         const payload = buildProxmoxCapabilitiesPayload({
@@ -724,6 +872,17 @@ export const proxmoxTool: ExtensionFactory = (pi: ExtensionAPI) => {
             guidance: help.guidance,
             ...(help.examples ? { examples: help.examples } : {}),
           },
+        };
+      }
+
+      if (params.action === "request_help") {
+        const payload = buildProxmoxRequestHelpPayload();
+        return {
+          content: [{
+            type: "text",
+            text: "Proxmox request help: path is required; method defaults to GET; use details.request_contract for examples and response-shape guidance.",
+          }],
+          details: { chat_jid: chatJid, ...payload },
         };
       }
 
@@ -896,7 +1055,7 @@ export const proxmoxTool: ExtensionFactory = (pi: ExtensionAPI) => {
         return {
           content: [{
             type: "text",
-            text: buildWorkflowSummary(help.canonical_workflow, workflowResult),
+            text: appendContentPreview(buildWorkflowSummary(help.canonical_workflow, workflowResult), "Result preview", workflowResult.result),
           }],
           details: {
             action: "workflow",
@@ -929,7 +1088,7 @@ export const proxmoxTool: ExtensionFactory = (pi: ExtensionAPI) => {
       return {
         content: [{
           type: "text",
-          text: `Proxmox ${response.method} ${response.path} succeeded with HTTP ${response.status}.`,
+          text: appendContentPreview(`Proxmox ${response.method} ${response.path} succeeded with HTTP ${response.status}.`, "Response preview", response.body),
         }],
         details: {
           action: "request",

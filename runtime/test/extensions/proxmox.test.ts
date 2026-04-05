@@ -115,6 +115,8 @@ test("proxmox request delegates through registered handlers", async () => {
     body: { data: [{ vmid: 117 }] },
   });
   expect(result.content[0].text).toContain("HTTP 200");
+  expect(result.content[0].text).toContain("Response preview");
+  expect(result.content[0].text).toContain('"vmid": 117');
 });
 
 test("proxmox workflow delegates through registered handlers", async () => {
@@ -181,6 +183,8 @@ test("proxmox workflow delegates through registered handlers", async () => {
     result: { status: "running", qmpstatus: "running" },
   });
   expect(result.content[0].text).toContain("workflow vm.create");
+  expect(result.content[0].text).toContain("Result preview");
+  expect(result.content[0].text).toContain('"status": "running"');
 });
 
 test("proxmox capabilities and workflow_help are available without handlers", async () => {
@@ -188,10 +192,23 @@ test("proxmox capabilities and workflow_help are available without handlers", as
   proxmoxTool(fake.api);
   const tool = fake.tools.get("proxmox");
 
+  const contract = await tool.execute("tool-contract", { action: "contract" });
+  expect(contract.details.actions).toContain("request_help");
+  expect(contract.details.request_contract.required_fields).toContain("path");
+  expect(contract.details.request_contract.response_shape.body_access_path).toBe("details.response.body");
+  expect(Array.isArray(contract.details.request_contract.examples)).toBe(true);
+  expect(contract.content[0].text).toContain("discover");
+
+  const requestHelp = await tool.execute("tool-request-help", { action: "request_help" });
+  expect(requestHelp.details.request_contract.optional_fields).toContain("query");
+  expect(requestHelp.details.request_contract.metrics_charting_patterns[0].steps[0]).toContain("/cluster/resources");
+  expect(requestHelp.content[0].text).toContain("path is required");
+
   const capabilities = await tool.execute("tool-cap", { action: "capabilities" });
   expect(capabilities.details.workflow_count).toBeGreaterThan(10);
   expect(capabilities.details.workflow_families).toContain("vm");
   expect(capabilities.details.actions).toContain("recommend");
+  expect(capabilities.details.actions).toContain("request_help");
   expect(capabilities.details.include_workflows).toBe(false);
   expect(capabilities.details.workflows).toBeUndefined();
 
