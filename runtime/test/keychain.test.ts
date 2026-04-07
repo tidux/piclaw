@@ -146,6 +146,17 @@ test("supports provider overrides and reports disabled keychain when no key mate
   });
 });
 
+test("buildInjectedShellEnv ignores auto-injected keychain env when the database is not initialized", async () => {
+  await withTempWorkspaceEnv(
+    "piclaw-keychain-uninitialized-",
+    { PICLAW_KEYCHAIN_KEY: "test-key" },
+    async () => {
+      const keychain = await importFresh<typeof import("../src/secure/keychain.js")>("../src/secure/keychain.js");
+      await expect(keychain.buildInjectedShellEnv({ includeProcessEnv: false })).resolves.toEqual({});
+    },
+  );
+});
+
 test("auto-injects env-style keychain entries for shell use", async () => {
   await withKeychainContext(async ({ keychain }) => {
     await keychain.setKeychainEntry({
