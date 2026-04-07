@@ -223,6 +223,29 @@ if [ -d "/workspace" ] && [ ! -d "/workspace/.pi/skills" ]; then
     fi
 fi
 
+if [ -d "/workspace" ] && [ ! -d "/workspace/notes" ]; then
+    if [ -d "$WORKSPACE_SKEL_DIR/notes" ]; then
+        cp -a "$WORKSPACE_SKEL_DIR/notes" /workspace/notes
+        chown -R agent:agent /workspace/notes
+    fi
+fi
+
+if [ -d "/workspace" ] && [ ! -f "/workspace/notes/index.md" ]; then
+    if [ -f "$WORKSPACE_SKEL_DIR/notes/index.md" ]; then
+        mkdir -p /workspace/notes
+        cp "$WORKSPACE_SKEL_DIR/notes/index.md" /workspace/notes/index.md
+        chown agent:agent /workspace/notes/index.md
+    fi
+fi
+
+if [ -d "/workspace" ] && [ ! -f "/workspace/notes/memory/README.md" ]; then
+    if [ -f "$WORKSPACE_SKEL_DIR/notes/memory/README.md" ]; then
+        mkdir -p /workspace/notes/memory
+        cp "$WORKSPACE_SKEL_DIR/notes/memory/README.md" /workspace/notes/memory/README.md
+        chown agent:agent /workspace/notes/memory/README.md
+    fi
+fi
+
 if [ -d "/workspace" ]; then
     mkdir -p "$WORKSPACE_SUPERVISOR_DIR/conf.d"
     chown agent:agent /workspace/.piclaw "$WORKSPACE_SUPERVISOR_DIR" "$WORKSPACE_SUPERVISOR_DIR/conf.d" 2>/dev/null || true

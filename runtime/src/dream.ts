@@ -6,6 +6,7 @@ import type { AgentPool } from "./agent-pool.js";
 import { buildDreamPrompt } from "./agent-memory/dream-prompt.js";
 import { refreshDailyNotesFromMessages } from "./agent-memory/daily-notes.js";
 import { refreshAgentMemoryFromDailyNotes, type RefreshAgentMemoryResult } from "./agent-memory/refresh.js";
+import { AUTO_DREAM_DEFAULT_DAYS, MANUAL_DREAM_DEFAULT_DAYS } from "./dream-defaults.js";
 import { DATA_DIR, SESSIONS_DIR, WORKSPACE_DIR } from "./core/config.js";
 import { getTaskById, createTask, getDb, updateTask } from "./db.js";
 import { refreshWorkspaceIndex } from "./workspace-search.js";
@@ -46,8 +47,6 @@ const DREAM_LOCK_PATH = resolve(DREAM_MEMORY_DIR, ".dream.lock");
 const DREAM_CURRENT_STATE_PATH = resolve(DREAM_MEMORY_DIR, "current-state.md");
 const DREAM_RECENT_CONTEXT_PATH = resolve(DREAM_MEMORY_DIR, "recent-context.md");
 const DREAM_MEMORY_PATH = resolve(DREAM_MEMORY_DIR, "MEMORY.md");
-const AUTO_DREAM_MIN_HOURS = 24;
-const AUTO_DREAM_MIN_SESSIONS = 6;
 
 export interface DreamAgentTurnResult {
   mode: "manual" | "auto";
@@ -101,23 +100,20 @@ function countSessionsSince(chatJid: string, sinceIso: string | null): number | 
 export function parseDreamPromptToken(prompt: string): { matched: boolean; mode: "manual" | "auto"; days: number } {
   const trimmed = (prompt || "").trim().toLowerCase();
   const match = trimmed.match(/^(auto\s+dream|dream)(?:\s+(\d+))?$/i);
-  if (!match) return { matched: false, mode: "manual", days: 7 };
+  if (!match) return { matched: false, mode: "manual", days: MANUAL_DREAM_DEFAULT_DAYS };
+  const mode = match[1].toLowerCase().startsWith("auto") ? "auto" : "manual";
+  const fallbackDays = mode === "auto" ? AUTO_DREAM_DEFAULT_DAYS : MANUAL_DREAM_DEFAULT_DAYS;
   return {
     matched: true,
-    mode: match[1].toLowerCase().startsWith("auto") ? "auto" : "manual",
-    days: match[2] ? Math.max(1, Number.parseInt(match[2], 10) || 7) : 7,
+    mode,
+    days: match[2] ? Math.max(1, Number.parseInt(match[2], 10) || fallbackDays) : fallbackDays,
   };
 }
 
-function shouldRunAutoDream(lastConsolidatedAt: string | null, sessionsSinceLast: number | null): { ok: boolean; reason: string | null } {
+export function shouldRunAutoDream(lastConsolidatedAt: string | null, sessionsSinceLast: number | null): { ok: boolean; reason: string | null } {
   if (!lastConsolidatedAt) return { ok: true, reason: null };
-  const elapsedMs = Date.now() - new Date(lastConsolidatedAt).getTime();
-  const elapsedHours = Number.isFinite(elapsedMs) ? elapsedMs / 3_600_000 : 0;
-  if (elapsedHours < AUTO_DREAM_MIN_HOURS) {
-    return { ok: false, reason: `Only ${elapsedHours.toFixed(1)}h since last consolidation (need ${AUTO_DREAM_MIN_HOURS}h).` };
-  }
-  if ((sessionsSinceLast ?? 0) < AUTO_DREAM_MIN_SESSIONS) {
-    return { ok: false, reason: `Only ${sessionsSinceLast ?? 0} sessions since last consolidation (need ${AUTO_DREAM_MIN_SESSIONS}+).` };
+  if (sessionsSinceLast === 0) {
+    return { ok: false, reason: "No sessions since last consolidation." };
   }
   return { ok: true, reason: null };
 }
@@ -208,8 +204,10 @@ function createDreamBackup(chatJid: string, mode: "manual" | "auto", days: numbe
 
 export async function runDreamAgentTurn(options: { chatJid: string; days?: number; mode?: "manual" | "auto"; agentPool: AgentPool }): Promise<DreamAgentTurnResult> {
   const chatJid = options.chatJid;
-  const days = Number.isFinite(options.days) && Number(options.days) > 0 ? Math.floor(Number(options.days)) : 7;
   const mode = options.mode === "auto" ? "auto" : "manual";
+  const days = Number.isFinite(options.days) && Number(options.days) > 0
+    ? Math.floor(Number(options.days))
+    : (mode === "auto" ? AUTO_DREAM_DEFAULT_DAYS : MANUAL_DREAM_DEFAULT_DAYS);
   const lastConsolidatedAt = readLastConsolidatedAt();
   const sessionsSinceLast = countSessionsSince(chatJid, lastConsolidatedAt);
 
@@ -253,12 +251,17 @@ export async function runDreamAgentTurn(options: { chatJid: string; days?: numbe
     backupPath = createDreamBackup(chatJid, mode, days);
     dailyNotesRefreshed = refreshDailyNotes(chatJid, days);
     const out = await options.agentPool.runAgent(buildDreamPrompt({ mode, days }), dreamChatJid);
-    const workspaceIndexRefreshed = await refreshWorkspaceSearchIndex();
     if (out.status === "error") {
       throw new Error(out.error || "Dream agent run failed.");
     }
+    const refresh = refreshAgentMemoryFromDailyNotes({ recentDays: days });
+    const workspaceIndexRefreshed = await refreshWorkspaceSearchIndex();
     const suffix = [
       `- Daily notes refreshed before Dream: ${dailyNotesRefreshed ? "yes" : "no"}`,
+      `- Memory refreshed after Dream: yes`,
+      `- Updated memory: ${refresh.memoryPath}`,
+      `- Updated current state: ${refresh.currentStatePath}`,
+      `- Updated recent context: ${refresh.recentContextPath}`,
       `- Pre-Dream backup: ${backupPath || "(none)"}`,
       `- Workspace index refreshed: ${workspaceIndexRefreshed ? "yes" : "no"}`,
     ].join("\n");
@@ -277,10 +280,10 @@ export async function runDreamMaintenance(options?: { chatJid?: string; days?: n
   const chatJid = typeof options?.chatJid === "string" && options.chatJid.trim()
     ? options.chatJid.trim()
     : "web:default";
+  const mode = options?.mode === "auto" ? "auto" : "manual";
   const days = Number.isFinite(options?.days) && Number(options?.days) > 0
     ? Math.floor(Number(options?.days))
-    : 7;
-  const mode = options?.mode === "auto" ? "auto" : "manual";
+    : (mode === "auto" ? AUTO_DREAM_DEFAULT_DAYS : MANUAL_DREAM_DEFAULT_DAYS);
   const lastConsolidatedAt = readLastConsolidatedAt();
   const sessionsSinceLast = countSessionsSince(chatJid, lastConsolidatedAt);
 

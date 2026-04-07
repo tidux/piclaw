@@ -283,10 +283,17 @@ Both modes now run as out-of-band model turns on a temporary `dream:` channel.
 The dream channel is cleaned up after the cycle ends.
 Before the model turn begins, runtime creates a pre-Dream backup of `notes/daily/` and `notes/memory/` and refreshes/seeds in-window daily notes from the messages database.
 
-AutoDream is gated and only runs when both are true:
+Default windows:
 
-- at least 24 hours since the last consolidation
-- at least 6 sessions since the last consolidation
+- manual `Dream` keeps the historical default of 7 days unless you pass `/dream <days>`
+- nightly `AutoDream` now defaults to a narrower 2-day window
+
+AutoDream is gated, but nightly cadence no longer waits for a full 24-hour gap.
+It runs when there has been activity since the last consolidation.
+
+- if there is no prior consolidation, AutoDream runs
+- if there have been no sessions since the last consolidation, AutoDream skips
+- otherwise the nightly run proceeds even if the previous consolidation was late the night before
 
 The model follows the original 4-phase Dream flow:
 

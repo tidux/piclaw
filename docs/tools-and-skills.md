@@ -444,6 +444,10 @@ PiClaw has two memory-maintenance modes:
 Both are now **model-driven** and run as out-of-band agent turns on a temporary `dream:` channel.
 The temporary dream channel is cleaned up after the cycle ends.
 
+Default windows:
+- manual Dream keeps the 7-day default unless you pass `/dream <days>`
+- nightly AutoDream defaults to a narrower 2-day window
+
 Dream/AutoDream follow the original 4-phase flow:
 - Orient — inspect startup memory and existing daily/memory state first
 - Signal — gather only narrow confirming evidence for suspected drift
@@ -456,9 +460,10 @@ Search behavior follows Claude-style rough criteria:
 - use narrow `messages.search` queries only for things already suspected to matter
 - avoid exhaustive transcript sweeps
 
-AutoDream is gated and only runs when both are true:
-- at least 24 hours since the last consolidation
-- at least 6 sessions since the last consolidation
+AutoDream is gated, but it no longer requires a 24-hour gap.
+- if there is no prior consolidation, it runs
+- if there have been no sessions since the last consolidation, it skips
+- otherwise the nightly run proceeds
 
 Dream keeps the two note layers aligned:
 - `notes/daily/` — concise human-readable overview

@@ -58,6 +58,7 @@ Behavior:
 - no visible user message is injected
 - the Dream run executes on a temporary `dream:` channel
 - a visible agent summary is posted back to the original chat when done
+- default window: last 7 days unless you pass an explicit `/dream <days>`
 
 ### AutoDream
 
@@ -74,17 +75,30 @@ Behavior:
 - runs in the background on a temporary `dream:` channel
 - executes silently unless you inspect logs/task results
 - cleans up the temporary dream channel after the run
+- default window: last 2 days
 
 ## AutoDream gating
 
-AutoDream is bounded to behave more like Claude's periodic consolidation.
+AutoDream is bounded to avoid no-op nightly runs, but it no longer waits for a full 24-hour gap.
 
-It only runs when both are true:
+It now behaves like this:
 
-- at least **24 hours** have passed since the last consolidation
-- at least **6 sessions** have occurred since the last consolidation
+- if there is no prior consolidation, AutoDream runs
+- if there have been **no sessions** since the last consolidation, AutoDream skips
+- otherwise the nightly run proceeds, even if the previous consolidation happened late the night before
 
-If those gates are not met, AutoDream skips the cycle.
+This keeps the nightly cadence stable while still avoiding empty runs.
+
+## First-boot bootstrap
+
+Fresh workspaces may start with only seeded scaffolding files and placeholder daily-note summaries.
+To keep container behavior consistent, runtime now queues a silent Dream bootstrap on startup whenever the core memory files are missing:
+
+- `notes/memory/MEMORY.md`
+- `notes/memory/current-state.md`
+- `notes/memory/recent-context.md`
+
+That bootstrap runs as an out-of-band Dream turn on the temporary `dream:` channel and uses the broader manual-style window so the first container boot can populate both the memory layer and proper daily summaries.
 
 ## Memory lifecycle and content model
 

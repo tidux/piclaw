@@ -1,15 +1,31 @@
 /**
  * runtime/wiring.ts – Runtime message/scheduler wiring helpers.
  */
+import { existsSync } from "fs";
+import { resolve } from "path";
 import { ensureDreamTask, runDreamAgentTurn } from "../dream.js";
+import { WORKSPACE_DIR } from "../core/config.js";
+import { AUTO_DREAM_DEFAULT_DAYS, MANUAL_DREAM_DEFAULT_DAYS } from "../dream-defaults.js";
 import { startIpcWatcher } from "../ipc.js";
 import { startSchedulerLoop } from "../task-scheduler.js";
 import { createUuid } from "../utils/ids.js";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("runtime.wiring");
+const DREAM_BOOTSTRAP_RELATIVE_FILES = [
+    "notes/memory/MEMORY.md",
+    "notes/memory/current-state.md",
+    "notes/memory/recent-context.md",
+];
 /** Queue-lane key for out-of-band Dream work; separate from the interactive chat lane. */
 export function getDreamQueueLane(chatJid) {
     return `dream:${chatJid || "web:default"}`;
+}
+export function getDreamBootstrapFiles() {
+    const workspaceRoot = resolve(process.env.PICLAW_WORKSPACE || WORKSPACE_DIR);
+    return DREAM_BOOTSTRAP_RELATIVE_FILES.map((path) => resolve(workspaceRoot, path));
+}
+export function workspaceNeedsDreamBootstrap() {
+    return getDreamBootstrapFiles().some((path) => !existsSync(path));
 }
 /** Build sendMessage/sendNudge closures for runtime workers. */
 export function createRuntimeSenders(web, whatsapp, pushover) {
@@ -33,6 +49,30 @@ export function createRuntimeSenders(web, whatsapp, pushover) {
 /** Start IPC and scheduler background workers with runtime callbacks. */
 export function startRuntimeWorkers(queue, agentPool, web, senders) {
     ensureDreamTask("web:default");
+    if (workspaceNeedsDreamBootstrap()) {
+        const chatJid = "web:default";
+        const taskId = `dream-bootstrap:${createUuid("dream")}`;
+        log.info("Queueing initial Dream bootstrap", {
+            operation: "start_runtime_workers.queue_dream_bootstrap",
+            chatJid,
+            days: MANUAL_DREAM_DEFAULT_DAYS,
+            nightlyDefaultDays: AUTO_DREAM_DEFAULT_DAYS,
+            missingFiles: getDreamBootstrapFiles().filter((path) => !existsSync(path)),
+        });
+        queue.enqueueTask(taskId, async () => {
+            const result = await runDreamAgentTurn({
+                chatJid,
+                days: MANUAL_DREAM_DEFAULT_DAYS,
+                mode: "auto",
+                agentPool,
+            });
+            log.info("Initial Dream bootstrap finished", {
+                operation: "start_runtime_workers.complete_dream_bootstrap",
+                chatJid,
+                skipped: result.skipped,
+            });
+        }, getDreamQueueLane(chatJid));
+    }
     startIpcWatcher({
         sendMessage: senders.sendMessage,
         sendNudge: senders.sendNudge,

@@ -1,0 +1,2 @@
+export const MANUAL_DREAM_DEFAULT_DAYS = 7;
+export const AUTO_DREAM_DEFAULT_DAYS = 2;

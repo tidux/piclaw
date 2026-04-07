@@ -1,5 +1,16 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
+
+import { createTempWorkspace, importFresh, setEnv } from "../helpers.js";
 import { createRuntimeSenders, getDreamQueueLane } from "../../src/runtime/wiring.js";
+
+let restoreEnv: (() => void) | null = null;
+
+afterEach(() => {
+  restoreEnv?.();
+  restoreEnv = null;
+});
 
 describe("runtime wiring", () => {
   test("getDreamQueueLane isolates Dream work from the interactive chat lane", () => {
@@ -58,6 +69,28 @@ describe("runtime wiring", () => {
 
     expect(webCalls).toHaveLength(0);
     expect(whatsappCalls).toEqual([{ jid: "12345@s.whatsapp.net", text: "hi" }]);
+  });
+
+  test("workspaceNeedsDreamBootstrap returns true until Dream memory files exist", async () => {
+    const ws = createTempWorkspace("piclaw-runtime-wiring-");
+    restoreEnv = setEnv({
+      PICLAW_WORKSPACE: ws.workspace,
+      PICLAW_STORE: ws.store,
+      PICLAW_DATA: ws.data,
+    });
+
+    const wiring = await importFresh<typeof import("../src/runtime/wiring.js")>("../src/runtime/wiring.js");
+    expect(wiring.workspaceNeedsDreamBootstrap()).toBe(true);
+
+    mkdirSync(join(ws.workspace, "notes", "memory"), { recursive: true });
+    writeFileSync(join(ws.workspace, "notes", "memory", "MEMORY.md"), "# MEMORY\n", "utf8");
+    writeFileSync(join(ws.workspace, "notes", "memory", "current-state.md"), "# Current Dream state\n", "utf8");
+    writeFileSync(join(ws.workspace, "notes", "memory", "recent-context.md"), "# Recent context\n", "utf8");
+
+    const wiringFresh = await importFresh<typeof import("../src/runtime/wiring.js")>("../src/runtime/wiring.js");
+    expect(wiringFresh.workspaceNeedsDreamBootstrap()).toBe(false);
+
+    ws.cleanup();
   });
 
   test("createRuntimeSenders exposes optional sendNudge when pushover exists", async () => {

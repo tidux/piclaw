@@ -1,6 +1,9 @@
+import { AUTO_DREAM_DEFAULT_DAYS, MANUAL_DREAM_DEFAULT_DAYS } from "../dream-defaults.js";
 export function buildDreamPrompt(options) {
     const mode = options?.mode === "auto" ? "auto" : "manual";
-    const days = Number.isFinite(options?.days) && Number(options?.days) > 0 ? Math.floor(Number(options?.days)) : 7;
+    const days = Number.isFinite(options?.days) && Number(options?.days) > 0
+        ? Math.floor(Number(options?.days))
+        : (mode === "auto" ? AUTO_DREAM_DEFAULT_DAYS : MANUAL_DREAM_DEFAULT_DAYS);
     return [
         mode === "auto" ? `auto dream ${days}` : `dream ${days}`,
         "",

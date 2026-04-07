@@ -148,20 +148,18 @@ test("internal Dream flows keep notes/memory/days model-owned and AutoDream stay
   const lastResult = db.getTaskById(dream.DREAM_TASK_ID)?.last_result || "";
   expect(lastResult).toContain("AutoDream model consolidation finished");
   expect(lastResult).toContain("Daily notes refreshed before Dream: yes");
-  expect(lastResult).toContain("Pre-Dream backup:");
-  const backupPath = lastResult.split("\n").find((line) => line.startsWith("- Pre-Dream backup: "))?.slice("- Pre-Dream backup: ".length).trim();
-  expect(Boolean(backupPath)).toBe(true);
-  expect(existsSync(backupPath!)).toBe(true);
-  readFileSync(join(backupPath!, "manifest.json"), "utf8");
+  expect(lastResult).toContain("Memory refreshed after Dream: yes");
+  const backupRoot = join(ws.data, "dream-backups");
+  const backups = readdirSync(backupRoot);
+  expect(backups.length).toBeGreaterThanOrEqual(1);
+  const backupPath = join(backupRoot, backups.sort().at(-1)!);
+  expect(existsSync(join(backupPath, "manifest.json"))).toBe(true);
+  readFileSync(join(backupPath, "manifest.json"), "utf8");
   const today = new Date().toISOString().slice(0, 10);
-  const workspaceRoot = backupPath!.replace(/\/data\/dream-backups\/.+$/, "");
+  const workspaceRoot = backupPath.replace(/\/data\/dream-backups\/.+$/, "");
   const dailyPath = join(workspaceRoot, "notes", "daily", `${today}.md`);
   expect(existsSync(dailyPath)).toBe(true);
   expect(readFileSync(dailyPath, "utf8")).toContain("## Summary");
-  const backupRoot = join(backupPath!, "..");
-  const backups = readdirSync(backupRoot);
-  expect(backups.length).toBeGreaterThanOrEqual(1);
-  expect(existsSync(join(backupPath!, "manifest.json"))).toBe(true);
   const dreamRows = db.getDb().query<{ count: number }, []>("SELECT COUNT(*) AS count FROM messages WHERE chat_jid LIKE 'dream:%'").get();
   expect(dreamRows?.count ?? 0).toBe(0);
 

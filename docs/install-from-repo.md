@@ -82,7 +82,8 @@ After install, the goal is that:
 - the vendored Draw.io editor ships in the repo/package and does not rely on a Windows-time download
 - bundled automation extensions such as `cdp_browser` are available after install
 - Windows-only `win_*` desktop automation extensions are included but remain inert on non-Windows hosts
-- first runtime startup seeds missing workspace skeleton files from the packaged `skel/` tree (for example `AGENTS.md`, `.pi/skills/`, `.piclaw/config.json.example`, `.piclaw/README.md`, and the Dream/notes bootstrap files)
+- first runtime startup seeds missing workspace skeleton files from the packaged `skel/` tree (for example `AGENTS.md`, `.pi/skills/`, `notes/`, `.piclaw/config.json.example`, `.piclaw/README.md`, and the Dream/notes bootstrap files)
+- if the core Dream memory files are missing, first startup also queues a silent Dream bootstrap so `notes/memory/` and daily summaries are populated instead of staying at placeholder state
 - Dream/AutoDream workspace bootstrap files are present for direct Bun installs as well as container installs
 - out-of-band Dream runs use a temporary `dream:` channel/session and clean it up after the cycle, so direct installs do not accumulate visible Dream chats
 
