@@ -1,9 +1,29 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Type } from "@sinclair/typebox";
 import { Agent } from "@mariozechner/pi-agent-core";
+import { AuthStorage, ModelRegistry, SettingsManager, getAgentDir, type ExtensionFactory } from "@mariozechner/pi-coding-agent";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@mariozechner/pi-ai";
 import "../helpers.js";
+import { createSessionInDir } from "../../src/agent-pool/session.ts";
 import { applyActiveToolsImmediately, bindImmediateToolActivation } from "../../src/agent-pool/tool-activation-live-update.js";
+
+const customExtension: ExtensionFactory = (pi) => {
+  pi.registerTool({
+    name: "demo_extension_tool",
+    label: "demo_extension_tool",
+    description: "Demo extension tool",
+    parameters: Type.Object({ value: Type.String() }),
+    async execute(_toolCallId: string, params: { value: string }) {
+      return {
+        content: [{ type: "text" as const, text: `demo:${params.value}` }],
+        details: { ok: true, echoed: params.value },
+      };
+    },
+  });
+};
 
 describe("same-turn tool activation live update", () => {
   test("newly activated tools become callable later in the same turn", async () => {
@@ -87,6 +107,55 @@ describe("same-turn tool activation live update", () => {
       expect(toolResults.map((message) => message.toolName)).toContain("delayed_tool");
     } finally {
       faux.unregister();
+    }
+  });
+
+  test("extension tools activated via activate_tools are callable in the same turn", async () => {
+    const authStorage = AuthStorage.create();
+    authStorage.set("faux", { type: "api_key", key: "test-key" });
+    const modelRegistry = ModelRegistry.inMemory(authStorage);
+    const settingsManager = SettingsManager.create("/workspace", getAgentDir());
+    const tempRoot = mkdtempSync(join(tmpdir(), "piclaw-issue13-"));
+    const sessionDir = join(tempRoot, "session");
+    const faux = registerFauxProvider();
+
+    try {
+      const runtime = await createSessionInDir(sessionDir, {
+        authStorage,
+        modelRegistry,
+        settingsManager,
+        tools: [],
+        extensionFactories: [customExtension],
+      });
+      const session: any = runtime.session;
+      session.agent.state.model = faux.getModel();
+      session.setActiveToolsByName(["activate_tools"]);
+
+      faux.setResponses([
+        fauxAssistantMessage(fauxToolCall("activate_tools", { names: ["demo_extension_tool"] })),
+        (context) => fauxAssistantMessage(
+          context.tools?.some((tool) => tool.name === "demo_extension_tool")
+            ? fauxToolCall("demo_extension_tool", { value: "same-turn" })
+            : "demo tool missing from context",
+        ),
+        fauxAssistantMessage("done"),
+      ]);
+
+      await session.prompt("activate and use the demo extension tool");
+
+      const assistantTexts = session.agent.state.messages
+        .filter((message) => message.role === "assistant")
+        .flatMap((message) => message.content)
+        .filter((block) => block.type === "text")
+        .map((block) => block.text);
+      expect(assistantTexts).toContain("done");
+
+      const toolResults = session.agent.state.messages.filter((message) => message.role === "toolResult");
+      expect(toolResults.map((message) => message.toolName)).toContain("demo_extension_tool");
+      expect(toolResults.some((message) => message.toolName === "demo_extension_tool" && message.isError)).toBe(false);
+    } finally {
+      faux.unregister();
+      rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 });

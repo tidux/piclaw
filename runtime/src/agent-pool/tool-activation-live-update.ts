@@ -14,27 +14,38 @@ type LiveToolSession = {
 };
 
 const liveToolSnapshotAgents = new WeakSet<object>();
+const liveToolSnapshotStates = new WeakMap<object, { tools: unknown[] }>();
 const boundImmediateToolActivationSessions = new WeakSet<object>();
 
 function replaceArrayContents<T>(target: T[], next: T[]): void {
   target.splice(0, target.length, ...next);
 }
 
-function ensureLiveToolSnapshot(agent: LiveToolSnapshotAgent): void {
-  if (!agent || typeof agent !== "object") return;
-  if (liveToolSnapshotAgents.has(agent as object)) return;
-  if (typeof agent.createContextSnapshot !== "function") return;
+function ensureLiveToolSnapshot(agent: LiveToolSnapshotAgent): { tools: unknown[] } | null {
+  if (!agent || typeof agent !== "object") return null;
 
-  const original = agent.createContextSnapshot.bind(agent);
-  agent.createContextSnapshot = () => {
-    const snapshot = original();
-    const liveTools = Array.isArray(agent.state?.tools) ? agent.state.tools : snapshot.tools;
-    return {
-      ...snapshot,
-      tools: liveTools,
-    };
+  const agentObject = agent as object;
+  const existing = liveToolSnapshotStates.get(agentObject);
+  if (existing) return existing;
+
+  const liveState = {
+    tools: Array.isArray(agent.state?.tools) ? agent.state.tools as unknown[] : [],
   };
-  liveToolSnapshotAgents.add(agent as object);
+
+  if (typeof agent.createContextSnapshot === "function" && !liveToolSnapshotAgents.has(agentObject)) {
+    const original = agent.createContextSnapshot.bind(agent);
+    agent.createContextSnapshot = () => {
+      const snapshot = original();
+      return {
+        ...snapshot,
+        tools: liveState.tools,
+      };
+    };
+    liveToolSnapshotAgents.add(agentObject);
+  }
+
+  liveToolSnapshotStates.set(agentObject, liveState);
+  return liveState;
 }
 
 export function applyActiveToolsImmediately(session: LiveToolSession, toolNames: string[]): void {
@@ -49,15 +60,19 @@ export function applyActiveToolsImmediately(session: LiveToolSession, toolNames:
     }
   }
 
-  ensureLiveToolSnapshot(session.agent);
+  const liveState = ensureLiveToolSnapshot(session.agent);
 
   const currentTools = Array.isArray(session.agent?.state?.tools)
     ? session.agent.state.tools as unknown[]
     : undefined;
 
-  if (currentTools) {
+  if (liveState?.tools) {
+    replaceArrayContents(liveState.tools, tools);
+  }
+
+  if (currentTools && currentTools !== liveState?.tools) {
     replaceArrayContents(currentTools, tools);
-  } else if (typeof session.agent?.setTools === "function") {
+  } else if (!currentTools && typeof session.agent?.setTools === "function") {
     session.agent.setTools(tools);
   }
 
@@ -74,7 +89,7 @@ export function bindImmediateToolActivation(session: LiveToolSession): void {
   if (!session || typeof session !== "object") return;
   if (boundImmediateToolActivationSessions.has(session as object)) return;
 
-  ensureLiveToolSnapshot(session.agent);
+  const liveState = ensureLiveToolSnapshot(session.agent);
 
   const original = typeof session.setActiveToolsByName === "function"
     ? session.setActiveToolsByName.bind(session)
@@ -83,7 +98,12 @@ export function bindImmediateToolActivation(session: LiveToolSession): void {
   session.setActiveToolsByName = (toolNames: string[]) => {
     if (original) {
       original(toolNames);
-      ensureLiveToolSnapshot(session.agent);
+      const nextTools = Array.isArray(session.agent?.state?.tools)
+        ? session.agent.state.tools as unknown[]
+        : [];
+      if (liveState?.tools) {
+        replaceArrayContents(liveState.tools, nextTools);
+      }
       return;
     }
     applyActiveToolsImmediately(session, toolNames);
