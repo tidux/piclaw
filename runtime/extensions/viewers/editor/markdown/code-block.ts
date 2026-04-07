@@ -15,181 +15,14 @@
  */
 import { registerDecorator, Decoration, WidgetType } from './live-preview.js';
 import type { DecorationEntry, SyntaxNode, EditorView } from './live-preview.js';
-import { classHighlighter, highlightTree } from '@lezer/highlight';
-import { javascriptLanguage, jsxLanguage, tsxLanguage, typescriptLanguage } from '@codemirror/lang-javascript';
-import { pythonLanguage } from '@codemirror/lang-python';
-import { jsonLanguage } from '@codemirror/lang-json';
-import { cssLanguage } from '@codemirror/lang-css';
-import { htmlLanguage } from '@codemirror/lang-html';
-import { markdownLanguage } from '@codemirror/lang-markdown';
-import { yamlLanguage } from '@codemirror/lang-yaml';
-import { xmlLanguage } from '@codemirror/lang-xml';
-import { goLanguage } from '@codemirror/lang-go';
-import { StandardSQL } from '@codemirror/lang-sql';
+import {
+    highlightCodeLinesAsHtml,
+    normalizeCodeLanguageLabel,
+} from '../../../../web/src/utils/code-highlighting.js';
 
 const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
 const CHECK_ICON_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>';
 
-interface TokenSegment {
-    from: number;
-    to: number;
-    cls: string;
-}
-
-function escapeHtml(value: string): string {
-    return value
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
-function normalizeLangLabel(lang: string): string {
-    const raw = lang.trim().toLowerCase();
-    if (!raw) return 'text';
-
-    const aliases: Record<string, string> = {
-        js: 'JavaScript',
-        javascript: 'JavaScript',
-        ts: 'TypeScript',
-        typescript: 'TypeScript',
-        jsx: 'JSX',
-        tsx: 'TSX',
-        py: 'Python',
-        python: 'Python',
-        sh: 'Shell',
-        shell: 'Shell',
-        bash: 'Bash',
-        zsh: 'Zsh',
-        md: 'Markdown',
-        markdown: 'Markdown',
-        yml: 'YAML',
-        yaml: 'YAML',
-        json: 'JSON',
-        html: 'HTML',
-        css: 'CSS',
-        sql: 'SQL',
-        go: 'Go',
-        rust: 'Rust',
-        java: 'Java',
-        c: 'C',
-        cpp: 'C++',
-        cxx: 'C++',
-        csharp: 'C#',
-        cs: 'C#',
-        php: 'PHP',
-        ruby: 'Ruby',
-        swift: 'Swift',
-        kotlin: 'Kotlin',
-        toml: 'TOML',
-        ini: 'INI',
-        dockerfile: 'Dockerfile',
-    };
-
-    return aliases[raw] || lang.trim();
-}
-
-function parserForLang(lang: string): { parse: (input: string) => any } | null {
-    const raw = lang.trim().toLowerCase();
-    switch (raw) {
-        case 'js':
-        case 'javascript':
-            return javascriptLanguage.parser;
-        case 'ts':
-        case 'typescript':
-            return typescriptLanguage.parser;
-        case 'jsx':
-            return jsxLanguage.parser;
-        case 'tsx':
-            return tsxLanguage.parser;
-        case 'py':
-        case 'python':
-            return pythonLanguage.parser;
-        case 'json':
-            return jsonLanguage.parser;
-        case 'css':
-            return cssLanguage.parser;
-        case 'html':
-            return htmlLanguage.parser;
-        case 'xml':
-            return xmlLanguage.parser;
-        case 'yaml':
-        case 'yml':
-            return yamlLanguage.parser;
-        case 'md':
-        case 'markdown':
-            return markdownLanguage.parser;
-        case 'sql':
-            return StandardSQL.language.parser;
-        case 'go':
-            return goLanguage.parser;
-        default:
-            return null;
-    }
-}
-
-function highlightLines(code: string, lang: string): string[] {
-    const lines = code.split('\n');
-    if (!code) return lines;
-
-    const parser = parserForLang(lang);
-    if (!parser) return lines.map((line) => escapeHtml(line));
-
-    const tokens: TokenSegment[] = [];
-    try {
-        const tree = parser.parse(code);
-        highlightTree(tree, classHighlighter, (from, to, cls) => {
-            if (!cls || from >= to) return;
-            tokens.push({ from, to, cls });
-        });
-    } catch {
-        return lines.map((line) => escapeHtml(line));
-    }
-
-    if (!tokens.length) return lines.map((line) => escapeHtml(line));
-
-    tokens.sort((a, b) => a.from - b.from || a.to - b.to);
-
-    const lineStarts: number[] = [];
-    let pos = 0;
-    for (const line of lines) {
-        lineStarts.push(pos);
-        pos += line.length + 1;
-    }
-
-    const result: string[] = [];
-    for (let i = 0; i < lines.length; i++) {
-        const start = lineStarts[i];
-        const end = start + lines[i].length;
-
-        let html = '';
-        let cursor = start;
-
-        for (const token of tokens) {
-            if (token.to <= start) continue;
-            if (token.from >= end) break;
-
-            const tokenFrom = Math.max(start, token.from);
-            const tokenTo = Math.min(end, token.to);
-            if (tokenFrom > cursor) {
-                html += escapeHtml(code.slice(cursor, tokenFrom));
-            }
-            if (tokenTo > tokenFrom) {
-                html += `<span class="${token.cls}">${escapeHtml(code.slice(tokenFrom, tokenTo))}</span>`;
-            }
-            cursor = Math.max(cursor, tokenTo);
-        }
-
-        if (cursor < end) {
-            html += escapeHtml(code.slice(cursor, end));
-        }
-
-        result.push(html || '&nbsp;');
-    }
-
-    return result;
-}
 
 async function writeToClipboard(text: string): Promise<boolean> {
     try {
@@ -222,7 +55,7 @@ class CodeBlockHeaderWidget extends WidgetType {
 
     constructor(lang: string, code: string) {
         super();
-        this.langLabel = normalizeLangLabel(lang);
+        this.langLabel = normalizeCodeLanguageLabel(lang);
         this.code = code;
     }
 
@@ -360,7 +193,7 @@ function fencedCodeDecorator(node: SyntaxNode, view: EditorView): DecorationEntr
         const codeTo = doc.line(closeLine.number - 1).to;
         codeText = doc.sliceString(codeFrom, codeTo);
     }
-    const highlightedLines = highlightLines(codeText, lang);
+    const highlightedLines = highlightCodeLinesAsHtml(codeText, lang);
 
     // Opening fence: replace text content with language badge + copy action
     entries.push({

@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { highlightCodeToHtml } from './utils/code-highlighting.js';
 import { getThemeMode } from './ui/theme.js';
 
 /** Regex matching HTTP/HTTPS URLs in message text. */
@@ -308,6 +309,17 @@ function normalizeHtmlCodeTags(text) {
     });
 }
 
+export function applySyntaxHighlighting(html) {
+    if (!html) return html;
+    return html.replace(/<pre><code(?:\s+class="language-([A-Za-z0-9_+-]+)")?>([\s\S]*?)<\/code><\/pre>/g, (match, lang, code) => {
+        const normalizedLanguage = String(lang || '').trim().toLowerCase();
+        const decodedCode = decodeEntitiesDeep(code, 2);
+        const languageClass = normalizedLanguage || 'plaintext';
+        const highlighted = highlightCodeToHtml(decodedCode, normalizedLanguage);
+        return `<pre><code class="hljs language-${escapeHtmlAttr(languageClass)}">${highlighted}</code></pre>`;
+    });
+}
+
 const RESTORABLE_HTML_ATTRS = {
     span: new Set(['title', 'class', 'lang', 'dir']),
 };
@@ -544,6 +556,7 @@ export function renderMarkdown(text, onHashtagClick, options = {}) {
 
     html_content = decodeCodeEntities(html_content);
     html_content = decodeTextEntities(html_content);
+    html_content = applySyntaxHighlighting(html_content);
 
     // Render math expressions
     html_content = renderMath(html_content);

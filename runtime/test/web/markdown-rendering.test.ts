@@ -51,3 +51,35 @@ test('prepareMarkdownSource restores allowed ruby, br, and span tags', async () 
   expect(safeHtml).not.toContain('&lt;br/');
   expect(safeHtml).not.toContain('&lt;span');
 });
+
+test('applySyntaxHighlighting adds token spans for supported fenced languages', async () => {
+  globalThis.DOMParser = class {
+    parseFromString(input: string) {
+      return { documentElement: { textContent: decodeEntities(input) } } as any;
+    }
+  } as any;
+
+  const { applySyntaxHighlighting } = await import('../../web/src/markdown.ts');
+  const highlighted = applySyntaxHighlighting('<pre><code class="language-js">const answer = 42;</code></pre>');
+
+  expect(highlighted).toContain('class="hljs language-js"');
+  expect(highlighted).toContain('tok-keyword');
+  expect(highlighted).toContain('tok-variableName');
+  expect(highlighted).toContain('42');
+});
+
+test('applySyntaxHighlighting falls back to escaped plaintext for unsupported languages', async () => {
+  globalThis.DOMParser = class {
+    parseFromString(input: string) {
+      return { documentElement: { textContent: decodeEntities(input) } } as any;
+    }
+  } as any;
+
+  const { applySyntaxHighlighting } = await import('../../web/src/markdown.ts');
+  const highlighted = applySyntaxHighlighting('<pre><code class="language-unknown">&lt;tag&gt;</code></pre>');
+
+  expect(highlighted).toContain('class="hljs language-unknown"');
+  expect(highlighted).toContain('&lt;tag&gt;');
+  expect(highlighted).not.toContain('tok-keyword');
+  expect(highlighted).not.toContain('<span class="tok-');
+});
