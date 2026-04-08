@@ -88,7 +88,7 @@ function compactText(value) {
     const compact = value.replace(/\s+/g, " ").trim();
     return compact || null;
 }
-function readOptionalText(path) {
+function _readOptionalText(path) {
     if (!existsSync(path))
         return null;
     try {
@@ -163,7 +163,7 @@ function hasRevisionCue(value) {
 function hasNegation(value) {
     return /\b(no|not|never|avoid|don['’]t|do not|stop|without|deprecated|removed|no longer)\b/i.test(value);
 }
-function curateMemoryCandidates(candidates, limit = 24) {
+function _curateMemoryCandidates(candidates, limit = 24) {
     const curated = [];
     for (const candidate of candidates) {
         const normalized = normalizeMemoryText(candidate.text, candidate.date);
