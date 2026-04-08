@@ -7,6 +7,7 @@ import {
   getComposeHistoryStorageKey,
   getModelPickerOptionSearchLabel,
   normalizeModelPickerOptions,
+  resolveComposePrefillRequest,
 } from '../../web/src/components/compose-box.ts';
 import { CONTROL_COMMAND_DEFINITIONS } from '../../src/agent-control/command-registry.ts';
 
@@ -77,6 +78,26 @@ test('slash autocomplete includes all canonical control commands', () => {
     .filter((name) => !composeNames.has(name));
 
   expect(missing).toEqual([]);
+});
+
+test('resolveComposePrefillRequest applies new non-search prefill tokens exactly once', () => {
+  expect(resolveComposePrefillRequest({ token: 'tok-1', text: '/login' }, '', false)).toEqual({
+    shouldApply: true,
+    nextToken: 'tok-1',
+    text: '/login',
+  });
+
+  expect(resolveComposePrefillRequest({ token: 'tok-1', text: '/login' }, 'tok-1', false)).toEqual({
+    shouldApply: false,
+    nextToken: 'tok-1',
+    text: '',
+  });
+
+  expect(resolveComposePrefillRequest({ token: 'tok-2', text: '/login' }, '', true)).toEqual({
+    shouldApply: false,
+    nextToken: '',
+    text: '',
+  });
 });
 
 test('model picker helpers expose searchable names and formatted context windows', () => {

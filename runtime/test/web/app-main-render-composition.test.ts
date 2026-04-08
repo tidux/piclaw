@@ -88,6 +88,15 @@ test('composeRenderedMainAppOptions builds final shell options from grouped app 
       activeSearchScopeLabel: 'Current branch',
       currentHashtag: 'tag',
       searchQuery: 'hello',
+      oobePanelState: { kind: 'provider-ready' },
+      composePrefillRequest: { token: 'prefill-2', text: '/model' },
+      handleOobeSetupProvider: () => {},
+      handleOobeShowModelPicker: () => {},
+      handleOobeOpenWorkspace: () => {},
+      handleDismissProviderMissingOobe: () => {},
+      handleCompleteProviderReadyOobe: () => {},
+      hasLoadedAgentModels: true,
+      agentModelsPayload: { models: ['openai/gpt-4.1'] },
       timelineRef: { current: null },
       agents: {},
       userProfile: { name: 'You' },
@@ -159,6 +168,8 @@ test('composeRenderedMainAppOptions builds final shell options from grouped app 
   expect(result.mainShellOptions.steerQueued).toBe(true);
   expect(result.mainShellOptions.currentHashtag).toBe('tag');
   expect(result.mainShellOptions.searchQuery).toBe('hello');
+  expect(result.mainShellOptions.oobePanelState).toEqual({ kind: 'provider-ready' });
+  expect(result.mainShellOptions.composePrefillRequest).toEqual({ token: 'prefill-2', text: '/model' });
   expect(typeof result.mainShellOptions.openEditor).toBe('function');
   expect(typeof result.mainShellOptions.openTerminalTab).toBe('function');
   expect(typeof result.mainShellOptions.openVncTab).toBe('function');

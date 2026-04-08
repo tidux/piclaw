@@ -64,6 +64,13 @@ test('composeMainAppShellOptions composes pane-popout and main-shell payloads fr
       activeSearchScopeLabel: 'Current branch',
       currentHashtag: 'tag',
       searchQuery: 'hello',
+      oobePanelState: { kind: 'provider-missing' },
+      composePrefillRequest: { token: 'prefill-1', text: '/login' },
+      handleOobeSetupProvider: () => {},
+      handleOobeShowModelPicker: () => {},
+      handleOobeOpenWorkspace: () => {},
+      handleDismissProviderMissingOobe: () => {},
+      handleCompleteProviderReadyOobe: () => {},
       posts: [],
       hasMore: false,
       loadMore: () => {},
@@ -130,6 +137,8 @@ test('composeMainAppShellOptions composes pane-popout and main-shell payloads fr
   expect(result.mainShellOptions.connectionStatus).toBe('connected');
   expect(result.mainShellOptions.currentHashtag).toBe('tag');
   expect(result.mainShellOptions.searchQuery).toBe('hello');
+  expect(result.mainShellOptions.oobePanelState).toEqual({ kind: 'provider-missing' });
+  expect(result.mainShellOptions.composePrefillRequest).toEqual({ token: 'prefill-1', text: '/login' });
   expect(typeof result.mainShellOptions.openEditor).toBe('function');
   expect(typeof result.mainShellOptions.openTerminalTab).toBe('function');
   expect(typeof result.mainShellOptions.openVncTab).toBe('function');
