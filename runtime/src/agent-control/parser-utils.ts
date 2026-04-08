@@ -13,6 +13,40 @@
  *   - command-parsers.ts (all other helpers).
  */
 
+/** Strip a transport-appended Files:/Attachments: footer from a raw multiline command body. */
+export function stripTransportAttachmentFooter(input: string): string {
+  const normalized = String(input || "").replace(/\r\n/g, "\n");
+  if (!normalized.trim()) return "";
+
+  const lines = normalized.split("\n");
+  let end = lines.length - 1;
+  while (end >= 0 && lines[end].trim() === "") end -= 1;
+  if (end < 0) return "";
+
+  let bulletStart = end;
+  while (bulletStart >= 0 && /^\s*-\s+\S/.test(lines[bulletStart])) {
+    bulletStart -= 1;
+  }
+
+  const firstBullet = bulletStart + 1;
+  if (firstBullet > end) return normalized.trim();
+
+  const headerIndex = bulletStart;
+  if (headerIndex < 0 || !/^\s*(files|attachments):\s*$/i.test(lines[headerIndex])) {
+    return normalized.trim();
+  }
+
+  if (headerIndex > 0 && lines[headerIndex - 1].trim() !== "") {
+    return normalized.trim();
+  }
+
+  const keptLines = lines.slice(0, headerIndex);
+  while (keptLines.length > 0 && keptLines[keptLines.length - 1].trim() === "") {
+    keptLines.pop();
+  }
+  return keptLines.join("\n").trim();
+}
+
 /** Parse textual on/off toggle values used in slash-control commands. */
 export function parseToggle(value?: string): boolean | undefined {
   if (!value) return undefined;

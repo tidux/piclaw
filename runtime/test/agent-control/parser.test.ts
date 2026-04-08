@@ -137,9 +137,42 @@ describe("parseControlCommand", () => {
     expect(cmd).toEqual({ type: "shell", command: undefined, raw: "/shell" });
   });
 
+  test("/shell strips appended Files footer from the raw command body", () => {
+    const raw = `/shell ls
+
+Files:
+- tmp/doc-log.txt`;
+    const cmd = parseControlCommand(raw);
+    expect(cmd).toEqual({ type: "shell", command: "ls", raw });
+  });
+
   test("/bash with command", () => {
     const cmd = parseControlCommand("/bash echo hello");
     expect(cmd).toEqual({ type: "bash", command: "echo hello", raw: "/bash echo hello" });
+  });
+
+  test("/bash strips appended Attachments footer from the raw command body", () => {
+    const raw = `/bash pwd
+
+Attachments:
+- notes/today.md`;
+    const cmd = parseControlCommand(raw);
+    expect(cmd).toEqual({ type: "bash", command: "pwd", raw });
+  });
+
+  test("/bash preserves legitimate command text containing Files: labels", () => {
+    const raw = '/bash printf "Files:"';
+    const cmd = parseControlCommand(raw);
+    expect(cmd).toEqual({ type: "bash", command: 'printf "Files:"', raw });
+  });
+
+  test("/bash preserves multiline shell text when it is not a footer block", () => {
+    const raw = `/bash cat <<'EOF'
+Files:
+- keep-me
+EOF`;
+    const cmd = parseControlCommand(raw);
+    expect(cmd).toEqual({ type: "bash", command: "cat <<'EOF'\nFiles:\n- keep-me\nEOF", raw });
   });
 
   // /queue
