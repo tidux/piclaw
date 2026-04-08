@@ -28,14 +28,18 @@ export function collectFiles(roots: string[]): string[] {
   const walk = (dir: string) => {
     for (const name of readdirSync(dir)) {
       const filePath = path.join(dir, name);
-      const stat = statSync(filePath);
+      if (shouldSkipPath(filePath)) continue;
+      let stat;
+      try {
+        stat = statSync(filePath);
+      } catch {
+        continue;
+      }
       if (stat.isDirectory()) {
-        if (shouldSkipPath(filePath)) continue;
         walk(filePath);
         continue;
       }
       if (!VALID_EXT.test(name)) continue;
-      if (shouldSkipPath(filePath)) continue;
       files.push(filePath);
     }
   };

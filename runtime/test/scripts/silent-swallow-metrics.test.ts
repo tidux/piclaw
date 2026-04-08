@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -42,6 +42,23 @@ describe("silent-swallow-metrics", () => {
         "try { work(); } catch {}",
         "Promise.resolve().catch(() => {});",
       ].join("\n"));
+
+      const metrics = getSilentSwallowMetrics({
+        repoDirs: [join(dir, "runtime", "extensions")],
+        runtimeCoreDirs: [join(dir, "runtime", "extensions")],
+      });
+
+      expect(metrics.repoSilentCatchBlocks).toBe(0);
+      expect(metrics.repoSilentPromiseCatches).toBe(0);
+      expect(metrics.repoFilesWithSilentCatches).toBe(0);
+      expect(metrics.runtimeCoreSilentCatches).toBe(0);
+    });
+  });
+
+  test("ignores broken node_modules symlinks without throwing", async () => {
+    await withTempDir("silent-swallow-broken-symlink-", async (dir) => {
+      mkdirSync(join(dir, "runtime", "extensions"), { recursive: true });
+      symlinkSync(join(dir, "missing-node-modules-target"), join(dir, "runtime", "extensions", "node_modules"));
 
       const metrics = getSilentSwallowMetrics({
         repoDirs: [join(dir, "runtime", "extensions")],
