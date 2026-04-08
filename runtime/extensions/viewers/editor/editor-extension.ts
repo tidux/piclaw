@@ -594,6 +594,7 @@ export class StandaloneEditorInstance implements PaneInstance {
             this.baselineWhitespaceCompartment.of(this.showWhitespace ? highlightWhitespace() : []),
             this.baselineThemeCompartment.of(isDark ? githubDark : githubLight),
             this.baselineAccentCompartment.of(this.buildAccentTheme()),
+            EditorView.lineWrapping,
             syntaxHighlighting(headingStyle),
             syntaxHighlighting(classHighlighter),
             EditorState.readOnly.of(true),

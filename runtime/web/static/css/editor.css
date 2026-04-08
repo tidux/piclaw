@@ -291,6 +291,11 @@
     opacity: 0.5;
 }
 
+.editor-diff-shell[hidden],
+.editor-codemirror[hidden] {
+    display: none !important;
+}
+
 .editor-diff-shell {
     --editor-diff-added-bg: color-mix(in srgb, var(--success-color) 14%, var(--bg-primary));
     --editor-diff-added-border: color-mix(in srgb, var(--success-color) 42%, var(--border-color));
