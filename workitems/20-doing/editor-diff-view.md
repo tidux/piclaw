@@ -1,10 +1,10 @@
 ---
 id: editor-diff-view
 title: Add a diff view in the editor
-status: next
+status: doing
 priority: medium
 created: 2026-03-13
-updated: 2026-04-06
+updated: 2026-04-08
 target_release: next
 estimate: M
 risk: medium
@@ -182,6 +182,22 @@ quickly.
 - [ ] Ticket front matter updated
 
 ## Updates
+
+### 2026-04-08
+- Lane change: `10-next` → `20-doing` by implementation start.
+- Implemented the narrow v1 `Compare to Saved` flow in the generic editor.
+- Current implementation shape:
+  - tab context-menu action for eligible dirty generic-editor tabs
+  - editor-owned side-by-side diff using CodeMirror `MergeView`
+  - saved baseline on the left, editable current buffer on the right
+  - theme-tinted diff styling using the active PiClaw color scheme
+  - tab-level diff-open state with host-transfer support for pane popout/reattach
+  - popout overflow can hide an active diff
+- Validation completed locally:
+  - `PICLAW_DB_IN_MEMORY=1 bun test runtime/test/web/tab-compare-saved.test.ts runtime/test/web/app-pane-state.test.ts runtime/test/web/app-pane-mode-render.test.ts runtime/test/web/app-main-render-composition.test.ts runtime/test/web/app-main-shell-composition.test.ts`
+  - `bun run typecheck`
+  - `bun run build:web`
+- Remaining optional follow-up: a manual real-browser smoke pass on one dirty text tab to confirm the final visual feel.
 
 ### 2026-04-06
 - Refinement pass completed to make the ticket execution-ready for a narrow v1.
