@@ -96,6 +96,8 @@ export interface ApplyModelStateOptions {
   setActiveThinkingLevel: StateSetter<unknown>;
   setSupportsThinking: StateSetter<boolean>;
   setActiveModelUsage: StateSetter<unknown>;
+  setAgentModelsPayload?: StateSetter<Record<string, unknown> | null>;
+  setHasLoadedAgentModels?: StateSetter<boolean>;
 }
 
 export function applyModelStatePayload(options: ApplyModelStateOptions): void {
@@ -105,7 +107,14 @@ export function applyModelStatePayload(options: ApplyModelStateOptions): void {
     setActiveThinkingLevel,
     setSupportsThinking,
     setActiveModelUsage,
+    setAgentModelsPayload,
+    setHasLoadedAgentModels,
   } = options;
+
+  if (payload && typeof payload === 'object') {
+    setAgentModelsPayload?.(payload as Record<string, unknown>);
+    setHasLoadedAgentModels?.(true);
+  }
 
   const modelUpdate = resolveModelStateUpdate(payload);
   if (modelUpdate.hasModel) setActiveModel(modelUpdate.model);

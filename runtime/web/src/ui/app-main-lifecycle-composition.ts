@@ -140,6 +140,8 @@ interface ComposeChatRefreshLifecycleOptionsInput {
   setActiveThinkingLevel: StateSetter<string | null>;
   setSupportsThinking: StateSetter<boolean>;
   setActiveModelUsage: StateSetter<any>;
+  setAgentModelsPayload: StateSetter<any>;
+  setHasLoadedAgentModels: StateSetter<boolean>;
   agentsRef: RefBox<Record<string, unknown>>;
   refreshQueueState: () => Promise<void>;
   refreshContextUsage: () => Promise<void>;
@@ -167,6 +169,8 @@ export function composeChatRefreshLifecycleOptions(input: ComposeChatRefreshLife
     setActiveThinkingLevel: input.setActiveThinkingLevel,
     setSupportsThinking: input.setSupportsThinking,
     setActiveModelUsage: input.setActiveModelUsage,
+    setAgentModelsPayload: input.setAgentModelsPayload,
+    setHasLoadedAgentModels: input.setHasLoadedAgentModels,
     agentsRef: input.agentsRef,
     refreshQueueState: input.refreshQueueState,
     refreshContextUsage: input.refreshContextUsage,

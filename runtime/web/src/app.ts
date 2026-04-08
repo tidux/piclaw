@@ -1,8 +1,8 @@
 // @ts-nocheck
 // Main authenticated web UI entry point.
-import { html, render, useState, useEffect, useMemo } from './vendor/preact-htm.js';
+import { html, render, useState, useEffect, useMemo, useCallback } from './vendor/preact-htm.js';
 import { paneRegistry, TERMINAL_TAB_PATH, VNC_TAB_PREFIX, tabStore } from './panes/index.js';
-import { getLocalStorageNumber } from './utils/storage.js';
+import { getLocalStorageBoolean, getLocalStorageNumber, setLocalStorageItem } from './utils/storage.js';
 import { dedupePosts } from './ui/timeline-utils.js';
 import { useAgentState } from './ui/use-agent-state.js';
 import { useSplitters } from './ui/use-splitters.js';
@@ -51,6 +51,11 @@ import {
 import {
     useMainAppPaneComposition,
 } from './ui/app-main-pane-composition.js';
+import {
+    OOBE_PROVIDER_MISSING_DISMISSED_KEY,
+    OOBE_PROVIDER_READY_COMPLETED_KEY,
+    resolveOobePanelState,
+} from './ui/oobe-state.js';
 
 const CURRENT_APP_ASSET_VERSION = getCurrentAppAssetVersion();
 
@@ -99,6 +104,9 @@ function MainApp({ locationParams, navigate }) {
         currentChatJid,
         branchLoaderMode,
     });
+    const [providerMissingDismissed, setProviderMissingDismissed] = useState(() => getLocalStorageBoolean(OOBE_PROVIDER_MISSING_DISMISSED_KEY, false));
+    const [providerReadyCompleted, setProviderReadyCompleted] = useState(() => getLocalStorageBoolean(OOBE_PROVIDER_READY_COMPLETED_KEY, false));
+    const [composePrefillRequest, setComposePrefillRequest] = useState<any>(null);
     const {
         agentStatus,
         setAgentStatus,
@@ -393,6 +401,8 @@ function MainApp({ locationParams, navigate }) {
             setActiveThinkingLevel: surface.setActiveThinkingLevel,
             setSupportsThinking: surface.setSupportsThinking,
             setActiveModelUsage: surface.setActiveModelUsage,
+            setAgentModelsPayload: surface.setAgentModelsPayload,
+            setHasLoadedAgentModels: surface.setHasLoadedAgentModels,
             setHasMore: timeline.setHasMore,
             setFloatingWidget: surface.setFloatingWidget,
             setSteerQueuedTurnId,
@@ -449,6 +459,44 @@ function MainApp({ locationParams, navigate }) {
         },
     });
 
+    const oobePanelState = useMemo(() => resolveOobePanelState({
+        panePopoutMode,
+        modelsLoaded: surface.hasLoadedAgentModels,
+        modelPayload: surface.agentModelsPayload,
+        activeModel: surface.activeModel,
+        providerMissingDismissed,
+        providerReadyCompleted,
+    }), [panePopoutMode, surface.hasLoadedAgentModels, surface.agentModelsPayload, surface.activeModel, providerMissingDismissed, providerReadyCompleted]);
+
+    const requestComposePrefill = useCallback((text: string) => {
+        const nextText = typeof text === 'string' ? text.trim() : '';
+        if (!nextText) return;
+        timelineViewActions.exitSearchMode?.();
+        setComposePrefillRequest({ token: `${Date.now()}:${Math.random()}`, text: nextText });
+    }, [timelineViewActions]);
+
+    const handleOobeSetupProvider = useCallback(() => {
+        requestComposePrefill('/login');
+    }, [requestComposePrefill]);
+
+    const handleOobeShowModelPicker = useCallback(() => {
+        requestComposePrefill('/model');
+    }, [requestComposePrefill]);
+
+    const handleOobeOpenWorkspace = useCallback(() => {
+        surface.setWorkspaceOpen(true);
+    }, [surface.setWorkspaceOpen]);
+
+    const handleDismissProviderMissingOobe = useCallback(() => {
+        setProviderMissingDismissed(true);
+        setLocalStorageItem(OOBE_PROVIDER_MISSING_DISMISSED_KEY, 'true');
+    }, []);
+
+    const handleCompleteProviderReadyOobe = useCallback(() => {
+        setProviderReadyCompleted(true);
+        setLocalStorageItem(OOBE_PROVIDER_READY_COMPLETED_KEY, 'true');
+    }, []);
+
     useEffect(() => {
         if (!panePopoutMode || typeof document === 'undefined') return;
         document.title = getPanePopoutDocumentTitle(
@@ -478,7 +526,16 @@ function MainApp({ locationParams, navigate }) {
         },
         interaction,
         timeline,
-        surface,
+        surface: {
+            ...surface,
+            oobePanelState,
+            composePrefillRequest,
+            handleOobeSetupProvider,
+            handleOobeShowModelPicker,
+            handleOobeOpenWorkspace,
+            handleDismissProviderMissingOobe,
+            handleCompleteProviderReadyOobe,
+        },
         editorState: pane.editorState,
         agentState: {
             agentStatus,

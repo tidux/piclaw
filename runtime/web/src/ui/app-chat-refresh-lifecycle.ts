@@ -37,6 +37,8 @@ interface UseChatRefreshLifecycleOptions {
   setActiveThinkingLevel: StateSetter<string | null>;
   setSupportsThinking: StateSetter<boolean>;
   setActiveModelUsage: StateSetter<any>;
+  setAgentModelsPayload: StateSetter<any>;
+  setHasLoadedAgentModels: StateSetter<boolean>;
   agentsRef: RefBox<Record<string, unknown>>;
   refreshQueueState: () => void;
   refreshContextUsage: () => Promise<void>;
@@ -98,6 +100,8 @@ export function useChatRefreshLifecycle(options: UseChatRefreshLifecycleOptions)
     setActiveThinkingLevel,
     setSupportsThinking,
     setActiveModelUsage,
+    setAgentModelsPayload,
+    setHasLoadedAgentModels,
     agentsRef,
     refreshQueueState,
     refreshContextUsage,
@@ -145,8 +149,10 @@ export function useChatRefreshLifecycle(options: UseChatRefreshLifecycleOptions)
       setActiveThinkingLevel,
       setSupportsThinking,
       setActiveModelUsage,
+      setAgentModelsPayload,
+      setHasLoadedAgentModels,
     });
-  }, [setActiveModel, setActiveModelUsage, setActiveThinkingLevel, setSupportsThinking]);
+  }, [setActiveModel, setActiveModelUsage, setActiveThinkingLevel, setAgentModelsPayload, setHasLoadedAgentModels, setSupportsThinking]);
 
   const refreshModelState = useCallback(() => {
     refreshModelStateForChat({

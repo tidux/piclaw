@@ -71,6 +71,19 @@ export const SLASH_COMMANDS = [
 
 const COMPOSE_HISTORY_STORAGE_KEY = 'piclaw_compose_history';
 
+export function resolveComposePrefillRequest(prefillRequest, lastHandledToken, searchMode = false) {
+    if (searchMode) return { shouldApply: false, nextToken: lastHandledToken, text: '' };
+    if (!prefillRequest || typeof prefillRequest !== 'object') {
+        return { shouldApply: false, nextToken: lastHandledToken, text: '' };
+    }
+    const token = typeof prefillRequest.token === 'string' ? prefillRequest.token : '';
+    const text = typeof prefillRequest.text === 'string' ? prefillRequest.text : '';
+    if (!token || token === lastHandledToken || !text.trim()) {
+        return { shouldApply: false, nextToken: lastHandledToken, text: '' };
+    }
+    return { shouldApply: true, nextToken: token, text };
+}
+
 export function getComposeHistoryStorageKey(chatJid = 'web:default') {
     const normalized = typeof chatJid === 'string' && chatJid.trim() ? chatJid.trim() : 'web:default';
     if (normalized === 'web:default') return COMPOSE_HISTORY_STORAGE_KEY;
@@ -419,6 +432,7 @@ export function ComposeBox({
     onRestoreSession,
     showQueueStack = true,
     statusNotice = null,
+    prefillRequest = null,
 }) {
     const [content, setContent] = useState('');
     const [searchText, setSearchText] = useState('');
@@ -482,12 +496,35 @@ export function ComposeBox({
     const historyRef = useRef(loadHistory(historyStorageKey));
     const historyIndexRef = useRef(-1);
     const historyDraftRef = useRef('');
+    const lastPrefillTokenRef = useRef('');
 
     useEffect(() => {
         historyRef.current = loadHistory(historyStorageKey);
         historyIndexRef.current = -1;
         historyDraftRef.current = '';
     }, [historyStorageKey]);
+
+    useEffect(() => {
+        const resolved = resolveComposePrefillRequest(prefillRequest, lastPrefillTokenRef.current, searchMode);
+        if (!resolved.shouldApply) return;
+        lastPrefillTokenRef.current = resolved.nextToken;
+        setSubmitError(null);
+        setContent(resolved.text);
+        updateSlashAutocomplete(resolved.text);
+        updateMentionAutocomplete(resolved.text);
+        requestAnimationFrame(() => {
+            resizeTextarea();
+            const textarea = textareaRef.current;
+            if (!textarea) return;
+            try {
+                textarea.focus({ preventScroll: true });
+            } catch {
+                textarea.focus();
+            }
+            const end = resolved.text.length;
+            textarea.setSelectionRange?.(end, end);
+        });
+    }, [prefillRequest, searchMode]);
     const canSend = content.trim() || mediaFiles.length > 0 || fileRefs.length > 0 || messageRefs.length > 0;
     const canShareLocation = typeof window !== 'undefined'
         && typeof navigator !== 'undefined'

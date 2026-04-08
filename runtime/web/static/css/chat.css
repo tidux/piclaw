@@ -48,6 +48,75 @@
     color: var(--accent-color);
 }
 
+/* OOBE panel */
+.oobe-panel {
+    margin: var(--spacing-sm) var(--spacing-md) 0;
+    padding: calc(var(--spacing-sm) + 2px) calc(var(--spacing-md) + 2px);
+    border: 1px solid var(--border-color);
+    border-radius: var(--chat-surface-radius);
+    background: linear-gradient(180deg, var(--bg-secondary), color-mix(in srgb, var(--bg-secondary) 84%, var(--accent-soft, rgba(29, 155, 240, 0.08)) 16%));
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.oobe-panel-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.oobe-panel-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.oobe-panel-title {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    line-height: 1.25;
+    color: var(--text-primary);
+}
+
+.oobe-panel-body {
+    margin: 0;
+    color: var(--text-secondary);
+}
+
+.oobe-panel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+}
+
+.oobe-panel-btn {
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: var(--chat-surface-radius);
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+.oobe-panel-btn:hover {
+    background: var(--bg-hover);
+}
+
+.oobe-panel-btn-primary {
+    border-color: color-mix(in srgb, var(--accent-color) 45%, var(--border-color));
+    background: color-mix(in srgb, var(--accent-color) 12%, var(--bg-primary));
+}
+
+.oobe-panel-btn:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
 /* Theme toggle */
 .theme-toggle {
     background: var(--bg-secondary);

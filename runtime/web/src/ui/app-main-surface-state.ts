@@ -56,6 +56,8 @@ export function useMainAppSurfaceState(options: {
   const [activeThinkingLevel, setActiveThinkingLevel] = useState<string | null>(null);
   const [supportsThinking, setSupportsThinking] = useState(false);
   const [activeModelUsage, setActiveModelUsage] = useState<any>(null);
+  const [agentModelsPayload, setAgentModelsPayload] = useState<any>(null);
+  const [hasLoadedAgentModels, setHasLoadedAgentModels] = useState(false);
   const [activeChatAgents, setActiveChatAgents] = useState<any[]>([]);
   const [currentChatBranches, setCurrentChatBranches] = useState<any[]>([]);
   const [contextUsage, setContextUsage] = useState<any>(null);
@@ -162,6 +164,10 @@ export function useMainAppSurfaceState(options: {
     setSupportsThinking,
     activeModelUsage,
     setActiveModelUsage,
+    agentModelsPayload,
+    setAgentModelsPayload,
+    hasLoadedAgentModels,
+    setHasLoadedAgentModels,
     activeChatAgents,
     setActiveChatAgents,
     currentChatBranches,

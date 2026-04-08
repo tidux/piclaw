@@ -1,5 +1,6 @@
 import { html } from '../vendor/preact-htm.js';
 import { ComposeBox, QueuedFollowupStack } from '../components/compose-box.js';
+import { OobePanel } from '../components/oobe-panel.js';
 import { BtwPanel } from '../components/btw-panel.js';
 import { FloatingWidgetPane } from '../components/floating-widget-pane.js';
 import { AttachmentPreviewModal } from '../components/attachment-preview-modal.js';
@@ -161,6 +162,13 @@ export function renderMainShell(options: MainShellRenderOptions): any {
     currentHashtag,
     handleBackToTimeline,
     activeSearchScopeLabel,
+    oobePanelState,
+    composePrefillRequest,
+    handleOobeSetupProvider,
+    handleOobeShowModelPicker,
+    handleOobeOpenWorkspace,
+    handleDismissProviderMissingOobe,
+    handleCompleteProviderReadyOobe,
     posts,
     isMainTimelineView,
     hasMore,
@@ -479,6 +487,15 @@ export function renderMainShell(options: MainShellRenderOptions): any {
             <span>${currentHashtag ? `#${currentHashtag}` : `Search: ${searchQuery} · ${activeSearchScopeLabel}`}</span>
           </div>
         `}
+        ${oobePanelState?.kind && oobePanelState.kind !== 'hidden' && html`
+          <${OobePanel}
+            kind=${oobePanelState.kind}
+            onSetupProvider=${handleOobeSetupProvider}
+            onShowModelPicker=${handleOobeShowModelPicker}
+            onOpenWorkspace=${handleOobeOpenWorkspace}
+            onDismiss=${oobePanelState.kind === 'provider-missing' ? handleDismissProviderMissingOobe : handleCompleteProviderReadyOobe}
+          />
+        `}
         <${Timeline}
           posts=${posts}
           hasMore=${isMainTimelineView ? hasMore : false}
@@ -600,6 +617,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
           onModelChange=${setActiveModel}
           onModelStateChange=${applyModelState}
           statusNotice=${isCompactionStatus(agentStatus) ? agentStatus : null}
+          prefillRequest=${composePrefillRequest}
         />
         <${AgentRequestModal}
           request=${pendingRequest}
