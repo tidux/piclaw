@@ -42,6 +42,16 @@ export function handleWorkspaceBranch(req) {
     return jsonResponse(result.body, result.status);
 }
 /**
+ * Handle GET `/workspace/index-status` requests for workspace FTS lifecycle status.
+ * @param req Incoming HTTP request with optional `scope` query parameter.
+ * @returns JSON response containing the current workspace index status snapshot.
+ */
+export function handleWorkspaceIndexStatus(req) {
+    const url = new URL(req.url);
+    const result = workspaceService.getIndexStatus(url.searchParams.get("scope"));
+    return jsonResponse(result.body, result.status);
+}
+/**
  * Handle PUT `/workspace/file` requests to update file contents.
  * @param req Incoming HTTP request containing JSON `{ path, content }`.
  * @returns JSON response with update result, or a 400 error for invalid/missing input.
@@ -261,6 +271,24 @@ export async function handleWorkspaceMove(req) {
         return errorJson("Missing target", 400);
     }
     const result = workspaceService.moveEntry(data.path ?? null, data.target ?? null);
+    return jsonResponse(result.body, result.status);
+}
+/**
+ * Handle POST `/workspace/reindex` requests to rebuild workspace FTS state.
+ * @param req Incoming HTTP request containing optional JSON `{ scope }`.
+ * @returns JSON response with the updated workspace index status snapshot.
+ */
+export async function handleWorkspaceReindex(req) {
+    let data = {};
+    try {
+        const text = await req.text();
+        if (text.trim())
+            data = JSON.parse(text);
+    }
+    catch {
+        return errorJson("Invalid JSON", 400);
+    }
+    const result = await workspaceService.reindex(data.scope ?? null);
     return jsonResponse(result.body, result.status);
 }
 /**

@@ -79,6 +79,7 @@ After install, the goal is that:
 - the CLI runs without a manual build
 - bundled web assets are already present
 - bundled extensions/viewers required by normal runtime behavior are included
+- bundled Pi extensions such as `pi-mcp-adapter` are installed with the package and available to session startup wiring
 - the vendored Draw.io editor ships in the repo/package and does not rely on a Windows-time download
 - bundled automation extensions such as `cdp_browser` are available after install
 - Windows-only `win_*` desktop automation extensions are included but remain inert on non-Windows hosts
@@ -89,6 +90,8 @@ After install, the goal is that:
 
 ## Notes
 
+- PiClaw now ships `pi-mcp-adapter` as a bundled dependency. Configure it with `.pi/mcp.json` (project-local) or `/config/.pi/agent/mcp.json` (global Pi home). A starter example is seeded at `.pi/mcp.json.example`.
+- `pi-mcp-adapter` does not require `mcp-cli`.
 - This path is Bun-first. npm parity is not part of the initial scope.
 - The published GHCR image remains the main documented production runtime.
 - The Bun repo-install path now ships the bundled `cdp-browser` and `win-ui` extensions in the package tree alongside the existing optional extensions.

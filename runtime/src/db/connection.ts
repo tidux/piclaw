@@ -447,6 +447,17 @@ function createSchema(database: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_workspace_files_indexed_at ON workspace_files(indexed_at);
 
+    -- Persisted lifecycle snapshot for workspace FTS indexing by scope.
+    CREATE TABLE IF NOT EXISTS workspace_index_status (
+      scope TEXT PRIMARY KEY,
+      state TEXT NOT NULL,
+      last_indexed_at TEXT,
+      last_error TEXT,
+      indexed_file_count INTEGER NOT NULL DEFAULT 0,
+      roots_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     -- FTS5 index over workspace file contents for fast grep-like search.
     CREATE VIRTUAL TABLE IF NOT EXISTS workspace_fts USING fts5(
       content,

@@ -1,7 +1,7 @@
 /**
  * web/http/dispatch-workspace.ts – Workspace route dispatch helpers.
  */
-import { handleWorkspaceAttach, handleWorkspaceBranch, handleWorkspaceCreate, handleWorkspaceDelete, handleWorkspaceDownload, handleWorkspaceFile, handleWorkspaceRaw, handleWorkspaceMove, handleWorkspaceRename, handleWorkspaceTree, handleWorkspaceUpdate, handleWorkspaceUpload, } from "../handlers/workspace.js";
+import { handleWorkspaceAttach, handleWorkspaceBranch, handleWorkspaceCreate, handleWorkspaceDelete, handleWorkspaceDownload, handleWorkspaceFile, handleWorkspaceIndexStatus, handleWorkspaceRaw, handleWorkspaceMove, handleWorkspaceReindex, handleWorkspaceRename, handleWorkspaceTree, handleWorkspaceUpdate, handleWorkspaceUpload, } from "../handlers/workspace.js";
 /**
  * Dispatch `/workspace/*` routes and return null when no workspace route matches.
  * @param channel Workspace dispatcher contract with optional handler overrides.
@@ -18,6 +18,9 @@ export async function handleWorkspaceRoutes(channel, req, pathname) {
     }
     if (req.method === "GET" && pathname === "/workspace/branch") {
         return channel.handleWorkspaceBranch?.(req) ?? handleWorkspaceBranch(req);
+    }
+    if (req.method === "GET" && pathname === "/workspace/index-status") {
+        return channel.handleWorkspaceIndexStatus?.(req) ?? handleWorkspaceIndexStatus(req);
     }
     if (req.method === "PUT" && pathname === "/workspace/file") {
         return await (channel.handleWorkspaceUpdate?.(req) ?? handleWorkspaceUpdate(req));
@@ -45,6 +48,9 @@ export async function handleWorkspaceRoutes(channel, req, pathname) {
     }
     if (req.method === "POST" && pathname === "/workspace/move") {
         return await (channel.handleWorkspaceMove?.(req) ?? handleWorkspaceMove(req));
+    }
+    if (req.method === "POST" && pathname === "/workspace/reindex") {
+        return await (channel.handleWorkspaceReindex?.(req) ?? handleWorkspaceReindex(req));
     }
     if (req.method === "POST" && pathname === "/workspace/visibility") {
         return channel.handleWorkspaceVisibility(req);

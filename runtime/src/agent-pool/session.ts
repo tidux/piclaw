@@ -69,6 +69,10 @@ const OPTIONAL_EXTENSIONS: { path: string; envGate?: string }[] = [
   { path: resolve(EXTENSIONS_DIR, "viewers", "drawio-editor", "index.ts") },
 ];
 
+const PACKAGED_EXTENSION_ENTRIES = [
+  { packageName: "pi-mcp-adapter", entry: "index.ts" },
+] as const;
+
 /** Walk up from startDir looking for a node_modules that contains @mariozechner/pi-ai. */
 function findNodeModules(startDir: string): string | null {
   let dir = startDir;
@@ -82,20 +86,32 @@ function findNodeModules(startDir: string): string | null {
   return null;
 }
 
+function resolvePackagedExtensionEntries(nodeModulesDir: string | null): string[] {
+  if (!nodeModulesDir) return [];
+
+  const resolved: string[] = [];
+  for (const candidate of PACKAGED_EXTENSION_ENTRIES) {
+    const entryPath = join(nodeModulesDir, candidate.packageName, candidate.entry);
+    if (existsSync(entryPath)) {
+      resolved.push(entryPath);
+    }
+  }
+  return resolved;
+}
+
 function getBundledExtensionPaths(): string[] {
+  const nodeModulesDir = findNodeModules(EXTENSIONS_DIR);
   const paths = OPTIONAL_EXTENSIONS
     .filter(({ envGate }) => !envGate || !!process.env[envGate])
     .map(({ path }) => path);
+  paths.push(...resolvePackagedExtensionEntries(nodeModulesDir));
   if (paths.length === 0) return paths;
 
   // Ensure a node_modules symlink exists next to the extensions dir
   // so jiti can resolve deep package imports.
   const link = join(EXTENSIONS_DIR, "node_modules");
-  if (!existsSync(link)) {
-    const target = findNodeModules(EXTENSIONS_DIR);
-    if (target) {
-      try { symlinkSync(target, link); } catch { /* may already exist or read-only */ }
-    }
+  if (!existsSync(link) && nodeModulesDir) {
+    try { symlinkSync(nodeModulesDir, link); } catch { /* may already exist or read-only */ }
   }
   return paths;
 }

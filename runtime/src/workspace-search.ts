@@ -22,6 +22,18 @@ import { prepareFtsQuery } from "./utils/fts-query.js";
 /** Search scope: restrict to notes/, skills/, or search all indexed roots. */
 export type WorkspaceSearchScope = "notes" | "skills" | "all";
 
+export type WorkspaceIndexState = "never_indexed" | "indexing" | "ready" | "stale" | "failed";
+
+export type WorkspaceIndexStatus = {
+  scope: WorkspaceSearchScope;
+  state: WorkspaceIndexState;
+  last_indexed_at: string | null;
+  last_error: string | null;
+  indexed_file_count: number;
+  roots: string[];
+  updated_at: string | null;
+};
+
 /** Parameters accepted by searchWorkspace(). */
 export type WorkspaceSearchParams = {
   /** FTS5 query string. */
@@ -58,6 +70,16 @@ export type WorkspaceSearchResult = {
   error?: string;
 };
 
+type WorkspaceIndexStatusRow = {
+  scope: WorkspaceSearchScope;
+  state: Exclude<WorkspaceIndexState, "never_indexed" | "indexing">;
+  last_indexed_at: string | null;
+  last_error: string | null;
+  indexed_file_count: number;
+  roots_json: string;
+  updated_at: string;
+};
+
 const DEFAULT_EXTS = new Set([
   ".md",
   ".txt",
@@ -71,11 +93,18 @@ const DEFAULT_EXTS = new Set([
   ".sh",
 ]);
 
+const activeIndexScopes = new Set<WorkspaceSearchScope>();
+
 const clampNumber = (value: number | undefined, fallback: number, min: number, max: number): number => {
   if (!Number.isFinite(value)) return fallback;
   const num = Number(value);
   if (Number.isNaN(num)) return fallback;
   return Math.min(Math.max(num, min), max);
+};
+
+const normalizeScope = (scope: WorkspaceSearchScope | string | undefined): WorkspaceSearchScope => {
+  if (scope === "notes" || scope === "skills") return scope;
+  return "all";
 };
 
 const getWorkspaceRoot = (): string => {
@@ -108,6 +137,7 @@ const getDefaultRoots = (): string[] => {
 
 const toRelative = (absPath: string): string => {
   const workspaceRoot = getWorkspaceRoot();
+  if (absPath === workspaceRoot) return ".";
   if (absPath.startsWith(workspaceRoot + path.sep)) {
     return absPath.slice(workspaceRoot.length + 1);
   }
@@ -147,14 +177,104 @@ function normalizeRoots(scope: string | undefined): string[] {
   return configuredRoots;
 }
 
+function rootsToStatusRoots(roots: string[]): string[] {
+  return roots.map((root) => toRelative(path.resolve(root)));
+}
+
+function rootsToPrefixes(roots: string[]): string[] {
+  return rootsToStatusRoots(roots).map((root) => {
+    if (!root || root === ".") return "";
+    return root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+  });
+}
+
+function pathMatchesRoots(relativePath: string, roots: string[]): boolean {
+  const prefixes = rootsToPrefixes(roots);
+  return prefixes.some((prefix) => prefix === "" || relativePath.startsWith(prefix));
+}
+
+function parseRootsJson(raw: string | null | undefined, fallback: string[]): string[] {
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((entry) => typeof entry === "string") : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function getStatusRow(scope: WorkspaceSearchScope): WorkspaceIndexStatusRow | undefined {
+  const db = getDb();
+  return db.prepare(
+    "SELECT scope, state, last_indexed_at, last_error, indexed_file_count, roots_json, updated_at FROM workspace_index_status WHERE scope = ?",
+  ).get(scope) as WorkspaceIndexStatusRow | undefined;
+}
+
+function countIndexedFilesForRoots(roots: string[]): number {
+  const db = getDb();
+  const rows = db.prepare("SELECT path FROM workspace_files").all() as Array<{ path: string }>;
+  return rows.reduce((count, row) => count + (pathMatchesRoots(row.path, roots) ? 1 : 0), 0);
+}
+
+function buildStatusSnapshot(scope: WorkspaceSearchScope, roots: string[], row?: WorkspaceIndexStatusRow): WorkspaceIndexStatus {
+  const fallbackRoots = rootsToStatusRoots(roots);
+  return {
+    scope,
+    state: activeIndexScopes.has(scope) ? "indexing" : (row?.state ?? "never_indexed"),
+    last_indexed_at: row?.last_indexed_at ?? null,
+    last_error: row?.last_error ?? null,
+    indexed_file_count: row?.indexed_file_count ?? 0,
+    roots: parseRootsJson(row?.roots_json, fallbackRoots),
+    updated_at: row?.updated_at ?? null,
+  };
+}
+
+function upsertStatus(
+  scope: WorkspaceSearchScope,
+  state: Exclude<WorkspaceIndexState, "never_indexed" | "indexing">,
+  roots: string[],
+  options?: {
+    lastIndexedAt?: string | null;
+    lastError?: string | null;
+    indexedFileCount?: number;
+  },
+): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const rootsJson = JSON.stringify(rootsToStatusRoots(roots));
+  db.prepare(`
+    INSERT INTO workspace_index_status (
+      scope,
+      state,
+      last_indexed_at,
+      last_error,
+      indexed_file_count,
+      roots_json,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(scope) DO UPDATE SET
+      state = excluded.state,
+      last_indexed_at = excluded.last_indexed_at,
+      last_error = excluded.last_error,
+      indexed_file_count = excluded.indexed_file_count,
+      roots_json = excluded.roots_json,
+      updated_at = excluded.updated_at
+  `).run(
+    scope,
+    state,
+    options?.lastIndexedAt ?? null,
+    options?.lastError ?? null,
+    options?.indexedFileCount ?? 0,
+    rootsJson,
+    now,
+  );
+}
+
 async function indexWorkspace(roots: string[], maxBytes: number): Promise<void> {
   const db = getDb();
   const seen = new Set<string>();
   const now = new Date().toISOString();
-  const rootPrefixes = roots.map((root) => {
-    const rel = toRelative(path.resolve(root));
-    return rel.endsWith(path.sep) ? rel : `${rel}${path.sep}`;
-  });
+  const rootPrefixes = rootsToPrefixes(roots);
 
   for (const root of roots) {
     const absRoot = path.resolve(root);
@@ -194,7 +314,7 @@ async function indexWorkspace(roots: string[], maxBytes: number): Promise<void> 
   // aggressive cleanup: remove deleted files only within scanned roots
   const existingPaths = db.prepare("SELECT path FROM workspace_files").all() as Array<{ path: string }>;
   for (const row of existingPaths) {
-    const inScope = rootPrefixes.some((prefix) => row.path.startsWith(prefix));
+    const inScope = rootPrefixes.some((prefix) => prefix === "" || row.path.startsWith(prefix));
     if (!inScope) continue;
     if (!seen.has(row.path)) {
       db.prepare("DELETE FROM workspace_fts WHERE path = ?").run(row.path);
@@ -203,9 +323,72 @@ async function indexWorkspace(roots: string[], maxBytes: number): Promise<void> 
   }
 }
 
-export async function refreshWorkspaceIndex(params?: { scope?: WorkspaceSearchScope | string; max_kb?: number }): Promise<void> {
+function getAffectedScopes(paths: string[]): WorkspaceSearchScope[] {
+  const relativePaths = paths
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean)
+    .map((entry) => entry.startsWith(getWorkspaceRoot()) ? toRelative(path.resolve(entry)) : entry);
+
+  const scopes = new Set<WorkspaceSearchScope>();
+  for (const scope of ["notes", "skills", "all"] as const) {
+    const roots = normalizeRoots(scope);
+    if (relativePaths.some((entry) => pathMatchesRoots(entry, roots))) {
+      scopes.add(scope);
+    }
+  }
+  return Array.from(scopes);
+}
+
+export function getWorkspaceIndexStatus(params?: { scope?: WorkspaceSearchScope | string }): WorkspaceIndexStatus {
+  const scope = normalizeScope(params?.scope);
+  const roots = normalizeRoots(scope);
+  return buildStatusSnapshot(scope, roots, getStatusRow(scope));
+}
+
+export function markWorkspaceIndexStale(params?: { scope?: WorkspaceSearchScope | string; paths?: string[] }): void {
+  const explicitScope = params?.paths?.length ? null : normalizeScope(params?.scope);
+  const scopes = explicitScope ? [explicitScope] : getAffectedScopes(params?.paths || []);
+
+  for (const scope of scopes) {
+    const roots = normalizeRoots(scope);
+    const row = getStatusRow(scope);
+    if (!row) continue;
+    if (row.state === "failed") continue;
+    upsertStatus(scope, "stale", roots, {
+      lastIndexedAt: row.last_indexed_at,
+      lastError: row.last_error,
+      indexedFileCount: row.indexed_file_count,
+    });
+  }
+}
+
+export async function refreshWorkspaceIndex(params?: { scope?: WorkspaceSearchScope | string; max_kb?: number }): Promise<WorkspaceIndexStatus> {
+  const scope = normalizeScope(params?.scope);
+  const roots = normalizeRoots(scope);
   const maxBytes = clampNumber(params?.max_kb, 512, 16, 2048) * 1024;
-  await indexWorkspace(normalizeRoots(params?.scope), maxBytes);
+  const previous = getStatusRow(scope);
+
+  activeIndexScopes.add(scope);
+  try {
+    await indexWorkspace(roots, maxBytes);
+    const indexedAt = new Date().toISOString();
+    upsertStatus(scope, "ready", roots, {
+      lastIndexedAt: indexedAt,
+      lastError: null,
+      indexedFileCount: countIndexedFilesForRoots(roots),
+    });
+    activeIndexScopes.delete(scope);
+    return buildStatusSnapshot(scope, roots, getStatusRow(scope));
+  } catch (error) {
+    upsertStatus(scope, "failed", roots, {
+      lastIndexedAt: previous?.last_indexed_at ?? null,
+      lastError: error instanceof Error ? error.message : String(error),
+      indexedFileCount: previous?.indexed_file_count ?? 0,
+    });
+    throw error;
+  } finally {
+    activeIndexScopes.delete(scope);
+  }
 }
 
 /** Full-text search across indexed workspace files. */
@@ -214,7 +397,6 @@ export async function searchWorkspace(params: WorkspaceSearchParams): Promise<Wo
   const limit = clampNumber(params.limit, 10, 1, 50);
   const offset = clampNumber(params.offset, 0, 0, 1_000_000);
   const refresh = params.refresh !== false;
-  const maxBytes = clampNumber(params.max_kb, 512, 16, 2048) * 1024;
 
   if (!query) {
     return { rows: [], limit, offset, error: "Provide a query." };

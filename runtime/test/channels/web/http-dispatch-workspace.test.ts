@@ -14,12 +14,14 @@ describe("web http workspace dispatch", () => {
       handleWorkspaceTree: () => new Response("tree"),
       handleWorkspaceFile: () => new Response("file"),
       handleWorkspaceBranch: () => new Response("branch"),
+      handleWorkspaceIndexStatus: () => new Response("index-status"),
       handleWorkspaceUpdate: async () => new Response("update", { status: 201 }),
       handleWorkspaceDelete: () => new Response("delete"),
       handleWorkspaceRaw: () => new Response("raw"),
       handleWorkspaceDownload: () => new Response("download"),
       handleWorkspaceAttach: () => new Response("attach"),
       handleWorkspaceUpload: () => new Response("upload"),
+      handleWorkspaceReindex: () => new Response("reindex"),
       handleWorkspaceVisibility: () => new Response("visibility"),
     } as any;
 
@@ -31,6 +33,9 @@ describe("web http workspace dispatch", () => {
 
     const branchReq = new Request("https://example.com/workspace/branch", { method: "GET" });
     expect(await (await handleWorkspaceRoutes(channel, branchReq, "/workspace/branch"))?.text()).toBe("branch");
+
+    const indexStatusReq = new Request("https://example.com/workspace/index-status", { method: "GET" });
+    expect(await (await handleWorkspaceRoutes(channel, indexStatusReq, "/workspace/index-status"))?.text()).toBe("index-status");
 
     const updateReq = new Request("https://example.com/workspace/file", { method: "PUT" });
     expect((await handleWorkspaceRoutes(channel, updateReq, "/workspace/file"))?.status).toBe(201);
@@ -49,6 +54,9 @@ describe("web http workspace dispatch", () => {
 
     const uploadReq = new Request("https://example.com/workspace/upload", { method: "POST" });
     expect(await (await handleWorkspaceRoutes(channel, uploadReq, "/workspace/upload"))?.text()).toBe("upload");
+
+    const reindexReq = new Request("https://example.com/workspace/reindex", { method: "POST" });
+    expect(await (await handleWorkspaceRoutes(channel, reindexReq, "/workspace/reindex"))?.text()).toBe("reindex");
 
     const visibilityReq = new Request("https://example.com/workspace/visibility", { method: "POST" });
     expect(await (await handleWorkspaceRoutes(channel, visibilityReq, "/workspace/visibility"))?.text()).toBe("visibility");

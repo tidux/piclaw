@@ -6,6 +6,7 @@
  *
  * Consumers: web/handlers/workspace.ts creates and uses a WorkspaceService.
  */
+import { markWorkspaceIndexStale, getWorkspaceIndexStatus, refreshWorkspaceIndex } from "../../../workspace-search.js";
 import { WorkspaceFileService } from "./file-service.js";
 import { getWorkspaceGitBranch } from "./git-branch.js";
 import { WorkspaceTreeCache } from "./tree-cache.js";
@@ -14,6 +15,12 @@ import { startWorkspaceWatcher } from "./watcher.js";
 export class WorkspaceService {
     treeCache = new WorkspaceTreeCache();
     fileService = new WorkspaceFileService();
+    markIndexStale(paths) {
+        const affected = paths.filter((entry) => typeof entry === "string" && entry.trim().length > 0);
+        if (affected.length === 0)
+            return;
+        markWorkspaceIndexStale({ paths: affected });
+    }
     getTree(pathParam, depthParam, includeHidden = false) {
         return this.treeCache.getTree(pathParam, depthParam, includeHidden);
     }
@@ -33,26 +40,69 @@ export class WorkspaceService {
             },
         };
     }
+    getIndexStatus(scopeParam) {
+        return {
+            status: 200,
+            body: getWorkspaceIndexStatus({ scope: scopeParam ?? undefined }),
+        };
+    }
+    async reindex(scopeParam) {
+        const snapshot = await refreshWorkspaceIndex({ scope: scopeParam ?? undefined });
+        return {
+            status: 200,
+            body: snapshot,
+        };
+    }
     attachFile(pathParam) {
         return this.fileService.attachFile(pathParam);
     }
-    uploadFile(pathParam, file, overwrite = false) {
-        return this.fileService.uploadFile(pathParam, file, overwrite);
+    async uploadFile(pathParam, file, overwrite = false) {
+        const result = await this.fileService.uploadFile(pathParam, file, overwrite);
+        if (result.status === 200) {
+            const body = result.body;
+            this.markIndexStale([body?.path]);
+        }
+        return result;
     }
     createFile(pathParam, nameParam, content) {
-        return this.fileService.createFile(pathParam, nameParam, content);
+        const result = this.fileService.createFile(pathParam, nameParam, content);
+        if (result.status === 200) {
+            const body = result.body;
+            this.markIndexStale([body?.path]);
+        }
+        return result;
     }
     renameFile(pathParam, nameParam) {
-        return this.fileService.renameFile(pathParam, nameParam);
+        const result = this.fileService.renameFile(pathParam, nameParam);
+        if (result.status === 200) {
+            const body = result.body;
+            this.markIndexStale([body?.old_path, body?.path]);
+        }
+        return result;
     }
     moveEntry(pathParam, targetParam) {
-        return this.fileService.moveEntry(pathParam, targetParam);
+        const result = this.fileService.moveEntry(pathParam, targetParam);
+        if (result.status === 200) {
+            const body = result.body;
+            this.markIndexStale([body?.old_path, body?.path, body?.target]);
+        }
+        return result;
     }
     updateFile(pathParam, content) {
-        return this.fileService.updateFile(pathParam, content);
+        const result = this.fileService.updateFile(pathParam, content);
+        if (result.status === 200) {
+            const body = result.body;
+            this.markIndexStale([body?.path]);
+        }
+        return result;
     }
     deleteFile(pathParam) {
-        return this.fileService.deleteFile(pathParam);
+        const result = this.fileService.deleteFile(pathParam);
+        if (result.status === 200) {
+            const body = result.body;
+            this.markIndexStale([body?.path]);
+        }
+        return result;
     }
     downloadZip(pathParam, includeHidden = false) {
         return this.fileService.downloadZip(pathParam, includeHidden);

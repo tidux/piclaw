@@ -30,6 +30,7 @@ const WORKSPACE_SKEL_DIR = resolve(import.meta.dir, "../../../skel");
 const WORKSPACE_BOOTSTRAP_ENTRIES = [
   "AGENTS.md",
   ".pi/skills",
+  ".pi/mcp.json.example",
   ".piclaw/README.md",
   ".piclaw/config.json.example",
   "notes/index.md",

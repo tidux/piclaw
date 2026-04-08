@@ -26,6 +26,7 @@
     "skel/scripts",
     "skel/workitems",
     "docs/install-from-repo.md",
+    "docs/mcp.md",
     "README.md",
     "LICENSE"
   ],
@@ -93,6 +94,7 @@
     "js-yaml": "^4.1.1",
     "katex": "0.16.38",
     "marked": "17.0.4",
+    "pi-mcp-adapter": "2.2.2",
     "pptxviewjs": "^1.1.8",
     "preact": "10.29.0",
     "qrcode-terminal": "0.12.0",

@@ -13,15 +13,17 @@
  *   - agent-pool.ts for model label resolution.
  */
 import { existsSync } from "fs";
-import { PICLAW_CONFIG_PATH } from "../core/config.js";
+import { PICLAW_CONFIG_PATH, WORKSPACE_DIR } from "../core/config.js";
 import { readJsonConfig, writeJsonConfig } from "../core/config-store.js";
 /** Ordered list of supported thinking levels from off to xhigh. */
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
-/** Return the preferred working directory for shell commands (/workspace or cwd). */
+/** Return the preferred working directory for shell commands (configured workspace or cwd). */
 export function resolveShellCwd() {
-    const preferred = "/workspace";
-    if (existsSync(preferred))
-        return preferred;
+    if (existsSync(WORKSPACE_DIR))
+        return WORKSPACE_DIR;
+    const legacyPreferred = "/workspace";
+    if (existsSync(legacyPreferred))
+        return legacyPreferred;
     return process.cwd();
 }
 /** Format a shell command and its output as a markdown-style code block. */

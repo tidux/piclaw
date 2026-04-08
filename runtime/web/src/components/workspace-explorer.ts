@@ -7,8 +7,10 @@ import {
     getWorkspaceDownloadUrl,
     getWorkspaceFile,
     getWorkspaceFileDownloadUrl,
+    getWorkspaceIndexStatus,
     getWorkspaceTree,
     moveWorkspaceEntry,
+    reindexWorkspace,
     renameWorkspaceFile,
     setWorkspaceVisibility,
     uploadWorkspaceFile,
@@ -534,6 +536,33 @@ function triggerWorkspaceDownload(url) {
     link.remove();
 }
 
+function describeWorkspaceIndexState(snapshot) {
+    switch (snapshot?.state) {
+        case 'indexing':
+            return 'Indexing workspace…';
+        case 'ready':
+            return 'Workspace index ready';
+        case 'stale':
+            return 'Workspace index may be stale';
+        case 'failed':
+            return 'Workspace index failed';
+        case 'never_indexed':
+            return 'Workspace index not built yet';
+        default:
+            return 'Checking workspace index…';
+    }
+}
+
+function buildWorkspaceIndexTitle(snapshot) {
+    if (!snapshot) return 'Workspace index status';
+    const lines = [describeWorkspaceIndexState(snapshot)];
+    if (snapshot.last_indexed_at) lines.push(`Last indexed: ${snapshot.last_indexed_at}`);
+    if (typeof snapshot.indexed_file_count === 'number') lines.push(`Indexed files: ${snapshot.indexed_file_count}`);
+    if (Array.isArray(snapshot.roots) && snapshot.roots.length) lines.push(`Roots: ${snapshot.roots.join(', ')}`);
+    if (snapshot.last_error) lines.push(`Error: ${snapshot.last_error}`);
+    return lines.join('\n');
+}
+
 // ── WorkspaceExplorer ─────────────────────────────────────────────────────────
 
 /** Preact component: file tree explorer with upload, rename, and preview. */
@@ -564,6 +593,8 @@ export function WorkspaceExplorer({
     const [dropTarget,   setDropTarget]    = useState(null);
     const [uploading,    setUploading]     = useState(false);
     const [folderChart,  setFolderChart]   = useState(null);
+    const [workspaceIndexStatus, setWorkspaceIndexStatus] = useState(null);
+    const [workspaceReindexing, setWorkspaceReindexing] = useState(false);
     const [isDarkTheme,  setIsDarkTheme]   = useState(() => detectDarkTheme());
     const [explorerScale, setExplorerScale] = useState(() => resolveWorkspaceScale({
         stored: getLocalStorageItem(WORKSPACE_SCALE_STORAGE_KEY),
@@ -580,6 +611,7 @@ export function WorkspaceExplorer({
     // KEY FIX: keep a ref to the latest loadTree so the setInterval never
     // holds a stale closure over the initial tree=null state.
     const loadTreeFnRef   = useRef(null);
+    const loadWorkspaceIndexStatusRef = useRef(null);
     const nodeMapRef      = useRef(new Map());
     const onFileSelectRef = useRef(onFileSelect);
     const onOpenEditorRef = useRef(onOpenEditor);
@@ -813,6 +845,22 @@ export function WorkspaceExplorer({
     };
     loadPreviewRef.current = loadPreview;
 
+    const loadWorkspaceIndexStatus = useCallback(async () => {
+        try {
+            const status = await getWorkspaceIndexStatus('all');
+            setWorkspaceIndexStatus(status);
+            return status;
+        } catch (err) {
+            console.warn('[workspace-explorer] Failed to load workspace index status:', err);
+            return null;
+        }
+    }, []);
+    loadWorkspaceIndexStatusRef.current = loadWorkspaceIndexStatus;
+
+    const refreshWorkspaceIndexStatus = useCallback(() => {
+        loadWorkspaceIndexStatusRef.current?.();
+    }, []);
+
     // ── loadTree ──────────────────────────────────────────────────────────────
     const loadTree = async () => {
         if (!visibleRef.current) return;
@@ -1042,10 +1090,11 @@ export function WorkspaceExplorer({
                 loadPreviewRef.current?.(nextPath);
             }
             loadSubtreeRef.current?.(parent);
+            refreshWorkspaceIndexStatus();
         } catch (err) {
             setError(err?.message || 'Failed to rename file');
         }
-    }, [cancelRename, renameValue]);
+    }, [cancelRename, renameValue, refreshWorkspaceIndexStatus]);
 
     const createUntitledFile = useCallback(async (targetPath) => {
         const base = 'untitled';
@@ -1065,6 +1114,7 @@ export function WorkspaceExplorer({
                 setError(null);
                 loadSubtreeRef.current?.(folder);
                 loadPreviewRef.current?.(nextPath);
+                refreshWorkspaceIndexStatus();
                 return;
             } catch (err) {
                 if (err?.status === 409 || err?.code === 'file_exists') {
@@ -1120,6 +1170,8 @@ export function WorkspaceExplorer({
                 folderChartCacheRef.current.clear();
             }
 
+            refreshWorkspaceIndexStatus();
+
             // If the selected file changed on disk, refresh the preview.
             if (!selected || !previewRef.current) return;
             const node = nodeMapRef.current?.get(selected);
@@ -1166,6 +1218,7 @@ export function WorkspaceExplorer({
     useEffect(() => {
         if (visibleRef.current) {
             loadTreeFnRef.current?.();
+            loadWorkspaceIndexStatusRef.current?.();
         }
         scheduleVisibilityUpdate();
     }, [visible, active]);
@@ -1173,8 +1226,12 @@ export function WorkspaceExplorer({
     // Mount once; interval always calls the ref, never a stale copy.
     useEffect(() => {
         loadTreeFnRef.current();
+        loadWorkspaceIndexStatusRef.current?.();
         updateVisibility();
-        const timer = setInterval(() => loadTreeFnRef.current(), REFRESH_INTERVAL_MS);
+        const timer = setInterval(() => {
+            loadTreeFnRef.current();
+            loadWorkspaceIndexStatusRef.current?.();
+        }, REFRESH_INTERVAL_MS);
         // Apply saved preview height
         const saved = getLocalStorageNumber('previewHeight', null);
         const h = Number.isFinite(saved) ? Math.min(Math.max(saved, 80), 600) : 280;
@@ -1288,6 +1345,9 @@ export function WorkspaceExplorer({
     const selectedFolderDownloadUrl = selectedPath && selectedIsDir
         ? getWorkspaceDownloadUrl(selectedPath, showHidden)
         : null;
+    const workspaceIndexLabel = describeWorkspaceIndexState(workspaceIndexStatus);
+    const workspaceIndexTitle = buildWorkspaceIndexTitle(workspaceIndexStatus);
+    const workspaceIndexState = workspaceIndexStatus?.state || 'never_indexed';
 
     const closeHeaderMenu = useCallback(() => setHeaderMenuOpen(false), []);
 
@@ -1300,7 +1360,40 @@ export function WorkspaceExplorer({
         }
     }, [closeHeaderMenu]);
 
-
+    const handleWorkspaceReindex = useCallback(async (event) => {
+        event?.stopPropagation?.();
+        setWorkspaceReindexing(true);
+        setWorkspaceIndexStatus((prev) => ({
+            scope: 'all',
+            last_indexed_at: prev?.last_indexed_at || null,
+            last_error: null,
+            indexed_file_count: prev?.indexed_file_count || 0,
+            roots: prev?.roots || [],
+            updated_at: prev?.updated_at || null,
+            state: 'indexing',
+        }));
+        try {
+            const status = await reindexWorkspace('all');
+            setWorkspaceIndexStatus(status);
+            setError(null);
+            lastSigRef.current = '';
+            loadTreeFnRef.current?.();
+        } catch (err) {
+            const message = err?.message || 'Failed to reindex workspace';
+            setWorkspaceIndexStatus((prev) => ({
+                scope: 'all',
+                last_indexed_at: prev?.last_indexed_at || null,
+                last_error: message,
+                indexed_file_count: prev?.indexed_file_count || 0,
+                roots: prev?.roots || [],
+                updated_at: prev?.updated_at || null,
+                state: 'failed',
+            }));
+            setError(message);
+        } finally {
+            setWorkspaceReindexing(false);
+        }
+    }, []);
 
     useEffect(() => {
         const container = previewPaneHostRef.current;
@@ -1416,6 +1509,7 @@ export function WorkspaceExplorer({
     const handleRefreshClick = useRef(() => {
         lastSigRef.current = '';
         loadTreeFnRef.current();
+        loadWorkspaceIndexStatusRef.current?.();
         const openPaths = Array.from(expandedRef.current || []).filter((p) => p && p !== '.');
         openPaths.forEach((p) => loadSubtreeRef.current?.(p));
     }).current;
@@ -1466,6 +1560,7 @@ export function WorkspaceExplorer({
             }
             loadSubtreeRef.current?.(parent);
             setError(null);
+            refreshWorkspaceIndexStatus();
         } catch (err) {
             setPreview(prev => ({ ...(prev || {}), error: err.message || 'Failed to delete file' }));
         }
@@ -1811,6 +1906,7 @@ export function WorkspaceExplorer({
                 loadPreviewRef.current?.(lastResult.path);
             }
             loadSubtreeRef.current?.(target);
+            refreshWorkspaceIndexStatus();
         } catch (err) {
             setError(err.message || 'Failed to upload file');
         } finally {
@@ -1855,6 +1951,7 @@ export function WorkspaceExplorer({
             }
             loadSubtreeRef.current?.(sourceParent);
             loadSubtreeRef.current?.(targetDir);
+            refreshWorkspaceIndexStatus();
         } catch (err) {
             setError(err?.message || 'Failed to move entry');
         }
@@ -2076,6 +2173,9 @@ export function WorkspaceExplorer({
                                 <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuCreateFile} disabled=${uploading}>New file</button>
                                 <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuUploadFiles} disabled=${uploading}>Upload files</button>
                                 <button class="workspace-menu-item" role="menuitem" onClick=${handleMenuRefresh}>Refresh tree</button>
+                                <button class="workspace-menu-item" role="menuitem" onClick=${() => runMenuAction(() => handleWorkspaceReindex())} disabled=${workspaceReindexing}>
+                                    ${workspaceReindexing ? 'Reindexing workspace…' : 'Reindex workspace'}
+                                </button>
                                 <button class=${`workspace-menu-item${showHidden ? ' active' : ''}`} role="menuitem" onClick=${handleMenuToggleHidden}>
                                     ${showHidden ? 'Hide hidden files' : 'Show hidden files'}
                                 </button>
@@ -2129,7 +2229,16 @@ export function WorkspaceExplorer({
                             <line x1="5" y1="12" x2="19" y2="12" />
                         </svg>
                     </button>
-                    <button class="workspace-refresh" onClick=${handleRefreshClick} title="Refresh">
+                    <button class=${`workspace-reindex${workspaceReindexing ? ' active' : ''}`} onClick=${handleWorkspaceReindex} title=${workspaceReindexing ? 'Reindexing workspace…' : 'Reindex workspace'} disabled=${workspaceReindexing}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M3 12a9 9 0 0 1 15.3-6.3" />
+                            <path d="M21 12a9 9 0 0 1-15.3 6.3" />
+                            <polyline points="19 3 18.2 7.7 13.5 6.9" />
+                            <polyline points="5 21 5.8 16.3 10.5 17.1" />
+                        </svg>
+                    </button>
+                    <button class="workspace-refresh" onClick=${handleRefreshClick} title="Refresh tree">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
                             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                             <circle cx="12" cy="12" r="8.5" stroke-dasharray="42 12" stroke-dashoffset="6"
@@ -2137,6 +2246,12 @@ export function WorkspaceExplorer({
                             <polyline points="21 3 21 9 15 9" />
                         </svg>
                     </button>
+                </div>
+            </div>
+            <div class="workspace-index-status-row">
+                <div class=${`workspace-index-status-chip state-${workspaceIndexState}`} title=${workspaceIndexTitle}>
+                    <span class="workspace-index-status-dot" aria-hidden="true"></span>
+                    <span>${workspaceIndexLabel}</span>
                 </div>
             </div>
             <div class="workspace-tree" onClick=${handleBackgroundClick}>

@@ -1,10 +1,10 @@
 ---
 id: workspace-fts-indexing-status-feedback
 title: Add workspace FTS indexing status and feedback in the UI
-status: next
+status: doing
 priority: medium
 created: 2026-03-12
-updated: 2026-04-06
+updated: 2026-04-08
 estimate: M
 risk: medium
 tags:
@@ -221,6 +221,26 @@ This should **not** block the header-status MVP.
 - [ ] explorer header copy changes correctly across all v1 states
 - [ ] no regression in existing workspace tree/file flows
 
+#### Next → doing regression plan (2026-04-08)
+- [ ] Existing tests to rerun:
+  - workspace search/indexing tests under `runtime/test/*workspace*`
+  - workspace web handler/service tests under `runtime/test/channels/web/*workspace*`
+  - web build smoke/tests if the explorer header UI changes
+- [ ] New regression coverage to add:
+  - backend status snapshot test covering `never_indexed → indexing → ready/failed`
+  - interaction scenario test for manual reindex from the explorer header updating visible status
+  - restore/reconnect test confirming persisted status remains truthful after reload/restart and does not regress to a misleading ready state
+- [ ] Which regression classes from `workitems/regression-test-planning-reference.md` apply:
+  - State-machine / invariant test — status lifecycle transitions and stale/ready clearing rules
+  - Interaction scenario test — refresh button and header state/copy updates
+  - Restore / reconnect matrix test — persisted status survives restart/reload without lying about freshness
+- [ ] Whether a real-browser smoke pass is required:
+  - probably not for MVP if covered by existing web component/service tests; add a narrow browser smoke only if header refresh behavior depends on real browser timing or reconnect behavior
+
+> Which regression classes does this ticket risk, and which tests will pin them?
+>
+> It risks state-lifecycle drift, misleading UI feedback during manual reindex, and stale status after reload/restart. Pin those with a backend lifecycle test, a workspace-explorer interaction test, and a restore/reconnect persistence test.
+
 ### Out of scope for v1
 - background indexing daemon
 - perfect freshness detection across every workspace path without an explicit invalidation signal
@@ -229,6 +249,11 @@ This should **not** block the header-status MVP.
 - broad search UX overhaul beyond the header status + manual reindex control
 
 ## Updates
+
+### 2026-04-08
+- Lane change: `10-next` → `20-doing`.
+- Selected as the implementation slice to pick up next because it is bounded, already refined to an MVP, and exercises both backend status seams and a compact web UI surface without the broader risk of a large UX umbrella or per-chat extension manager.
+- Added the required regression-plan entry for the `next → doing` transition.
 
 ### 2026-04-06
 - Board quality review: added the missing readiness score after the backend-status MVP shape and implementation order were captured.

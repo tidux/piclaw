@@ -13,7 +13,7 @@ It is built for people who want a practical, stateful agent they can run locally
 - **Streaming web UI** — real-time chat with Markdown, KaTeX, Mermaid, and Adaptive Cards
 - **Persistent agent state** — SQLite-backed messages, media, tasks, token usage, encrypted keychain, and session-scoped SSH / Proxmox / Portainer profiles
 - **Workspace-native workflow** — browse files, preview documents, upload attachments, edit code, reference files in prompts, and optionally flip core tools to a remote SSH host for the current session
-- **Built-in tools** — Ghostty-based terminal, code editor, Office/PDF/CSV/image/video viewers, draw.io, kanban board and mindmap editors, VNC client, browser automation, and agent-only infrastructure tools for SSH, Proxmox, and Portainer
+- **Built-in tools** — Ghostty-based terminal, code editor, Office/PDF/CSV/image/video viewers, draw.io, kanban board and mindmap editors, VNC client, browser automation, bundled MCP access via `pi-mcp-adapter`, and agent-only infrastructure tools for SSH, Proxmox, and Portainer
 - **Agent control features** — steering, queued follow-ups, threading, side prompts, autoresearch experiment loops, and scheduled tasks
 - **Context conservation by default** — small always-active tool baseline, lazy tool activation, compact capability introspection, and opt-in examples for higher-detail workflow help
 - **Optional auth and channels** — passkeys/TOTP for the web UI, plus optional WhatsApp integration
@@ -93,6 +93,7 @@ PiClaw is single-user, mobile-friendly, and streams updates over SSE.
 ### Automation
 
 - **`cdp_browser`** — Chromium/Edge/Chrome automation via CDP for navigation, JS evaluation, DOM clicking, and screenshots
+- **`mcp` via `pi-mcp-adapter`** — token-efficient access to external MCP servers configured through `.pi/mcp.json`
 - **`win_*` tools** — Windows-only desktop automation via Win32 FFI for window enumeration, screenshots, element inspection, clicking, typing, and process management. No-ops on non-Windows platforms.
 
 ## Configuration
@@ -146,6 +147,7 @@ See [docs/development.md](docs/development.md).
 - [Keychain](docs/keychain.md)
 - [WhatsApp](docs/whatsapp.md)
 - [Cross-instance interop](docs/cross-instance-ipc.md)
+- [MCP via pi-mcp-adapter](docs/mcp.md)
 - [Development](docs/development.md)
 
 ## Credits

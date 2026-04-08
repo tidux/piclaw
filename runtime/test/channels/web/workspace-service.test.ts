@@ -6,6 +6,9 @@
  */
 
 import { afterEach, expect, test } from "bun:test";
+import { rmSync } from "node:fs";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 import { getTestWorkspace, importFresh, setEnv } from "../../helpers.js";
 
@@ -138,4 +141,35 @@ test("workspace tree truncates when entry cap is reached", async () => {
   const tree = buildTree(rootPath, 1, state, { includeHidden: false });
   expect(state.truncated).toBe(true);
   expect(tree.children).toBeUndefined();
+});
+
+test("workspace service exposes index status and marks it stale after file writes", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  rmSync(path.join(ws.workspace, "notes"), { recursive: true, force: true });
+  rmSync(path.join(ws.data, "workspace-search"), { recursive: true, force: true });
+  await fs.mkdir(path.join(ws.workspace, "notes"), { recursive: true });
+  await fs.writeFile(path.join(ws.workspace, "notes", "alpha.md"), "alpha workspace status");
+
+  const db = await importFresh<typeof import("../src/db.js")>("../src/db.js");
+  db.initDatabase();
+  const { WorkspaceService } = await importFresh<typeof import("../src/channels/web/workspace/service.js")>(
+    "../src/channels/web/workspace/service.js"
+  );
+
+  const service = new WorkspaceService();
+  const initial = service.getIndexStatus("notes");
+  expect((initial.body as any).state).toBe("never_indexed");
+
+  const reindexed = await service.reindex("notes");
+  expect((reindexed.body as any).state).toBe("ready");
+  expect((reindexed.body as any).indexed_file_count).toBe(1);
+
+  const updated = service.updateFile("notes/alpha.md", "alpha workspace status updated");
+  expect(updated.status).toBe(200);
+
+  const stale = service.getIndexStatus("notes");
+  expect((stale.body as any).state).toBe("stale");
+  expect((stale.body as any).last_indexed_at).toBeTruthy();
 });

@@ -9,8 +9,10 @@ import {
   handleWorkspaceDelete,
   handleWorkspaceDownload,
   handleWorkspaceFile,
+  handleWorkspaceIndexStatus,
   handleWorkspaceRaw,
   handleWorkspaceMove,
+  handleWorkspaceReindex,
   handleWorkspaceRename,
   handleWorkspaceTree,
   handleWorkspaceUpdate,
@@ -27,6 +29,8 @@ export interface WorkspaceDispatchChannel {
   handleWorkspaceFile?(req: Request): Response;
   /** Optional override for GET `/workspace/branch` requests. */
   handleWorkspaceBranch?(req: Request): Response;
+  /** Optional override for GET `/workspace/index-status` requests. */
+  handleWorkspaceIndexStatus?(req: Request): Response;
   /** Optional override for PUT `/workspace/file` requests. */
   handleWorkspaceUpdate?(req: Request): Promise<Response>;
   /** Optional override for DELETE `/workspace/file` requests. */
@@ -45,6 +49,8 @@ export interface WorkspaceDispatchChannel {
   handleWorkspaceRename?(req: Request): Promise<Response>;
   /** Optional override for POST `/workspace/move` requests. */
   handleWorkspaceMove?(req: Request): Promise<Response>;
+  /** Optional override for POST `/workspace/reindex` requests. */
+  handleWorkspaceReindex?(req: Request): Promise<Response>;
 }
 
 /**
@@ -69,6 +75,10 @@ export async function handleWorkspaceRoutes(
 
   if (req.method === "GET" && pathname === "/workspace/branch") {
     return channel.handleWorkspaceBranch?.(req) ?? handleWorkspaceBranch(req);
+  }
+
+  if (req.method === "GET" && pathname === "/workspace/index-status") {
+    return channel.handleWorkspaceIndexStatus?.(req) ?? handleWorkspaceIndexStatus(req);
   }
 
   if (req.method === "PUT" && pathname === "/workspace/file") {
@@ -105,6 +115,10 @@ export async function handleWorkspaceRoutes(
 
   if (req.method === "POST" && pathname === "/workspace/move") {
     return await (channel.handleWorkspaceMove?.(req) ?? handleWorkspaceMove(req));
+  }
+
+  if (req.method === "POST" && pathname === "/workspace/reindex") {
+    return await (channel.handleWorkspaceReindex?.(req) ?? handleWorkspaceReindex(req));
   }
 
   if (req.method === "POST" && pathname === "/workspace/visibility") {

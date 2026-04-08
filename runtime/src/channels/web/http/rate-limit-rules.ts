@@ -118,7 +118,7 @@ export function getDataRateLimitRule(method: string, pathname: string): DataRate
       message: "Too many workspace attach actions. Slow down.",
     };
   }
-  if (method === "POST" && pathname === "/workspace/visibility") {
+  if (method === "POST" && (pathname === "/workspace/visibility" || pathname === "/workspace/reindex")) {
     return {
       bucket: "data/workspace_ui",
       limit: DATA_WORKSPACE_UI_LIMIT,

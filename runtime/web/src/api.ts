@@ -527,6 +527,20 @@ export async function getWorkspaceBranch(path = '') {
     return request(url);
 }
 
+/** Get the current workspace FTS indexing status snapshot. */
+export async function getWorkspaceIndexStatus(scope = 'all') {
+    const url = `/workspace/index-status?scope=${encodeURIComponent(scope || 'all')}`;
+    return request(url);
+}
+
+/** Trigger a workspace FTS reindex and return the updated status snapshot. */
+export async function reindexWorkspace(scope = 'all') {
+    return request('/workspace/reindex', {
+        method: 'POST',
+        body: JSON.stringify({ scope }),
+    });
+}
+
 /**
  * Get workspace file preview
  */
