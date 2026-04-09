@@ -34,9 +34,14 @@ export function syncStandaloneMobileViewport(runtime = {}, options = {}) {
     return null;
   }
 
+  const root = doc.documentElement;
+  if (root?.dataset) {
+    root.dataset.mobileViewport = 'dynamic';
+  }
+
   const height = readViewportHeight({ window: win });
   if (height && height > 0) {
-    doc.documentElement.style.setProperty('--app-height', `${height}px`);
+    root.style.setProperty('--app-height', `${height}px`);
   }
 
   // Do not force the page back to the top during normal viewport sync.

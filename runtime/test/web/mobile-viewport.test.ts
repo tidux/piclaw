@@ -77,6 +77,7 @@ test('syncStandaloneMobileViewport writes app height without resetting page scro
   const documentElement = {
     scrollTop: 33,
     scrollLeft: 8,
+    dataset: {},
     style: {
       setProperty: (name: string, value: string) => cssVars.set(name, value),
     },
@@ -104,6 +105,7 @@ test('syncStandaloneMobileViewport writes app height without resetting page scro
 
   expect(height).toBe(702);
   expect(cssVars.get('--app-height')).toBe('702px');
+  expect((documentElement as any).dataset.mobileViewport).toBe('dynamic');
   expect(windowScrolls).toEqual([]);
   expect(scrollingElement.scrollTop).toBe(91);
   expect(scrollingElement.scrollLeft).toBe(17);
@@ -120,6 +122,7 @@ test('syncStandaloneMobileViewport can reset page scroll when explicitly request
   const documentElement = {
     scrollTop: 33,
     scrollLeft: 8,
+    dataset: {},
     style: {
       setProperty: (name: string, value: string) => cssVars.set(name, value),
     },
@@ -147,6 +150,7 @@ test('syncStandaloneMobileViewport can reset page scroll when explicitly request
 
   expect(height).toBe(702);
   expect(cssVars.get('--app-height')).toBe('702px');
+  expect((documentElement as any).dataset.mobileViewport).toBe('dynamic');
   expect(windowScrolls).toEqual([[0, 0]]);
   expect(scrollingElement.scrollTop).toBe(0);
   expect(scrollingElement.scrollLeft).toBe(0);
