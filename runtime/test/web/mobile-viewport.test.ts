@@ -6,11 +6,22 @@ import {
   syncStandaloneMobileViewport,
 } from '../../web/src/ui/mobile-viewport.js';
 
-test('shouldUseStandaloneMobileViewportFix only enables for standalone mobile runtimes', () => {
+test('shouldUseStandaloneMobileViewportFix enables for mobile runtimes and skips desktop runtimes', () => {
   expect(shouldUseStandaloneMobileViewportFix({
     navigator: {
       standalone: true,
       userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)',
+      maxTouchPoints: 5,
+    },
+    window: {
+      matchMedia: () => ({ matches: true }),
+    },
+  })).toBe(true);
+
+  expect(shouldUseStandaloneMobileViewportFix({
+    navigator: {
+      standalone: false,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
       maxTouchPoints: 5,
     },
     window: {
@@ -30,13 +41,27 @@ test('shouldUseStandaloneMobileViewportFix only enables for standalone mobile ru
   })).toBe(false);
 });
 
-test('readViewportHeight prefers visualViewport height when available', () => {
+test('readViewportHeight uses the visible viewport bottom when available', () => {
   expect(readViewportHeight({
     window: {
       visualViewport: { height: 612.4 },
       innerHeight: 900,
     },
   })).toBe(612);
+
+  expect(readViewportHeight({
+    window: {
+      visualViewport: { height: 612.4, offsetTop: 28.2 },
+      innerHeight: 900,
+    },
+  })).toBe(641);
+
+  expect(readViewportHeight({
+    window: {
+      visualViewport: { height: 844, offsetTop: 34 },
+      innerHeight: 512,
+    },
+  })).toBe(878);
 
   expect(readViewportHeight({
     window: {
@@ -52,6 +77,7 @@ test('syncStandaloneMobileViewport writes app height without resetting page scro
   const documentElement = {
     scrollTop: 33,
     scrollLeft: 8,
+    dataset: {},
     style: {
       setProperty: (name: string, value: string) => cssVars.set(name, value),
     },
@@ -60,8 +86,8 @@ test('syncStandaloneMobileViewport writes app height without resetting page scro
 
   const height = syncStandaloneMobileViewport({
     navigator: {
-      standalone: true,
-      userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)',
+      standalone: false,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
       maxTouchPoints: 5,
     },
     window: {
@@ -79,6 +105,7 @@ test('syncStandaloneMobileViewport writes app height without resetting page scro
 
   expect(height).toBe(702);
   expect(cssVars.get('--app-height')).toBe('702px');
+  expect((documentElement as any).dataset.mobileViewport).toBe('dynamic');
   expect(windowScrolls).toEqual([]);
   expect(scrollingElement.scrollTop).toBe(91);
   expect(scrollingElement.scrollLeft).toBe(17);
@@ -95,6 +122,7 @@ test('syncStandaloneMobileViewport can reset page scroll when explicitly request
   const documentElement = {
     scrollTop: 33,
     scrollLeft: 8,
+    dataset: {},
     style: {
       setProperty: (name: string, value: string) => cssVars.set(name, value),
     },
@@ -103,8 +131,8 @@ test('syncStandaloneMobileViewport can reset page scroll when explicitly request
 
   const height = syncStandaloneMobileViewport({
     navigator: {
-      standalone: true,
-      userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)',
+      standalone: false,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
       maxTouchPoints: 5,
     },
     window: {
@@ -122,6 +150,7 @@ test('syncStandaloneMobileViewport can reset page scroll when explicitly request
 
   expect(height).toBe(702);
   expect(cssVars.get('--app-height')).toBe('702px');
+  expect((documentElement as any).dataset.mobileViewport).toBe('dynamic');
   expect(windowScrolls).toEqual([[0, 0]]);
   expect(scrollingElement.scrollTop).toBe(0);
   expect(scrollingElement.scrollLeft).toBe(0);
