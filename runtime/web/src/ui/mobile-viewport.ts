@@ -6,9 +6,28 @@ export function shouldUseStandaloneMobileViewportFix(runtime = {}) {
   return isStandaloneWebAppMode(runtime) && isMobileBrowserMode(runtime);
 }
 
-export function readViewportHeight(runtime = {}) {
+function isTextEntryFocused(doc) {
+  const active = doc?.activeElement;
+  if (!active) return false;
+  if (active.isContentEditable) return true;
+  const tagName = String(active.tagName || '').toLowerCase();
+  if (tagName === 'textarea') return true;
+  if (tagName !== 'input') return false;
+  const type = String(active.type || 'text').toLowerCase();
+  return !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(type);
+}
+
+export function readViewportHeight(runtime = {}, options = {}) {
   const win = runtime.window ?? (typeof window !== 'undefined' ? window : null);
   const viewportHeight = Number(win?.visualViewport?.height || 0);
+  const viewportOffsetTop = Number(win?.visualViewport?.offsetTop || 0);
+  const includeOffsetTop = options.includeOffsetTop === true;
+  if (includeOffsetTop) {
+    const viewportBottom = viewportHeight + Math.max(0, viewportOffsetTop);
+    if (Number.isFinite(viewportBottom) && viewportBottom > 0) {
+      return Math.round(viewportBottom);
+    }
+  }
   if (Number.isFinite(viewportHeight) && viewportHeight > 0) {
     return Math.round(viewportHeight);
   }
@@ -30,7 +49,10 @@ export function syncStandaloneMobileViewport(runtime = {}, options = {}) {
     return null;
   }
 
-  const height = readViewportHeight({ window: win });
+  const height = readViewportHeight(
+    { window: win },
+    { includeOffsetTop: isTextEntryFocused(doc) },
+  );
   if (height && height > 0) {
     doc.documentElement.style.setProperty('--app-height', `${height}px`);
   }
