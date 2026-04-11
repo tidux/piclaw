@@ -29,7 +29,44 @@ function getToolCallName(content: unknown): string | null {
   return null;
 }
 
-function describeEntry(entry: SessionTreeEntry): string {
+function getEntryMeta(entry: SessionTreeEntry): Record<string, unknown> {
+  const meta: Record<string, unknown> = {};
+  if (entry.type !== "message") return meta;
+  const msg = (entry.message && typeof entry.message === "object")
+    ? (entry.message as unknown as Record<string, unknown>)
+    : {};
+  const role = typeof msg.role === "string" ? msg.role : null;
+  if (role) meta.role = role;
+
+  // Tool name for toolResult or toolCall
+  if (role === "toolResult" && typeof msg.toolName === "string") {
+    meta.toolName = msg.toolName;
+  }
+  const toolCallName = getToolCallName(msg.content);
+  if (toolCallName) meta.toolName = toolCallName;
+
+  // Content length
+  const text = extractTextFromContent(msg.content);
+  if (text) meta.contentLength = text.length;
+
+  // Thinking flag
+  const thinking = (msg as any).thinking;
+  if (thinking) {
+    const thinkingText = typeof thinking === "string" ? thinking : extractTextFromContent(thinking);
+    if (thinkingText && thinkingText.length > 0) {
+      meta.hasThinking = true;
+      meta.thinkingLength = thinkingText.length;
+    }
+  }
+
+  // Tool result output size
+  if (role === "toolResult") {
+    meta.contentLength = text ? text.length : 0;
+  }
+
+  return meta;
+}
+
   switch (entry.type) {
     case "message": {
       const msg = (entry.message && typeof entry.message === "object")
@@ -80,50 +117,7 @@ export async function handleTree(session: AgentSession, command: TreeCommand): P
       return { status: "success", message: "Tree is empty." };
     }
 
-    const lines: string[] = ["Session tree:"];
-    const flatLines: string[] = [];
-
-    // Iterative DFS to avoid stack overflow on deep linear chains
-    const textStack: Array<{ node: SessionTreeNode; depth: number }> = [];
-    for (let i = roots.length - 1; i >= 0; i--) textStack.push({ node: roots[i], depth: 0 });
-    while (textStack.length > 0) {
-      const { node, depth } = textStack.pop()!;
-      const indent = "  ".repeat(depth);
-      const label = node.label ? ` [${node.label}]` : "";
-      const active = node.entry.id === leafId ? " ← active" : "";
-      flatLines.push(`${indent}• ${node.entry.id} ${describeEntry(node.entry)}${label}${active}`);
-      const children = node.children || [];
-      for (let i = children.length - 1; i >= 0; i--) textStack.push({ node: children[i], depth: depth + 1 });
-    }
-
-    const totalEntries = flatLines.length;
-    const limit = Math.max(1, command.limit ?? 10);
-    const mode = command.mode ?? "tail";
-    const offset = Math.max(0, command.offset ?? 0);
-
-    let start: number;
-    let end: number;
-
-    if (mode === "tail") {
-      start = Math.max(totalEntries - limit, 0);
-      end = totalEntries;
-    } else {
-      start = Math.min(offset, totalEntries);
-      end = Math.min(start + limit, totalEntries);
-    }
-
-    const slice = flatLines.slice(start, end);
-    lines.push(...slice);
-
-    if (slice.length < totalEntries) {
-      const range = mode === "tail"
-        ? `last ${slice.length} of ${totalEntries}`
-        : `entries ${start + 1}-${start + slice.length} of ${totalEntries}`;
-      lines.push(`… showing ${range}. Use /tree --limit N [--offset M] or /tree --tail N to view more.`);
-    }
-
-    lines.push("Use /tree <entryId> to navigate. Add --summarize or --summary \"...\" for branch summaries.");
-
+    // Only return the widget block; no text output cluttering the timeline.
     const flatNodes: Array<Record<string, unknown>> = [];
     const treeStack: SessionTreeNode[] = [];
     for (let i = roots.length - 1; i >= 0; i--) treeStack.push(roots[i]);
@@ -138,6 +132,7 @@ export async function handleTree(session: AgentSession, command: TreeCommand): P
         active: node.entry.id === leafId,
         preview: describeEntry(node.entry),
         childCount: (node.children || []).length,
+        ...getEntryMeta(node.entry),
       });
       const children = node.children || [];
       for (let i = children.length - 1; i >= 0; i--) treeStack.push(children[i]);
@@ -164,7 +159,7 @@ export async function handleTree(session: AgentSession, command: TreeCommand): P
         },
       },
     };
-    return { status: "success", message: lines.join("\n"), contentBlocks: [widgetBlock] };
+    return { status: "success", message: "", contentBlocks: [widgetBlock] };
   }
 
   const options = {

@@ -238,10 +238,17 @@ function GeneratedWidgetLaunch({ block, post, onOpenWidget }) {
     };
 
     useEffect(() => {
-        if (block?.auto_open && payload && supportsRender && !autoOpened.current) {
-            autoOpened.current = true;
-            onOpenWidget?.(payload);
-        }
+        if (!block?.auto_open || !payload || !supportsRender || autoOpened.current) return;
+        // Only auto-open for messages posted in the last 10 seconds to avoid
+        // re-opening stale widgets on page refresh or timeline scroll.
+        const postTime = post?.timestamp ? new Date(post.timestamp).getTime() : 0;
+        if (postTime && (Date.now() - postTime) > 10_000) return;
+        // Prevent re-open across page refreshes using sessionStorage
+        const key = `widget_opened_${block.widget_id || post?.id || ''}`;
+        try { if (sessionStorage.getItem(key)) return; } catch {}
+        autoOpened.current = true;
+        try { sessionStorage.setItem(key, '1'); } catch {}
+        onOpenWidget?.(payload);
     }, [block?.auto_open, payload, supportsRender]);
 
     return html`

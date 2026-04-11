@@ -55,6 +55,12 @@ function flattenTree(roots) {
     return result;
 }
 
+function formatSize(chars) {
+    if (!chars || chars <= 0) return '';
+    if (chars < 1000) return `${chars} chars`;
+    return `${(chars / 1000).toFixed(1)}k chars`;
+}
+
 export function SessionTreeWidget({ widget, onWidgetEvent }) {
     const initialTree = widget?.artifact?.tree && typeof widget.artifact.tree === 'object'
         ? widget.artifact.tree
@@ -172,9 +178,28 @@ export function SessionTreeWidget({ widget, onWidgetEvent }) {
                             <div class="session-tree-sidebar-id">${selectedNode.id}</div>
                         </div>
                         <div class="session-tree-sidebar-section">
+                            <div class="session-tree-sidebar-label">Type</div>
+                            <div class="session-tree-sidebar-value">${selectedNode.role || selectedNode.type || 'entry'}${selectedNode.toolName ? ` → ${selectedNode.toolName}` : ''}</div>
+                        </div>
+                        ${selectedNode.timestamp && html`
+                            <div class="session-tree-sidebar-section">
+                                <div class="session-tree-sidebar-label">Time</div>
+                                <div class="session-tree-sidebar-value">${new Date(selectedNode.timestamp).toLocaleString()}</div>
+                            </div>
+                        `}
+                        <div class="session-tree-sidebar-section">
                             <div class="session-tree-sidebar-label">Preview</div>
                             <div class="session-tree-sidebar-preview">${selectedNode.preview || `[${selectedNode.type || 'entry'}]`}</div>
                         </div>
+                        ${(selectedNode.contentLength > 0 || selectedNode.hasThinking) && html`
+                            <div class="session-tree-sidebar-section">
+                                <div class="session-tree-sidebar-label">Details</div>
+                                <div class="session-tree-sidebar-badges">
+                                    ${selectedNode.contentLength > 0 && html`<span class="session-tree-badge">${formatSize(selectedNode.contentLength)} content</span>`}
+                                    ${selectedNode.hasThinking && html`<span class="session-tree-badge thinking">${formatSize(selectedNode.thinkingLength)} thinking</span>`}
+                                </div>
+                            </div>
+                        `}
                         <div class="session-tree-sidebar-actions">
                             <button class="session-tree-btn primary" type="button" onClick=${() => submitNavigation(false)}>Navigate here</button>
                             <button class="session-tree-btn" type="button" onClick=${() => submitNavigation(true)}>Navigate + summarize</button>
