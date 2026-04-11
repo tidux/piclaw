@@ -38,21 +38,29 @@ window.addEventListener('piclaw:widget-message', (e) => {
 The \`submit({ text })\` call is the main way to get output from the widget back into the conversation.
 
 Vendored libraries (served from \`/static/js/vendor/\`):
-- **Three.js r170** + OrbitControls — use via import map:
-  \`\`\`html
-  <script type="importmap">
-  { "imports": { "three": "/static/js/vendor/three/three.module.min.js",
-                 "three/addons/": "/static/js/vendor/three/addons/" } }
-  </script>
-  <script type="module">
-  import * as THREE from 'three';
-  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-  </script>
-  \`\`\`
-- **Babylon.js 7.x** \u2014 UMD global build, use via script tag:
+- **Babylon.js 7.x** — UMD global build (exposes \`BABYLON\` global), use via script tag:
   \`\`\`html
   <script src="/static/js/vendor/babylon/babylon.js"></script>
-  <script>const { Engine, Scene, ArcRotateCamera, Vector3, HemisphericLight, MeshBuilder } = BABYLON;</script>
+  <script>
+  var canvas = document.getElementById('renderCanvas');
+  var engine = new BABYLON.Engine(canvas, true);
+  var scene = new BABYLON.Scene(engine);
+  var camera = new BABYLON.ArcRotateCamera('cam', -Math.PI/4, Math.PI/3, 10, BABYLON.Vector3.Zero(), scene);
+  camera.attachControl(canvas, true);
+  new BABYLON.HemisphericLight('light', new BABYLON.Vector3(0,1,0), scene);
+  // PBR materials, GlowLayer, MeshBuilder, SceneLoader (STL/glTF) all included
+  engine.runRenderLoop(function(){ scene.render(); });
+  </script>
+  \`\`\`
+- **ECharts 5.6** — rich charting (bar, line, pie, heatmap, treemap, radar, geo, etc.):
+  \`\`\`html
+  <script src="/static/js/vendor/echarts/echarts.min.js"></script>
+  <div id="chart" style="width:100%;height:400px"></div>
+  <script>
+  var chart = echarts.init(document.getElementById('chart'), 'dark');
+  chart.setOption({ xAxis: { data: ['A','B','C'] }, yAxis: {}, series: [{ type: 'bar', data: [10, 20, 30] }] });
+  window.addEventListener('resize', function(){ chart.resize(); });
+  </script>
   \`\`\``;
 function isRecord(v) {
     return !!v && typeof v === "object" && !Array.isArray(v);

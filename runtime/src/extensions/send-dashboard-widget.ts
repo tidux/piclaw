@@ -54,6 +54,16 @@ Vendored libraries (served from \`/static/js/vendor/\`):
   // PBR materials, GlowLayer, MeshBuilder, SceneLoader (STL/glTF) all included
   engine.runRenderLoop(function(){ scene.render(); });
   </script>
+  \`\`\`
+- **ECharts 5.6** — rich charting (bar, line, pie, heatmap, treemap, radar, geo, etc.):
+  \`\`\`html
+  <script src="/static/js/vendor/echarts/echarts.min.js"></script>
+  <div id="chart" style="width:100%;height:400px"></div>
+  <script>
+  var chart = echarts.init(document.getElementById('chart'), 'dark');
+  chart.setOption({ xAxis: { data: ['A','B','C'] }, yAxis: {}, series: [{ type: 'bar', data: [10, 20, 30] }] });
+  window.addEventListener('resize', function(){ chart.resize(); });
+  </script>
   \`\`\``;
 
 type Params = {
