@@ -1,9 +1,19 @@
 /**
- * docs/azure/azure-openai-token.ts – Azure OpenAI provider implementation.
+ * runtime/extensions/integrations/azure-openai.ts – Azure OpenAI / Foundry extension.
  *
- * Reference/example code showing how to implement a custom pi-ai Model
- * provider that talks to Azure OpenAI endpoints using token-based auth
- * instead of API keys. Supports streaming, tool calls, and thinking levels.
+ * This is the production integration layer for Azure-backed models in piclaw.
+ * It does more than transport:
+ *
+ * - registers Azure OpenAI and Azure AI Foundry providers with custom API names
+ * - acquires auth via managed identity or static API key
+ * - normalizes/sanitizes replayed Responses input for Azure's stricter validation
+ * - preserves GPT-5.3 Codex phase metadata across turns
+ * - trims tool-heavy histories proactively to avoid Azure request-limit failures
+ * - surfaces Azure-specific retry/throttle behavior in a user-friendly way
+ *
+ * Keep this file focused on Azure-specific behavior. Generic Responses helpers
+ * belong in runtime/src/extensions/azure-openai-api.ts and generic trimming
+ * utilities belong in runtime/src/utils/azure-tool-call-limit.ts.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -24,6 +34,7 @@ import {
   convertResponsesTools,
   processResponsesStream,
 } from "../../src/extensions/azure-openai-api.js";
+import { estimateAzureRequestTokens } from "../../src/utils/azure-tool-call-limit.js";
 import { streamSimpleOpenAICompletions } from "@mariozechner/pi-ai";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -160,6 +171,29 @@ export function capToolFlowReasoning(modelId: string, effort: string, hasTools: 
   const curIdx = EFFORT_ORDER.indexOf(effort as typeof EFFORT_ORDER[number]);
   if (capIdx >= 0 && curIdx > capIdx) return cap;
   return effort;
+}
+
+// Preflight input-budget guard:
+// We proactively trim replayed tool history before sending when the estimated
+// input size would consume too much of the deployment's per-minute TPM budget.
+// The estimate is intentionally conservative: a false positive only trims more
+// history, while a false negative still risks Azure returning a silent
+// response.failed throttle/error in streaming mode.
+const MAX_TPM_SHARE = Math.min(0.95, Math.max(0.1, Number(process.env.AOAI_MAX_TPM_SHARE || "0.65")));
+const ABSOLUTE_INPUT_TOKEN_CAP = Math.max(16000, Number(process.env.AOAI_ABSOLUTE_INPUT_TOKEN_CAP || "120000"));
+
+/**
+ * Derive the proactive preflight budget for one Azure model.
+ *
+ * Prefer live deployment TPM caps when available, otherwise fall back to a
+ * conservative absolute ceiling. This budget is applied only to reconstructed
+ * request input, not output tokens, because the goal is to avoid replaying a
+ * massive history that will immediately consume the turn's TPM headroom.
+ */
+export function getAzureMaxEstimatedInputTokens(modelId: string): number {
+  const tpm = MODEL_RATE_LIMITS[modelId]?.tpm;
+  if (!tpm || !Number.isFinite(tpm) || tpm <= 0) return ABSOLUTE_INPUT_TOKEN_CAP;
+  return Math.max(16000, Math.min(ABSOLUTE_INPUT_TOKEN_CAP, Math.floor(tpm * MAX_TPM_SHARE)));
 }
 const DISABLE_REASONING_MODELS = new Set(
   (process.env.AOAI_DISABLE_REASONING_MODELS || "")
@@ -429,6 +463,14 @@ function parseCapabilityBool(value: unknown): boolean | undefined {
   return undefined;
 }
 
+/**
+ * Merge live Azure catalog/deployment metadata into our static model tables.
+ *
+ * Static defaults keep the extension functional everywhere, but Azure can tell
+ * us the actual deployment context window, output limit, supported API family,
+ * and rate limits. When available, prefer those live values so downstream
+ * request shaping and proactive trimming use the real deployment caps.
+ */
 function applyAzureModelCaps(models: any[], deployments: any[]): number {
   const capsByModel = new Map<string, { contextWindow?: number; maxTokens?: number; responses?: boolean; chatCompletion?: boolean }>();
 
@@ -515,6 +557,17 @@ function applyAzureModelCaps(models: any[], deployments: any[]): number {
 let modelCapsLoaded = false;
 let modelCapsPromise: Promise<void> | null = null;
 
+/**
+ * Best-effort live capability refresh.
+ *
+ * This only runs when:
+ * - model-cap loading is enabled
+ * - we are on Azure
+ * - we are not in static-key mode
+ *
+ * In proxy/static-key mode this process cannot safely assume Azure management
+ * access, so the extension falls back to baked-in defaults and env overrides.
+ */
 async function ensureAzureModelCaps(): Promise<void> {
   if (!ENABLE_MODEL_CAPS || STATIC_API_KEY) return;
   if (modelCapsLoaded) return;
@@ -791,6 +844,13 @@ function isAuthError(error: unknown): boolean {
   return /unauthorized|forbidden|401|403/i.test(message);
 }
 
+/**
+ * Parse the lightweight /image and /flux command syntax.
+ *
+ * This intentionally stays simple and shell-like rather than introducing a
+ * shared CLI parser. The command surface is small, stable, and easier to debug
+ * when implemented explicitly here.
+ */
 function parseArgs(input: string): ImageArgs | null {
   const tokens = input.trim().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return null;
@@ -912,6 +972,12 @@ function getAzureEndpoint(baseUrl: string): string {
 }
 
 
+// Build an OpenAI SDK client for Azure-style endpoints.
+//
+// Important: the SDK itself owns the Authorization header construction, so we
+// pass an async apiKey getter and avoid layering our own auth headers on top.
+// Adding manual Authorization/api-key headers here has historically broken
+// Azure/Copilot compatibility.
 function createAzureClient(baseUrl: string, headers: Record<string, string>) {
   return new OpenAI({
     apiKey: async () => await getAccessToken(),
@@ -1108,6 +1174,10 @@ const INTERNAL_SECRET =
   process.env.WEB_INTERNAL_SECRET ||
   "";
 
+// Timeline placeholder helpers used by the image commands.
+// These write normal piclaw timeline messages through the local HTTP surface so
+// generated media can appear incrementally without inventing a second delivery
+// path inside the extension.
 async function postPlaceholder(content: string, threadId?: number): Promise<number | string | null> {
   try {
     const body: Record<string, unknown> = { content };
@@ -1147,6 +1217,14 @@ async function updatePost(id: number, content: string, threadId?: number): Promi
 }
 
 
+/**
+ * Main Azure Responses stream wrapper.
+ *
+ * This is the most Azure-specific path in the extension. It reconstructs a
+ * Responses request from piclaw session history, repairs replay artifacts that
+ * Azure rejects, applies proactive history trimming, then runs the stream with
+ * Azure-specific retry/error heuristics.
+ */
 function streamAzureOpenAIResponses(model: any, context: any, options: any) {
   const stream = new AssistantMessageEventStream();
 
@@ -1194,6 +1272,9 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
       // Pull any stored phase metadata from prior assistant messages, then apply it to the
       // reconstructed ResponseInput so gpt-5.3-codex sees the same phases on replay.
       const phaseById = collectMessagePhases(context.messages || []);
+      // Reconstruct canonical Responses input from the mixed piclaw session
+      // history. This includes prior assistant messages, user messages, and
+      // tool-call/tool-result items across provider switches.
       const rawMessages = convertResponsesMessages(model, context, TOOL_CALL_PROVIDERS);
 
       // Sanitize function_call items: Azure Responses API requires `arguments` to be
@@ -1213,11 +1294,20 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
       }
       applyPhasesToResponseInput(rawMessages as Array<any>, phaseById);
       const toolCallLimit = MODEL_TOOL_CALL_LIMITS[model.id] ?? TOOL_CALL_LIMIT;
+      // Apply two layers of proactive reduction before talking to Azure:
+      //   1. hard cap the number of historical tool calls
+      //   2. if the reconstructed request still looks too large for the model's
+      //      TPM budget, keep trimming oldest tool history until it fits
+      //
+      // This is safer than relying on post-failure retries because Azure may
+      // report token-budget exhaustion as a silent streaming failure.
+      const maxEstimatedInputTokens = getAzureMaxEstimatedInputTokens(model.id);
       const toolCallTrim = applyToolCallLimit(rawMessages as Array<any>, {
         limit: toolCallLimit,
         summaryMax: TOOL_CALL_SUMMARY_MAX,
         outputChars: TOOL_CALL_OUTPUT_CHARS,
         dedupeToolOutputSearch: DEDUPE_TOOL_OUTPUT_SEARCH,
+        maxEstimatedTokens: maxEstimatedInputTokens,
       });
       const messages = stripOrphanReasoningItems(toolCallTrim.messages);
       const phaseReplaySummary = LOG_PHASES ? summarizeResponseInputPhases(messages as Array<any>) : null;
@@ -1243,7 +1333,12 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
         toolCallKept: toolCallTrim.toolCallKept,
         toolCallRemoved: toolCallTrim.toolCallRemoved,
         toolCallDeduped: toolCallTrim.toolCallDeduped,
+        toolCallBudgetRemoved: toolCallTrim.toolCallBudgetRemoved,
         toolCallSummary: Boolean(toolCallTrim.summaryText),
+        estimatedInputTokensBeforeTrim: toolCallTrim.estimatedTokensBeforeTrim,
+        estimatedInputTokensAfterTrim: toolCallTrim.estimatedTokensAfterTrim,
+        estimatedInputTokenBudget: toolCallTrim.maxEstimatedTokens,
+        budgetTrimApplied: toolCallTrim.budgetTrimApplied,
         reasoning: reasoningEnabled ? { effort: options?.reasoningEffort ?? null, summary: options?.reasoningSummary ?? null } : null,
         toolsEnabled,
         reasoningEnabled,
@@ -1274,6 +1369,10 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
           if (nextCallId) item.call_id = nextCallId;
         }
       }
+      // Build the final Azure Responses payload only after all replay cleanup
+      // and trimming decisions have been applied. Everything above this point
+      // mutates the reconstructed history; everything below this point should
+      // treat `messages` as the request we intend to send.
       const params: Record<string, any> = {
         model: model.id,
         input: messages,
@@ -1337,6 +1436,8 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
           });
         }
       }
+      // Delay client creation until attempt time so refreshed tokens and any
+      // per-attempt header changes are reflected on retries.
       const createStream = async () => {
         const client = createAzureClient(model.baseUrl, headers);
         return client.responses.create(
@@ -1509,6 +1610,8 @@ function streamAzureOpenAIResponses(model: any, context: any, options: any) {
   return stream;
 }
 
+// Thin adapter that converts pi-ai simple-stream options into the richer Azure
+// Responses wrapper above. Keep policy in streamAzureOpenAIResponses, not here.
 function streamSimpleAzureOpenAIResponses(model: any, context: any, options: any) {
   const base = buildBaseOptions(model, options, options?.apiKey);
   const reasoningEffort = supportsXhigh(model) ? options?.reasoning : clampReasoning(options?.reasoning);
@@ -1519,6 +1622,9 @@ function streamSimpleAzureOpenAIResponses(model: any, context: any, options: any
   });
 }
 
+// Foundry text models still run through the generic OpenAI completions stream,
+// but we keep a custom outward-facing API name so Azure/Foundry registration
+// never overrides the global OpenAI provider handlers.
 function streamSimpleFoundryOpenAICompletions(model: any, context: any, options: any) {
   // Foundry uses the standard OpenAI Completions transport, but we keep a custom API name
   // so this extension doesn't override global handlers. Force the api back to openai-completions
@@ -1527,6 +1633,13 @@ function streamSimpleFoundryOpenAICompletions(model: any, context: any, options:
   return streamSimpleOpenAICompletions(overrideModel, context, options);
 }
 
+/**
+ * Register all Azure-backed providers exposed by this extension.
+ *
+ * Keep registration declarative: per-model shaping should happen in the stream
+ * wrappers, while this function is responsible for publishing the provider and
+ * model metadata that the rest of piclaw sees.
+ */
 export function registerAzureProviders(register: (name: string, config: any) => void, token: string) {
   const openaiModels = MODEL_IDS.flatMap((id, idx) => {
     const spec = MODEL_SPECS[id] || DEFAULT_AZURE_SPEC;
@@ -1631,13 +1744,25 @@ export function registerAzureProviders(register: (name: string, config: any) => 
   }
 }
 
+// Convenience shim so the exported registration helper can also be used from
+// tests without needing a live ExtensionAPI instance.
 function registerProvider(pi: ExtensionAPI, token: string) {
   registerAzureProviders((name, config) => pi.registerProvider(name, config), token);
 }
 
 export default function (pi: ExtensionAPI) {
+  // Extension bootstrap:
+  // - log the effective configuration once
+  // - repair cross-model tool-call artifacts during context replay
+  // - register providers immediately when using static-key mode
+  // - otherwise fetch/cache managed-identity tokens and then register
   logExtensionLoaded();
 
+  // Cross-model replay repair:
+  // Different providers encode tool-call IDs differently. When switching back
+  // into Azure/OpenAI-style models, replayed assistant/toolResult pairs can
+  // carry composite IDs that no longer match. Normalize those IDs before the
+  // next request is built so tool results still pair with the right calls.
   pi.on("context", async (event, ctx) => {
     const currentModel = ctx.model;
     if (!currentModel) return;
@@ -1682,6 +1807,9 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ── Delivery helper: update placeholder or post new message ──────────
+  // Shared image-command delivery path.
+  // Prefer updating the placeholder so the timeline stays tidy; fall back to a
+  // new post or sendMessage if the local HTTP write path is unavailable.
   async function deliver(
     customType: "image" | "flux",
     placeholderId: number | string | null,
@@ -1699,6 +1827,9 @@ export default function (pi: ExtensionAPI) {
   }
 
 
+  // Azure OpenAI image command. This stays intentionally thin: parse args,
+  // show immediate progress, run generation asynchronously, then swap the
+  // placeholder with the final rendered workspace-backed message.
   pi.registerCommand("image", {
     description: "Generate an image with Azure OpenAI",
     handler: async (input, _ctx) => {
@@ -1735,6 +1866,8 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // Foundry/FLUX image command. Similar UX to /image, but uses the Foundry
+  // image endpoint and currently rejects transparent-background requests.
   pi.registerCommand("flux", {
     description: "Generate an image with Azure Foundry (FLUX.2-pro)",
     handler: async (input, _ctx) => {

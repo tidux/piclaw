@@ -2,9 +2,11 @@
  * utils/azure-tool-call-limit.ts – Azure tool-call history trimming helpers.
  *
  * Azure OpenAI responses can fail when historical function-call +
- * function_call_output items exceed service limits. This module removes or
- * deduplicates older tool-call items and inserts a compact assistant summary so
- * conversational continuity is preserved while staying under the cap.
+ * function_call_output items exceed service limits or make a request large
+ * enough that it is likely to hit the deployment's token-per-minute budget.
+ * This module removes or deduplicates older tool-call items and inserts a
+ * compact assistant summary so conversational continuity is preserved while
+ * staying under the cap.
  */
 
 type ToolCallEntry = {
@@ -18,6 +20,7 @@ type ToolCallEntry = {
   reasoningIndex?: number;
   removed?: boolean;
   deduped?: boolean;
+  removalReason?: "dedupe" | "limit" | "budget";
 };
 
 type ToolCallMessage = Record<string, unknown>;
@@ -28,6 +31,7 @@ export type ToolCallLimitConfig = {
   summaryMax: number;
   outputChars: number;
   dedupeToolOutputSearch: boolean;
+  maxEstimatedTokens?: number;
 };
 
 /** Result payload after applying tool-call limits to response-input messages. */
@@ -37,7 +41,12 @@ export type ToolCallLimitResult = {
   toolCallKept: number;
   toolCallRemoved: number;
   toolCallDeduped: number;
+  toolCallBudgetRemoved: number;
   summaryText?: string;
+  estimatedTokensBeforeTrim: number;
+  estimatedTokensAfterTrim: number;
+  maxEstimatedTokens?: number;
+  budgetTrimApplied: boolean;
 };
 
 function asToolCallMessage(value: unknown): ToolCallMessage | null {
@@ -140,6 +149,99 @@ function describeToolCall(entry: ToolCallEntry, outputChars: number): string {
 }
 
 /**
+ * Rough request-size estimate for proactive Azure guards.
+ *
+ * Azure throttling decisions are token-based, but we do not have the model's
+ * tokenizer here. JSON payload size is a good-enough conservative proxy for
+ * deciding when to drop older tool history before sending.
+ */
+export function estimateAzureRequestTokens(value: unknown): number {
+  if (value === null || value === undefined) return 0;
+  try {
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    return Math.ceil((text?.length || 0) / 4);
+  } catch {
+    return 0;
+  }
+}
+
+function buildSummaryIntro(removedToolCalls: number, budgetTrimApplied: boolean): string {
+  if (budgetTrimApplied) {
+    return `Earlier tool calls (${removedToolCalls}) were summarised to reduce Azure request size and stay under the estimated token budget.`;
+  }
+  return `Earlier tool calls (${removedToolCalls}) were summarised to stay under the Azure 128 tool-call limit.`;
+}
+
+function buildTrimmedMessages(messages: ToolCallMessage[], entries: ToolCallEntry[], config: ToolCallLimitConfig): {
+  messages: ToolCallMessage[];
+  summaryText?: string;
+  removedEntries: ToolCallEntry[];
+} {
+  const removedEntries = entries.filter((entry) => entry.removed);
+  if (removedEntries.length === 0) {
+    return { messages, removedEntries };
+  }
+
+  const removeIndexes = new Set<number>();
+  const keptReasoningIndexes = new Set<number>();
+  for (const entry of entries) {
+    if (!entry.removed && entry.reasoningIndex !== undefined) {
+      keptReasoningIndexes.add(entry.reasoningIndex);
+    }
+  }
+
+  for (const entry of removedEntries) {
+    if (entry.callIndex >= 0) removeIndexes.add(entry.callIndex);
+    if (entry.outputIndex !== undefined) removeIndexes.add(entry.outputIndex);
+    if (entry.reasoningIndex !== undefined && !keptReasoningIndexes.has(entry.reasoningIndex)) {
+      removeIndexes.add(entry.reasoningIndex);
+    }
+  }
+
+  const removedToolCalls = removedEntries.filter((entry) => entry.callIndex >= 0).length;
+  const budgetTrimApplied = removedEntries.some((entry) => entry.removalReason === "budget");
+  const summaryLines = removedEntries
+    .filter((entry) => entry.callIndex >= 0)
+    .sort((a, b) => a.callIndex - b.callIndex)
+    .slice(0, Math.max(0, config.summaryMax))
+    .map((entry) => describeToolCall(entry, config.outputChars));
+
+  let summaryText = buildSummaryIntro(removedToolCalls, budgetTrimApplied);
+  if (summaryLines.length > 0) {
+    summaryText = `${summaryText}\n\n${summaryLines.join("\n")}`;
+  }
+  if (removedToolCalls > summaryLines.length) {
+    summaryText = `${summaryText}\n\n(${removedToolCalls - summaryLines.length} more tool call(s) omitted.)`;
+  }
+
+  const summaryIdBase = `msg_tool_summary_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const summaryId = summaryIdBase.length <= 64 ? summaryIdBase : summaryIdBase.slice(0, 64).replace(/_+$/, "");
+  const summaryMessage: ToolCallMessage = {
+    type: "message",
+    role: "assistant",
+    content: [
+      {
+        type: "output_text",
+        text: summaryText,
+        annotations: [],
+      },
+    ],
+    status: "completed",
+    id: summaryId,
+  };
+
+  const insertIndex = Math.min(...Array.from(removeIndexes));
+  let insertAt = 0;
+  for (let i = 0; i < messages.length && i < insertIndex; i += 1) {
+    if (!removeIndexes.has(i)) insertAt += 1;
+  }
+
+  const filtered = messages.filter((_, idx) => !removeIndexes.has(idx));
+  filtered.splice(insertAt, 0, summaryMessage);
+  return { messages: filtered, summaryText, removedEntries };
+}
+
+/**
  * Remove/dedupe older function-call items and inject an assistant summary.
  *
  * The returned message array preserves order for retained items and inserts the
@@ -193,6 +295,8 @@ export function applyToolCallLimit(messages: ToolCallMessage[], config: ToolCall
   });
 
   const toolCallTotal = entries.filter((entry) => entry.callIndex >= 0).length;
+  const estimatedTokensBeforeTrim = estimateAzureRequestTokens(messages);
+
   let toolCallDeduped = 0;
   if (config.dedupeToolOutputSearch) {
     const seen = new Map<string, ToolCallEntry>();
@@ -204,6 +308,7 @@ export function applyToolCallLimit(messages: ToolCallMessage[], config: ToolCall
       if (seen.has(key)) {
         entry.removed = true;
         entry.deduped = true;
+        entry.removalReason = "dedupe";
         toolCallDeduped += 1;
       } else {
         seen.set(key, entry);
@@ -219,79 +324,57 @@ export function applyToolCallLimit(messages: ToolCallMessage[], config: ToolCall
     const removeCount = ordered.length - config.limit;
     for (let i = 0; i < removeCount; i += 1) {
       ordered[i].removed = true;
+      ordered[i].removalReason = "limit";
     }
   }
 
-  const removedEntries = entries.filter((entry) => entry.removed);
+  if (config.maxEstimatedTokens && config.maxEstimatedTokens > 0) {
+    while (true) {
+      const candidate = buildTrimmedMessages(messages, entries, config).messages;
+      const estimated = estimateAzureRequestTokens(candidate);
+      if (estimated <= config.maxEstimatedTokens) break;
+
+      const oldestRemaining = ordered.find((entry) => !entry.removed);
+      if (!oldestRemaining) break;
+      oldestRemaining.removed = true;
+      oldestRemaining.removalReason = "budget";
+    }
+  }
+
+  const { messages: trimmedMessages, summaryText, removedEntries } = buildTrimmedMessages(messages, entries, config);
   const removedToolCalls = removedEntries.filter((entry) => entry.callIndex >= 0).length;
+  const toolCallBudgetRemoved = removedEntries.filter((entry) => entry.callIndex >= 0 && entry.removalReason === "budget").length;
   const toolCallRemoved = removedToolCalls;
   const toolCallKept = toolCallTotal - removedToolCalls;
+  const estimatedTokensAfterTrim = estimateAzureRequestTokens(trimmedMessages);
+  const budgetTrimApplied = toolCallBudgetRemoved > 0;
 
   if (removedEntries.length === 0) {
-    return { messages, toolCallTotal, toolCallKept: toolCallTotal, toolCallRemoved: 0, toolCallDeduped };
+    return {
+      messages,
+      toolCallTotal,
+      toolCallKept: toolCallTotal,
+      toolCallRemoved: 0,
+      toolCallDeduped,
+      toolCallBudgetRemoved: 0,
+      estimatedTokensBeforeTrim,
+      estimatedTokensAfterTrim: estimatedTokensBeforeTrim,
+      maxEstimatedTokens: config.maxEstimatedTokens,
+      budgetTrimApplied: false,
+    };
   }
-
-  const removeIndexes = new Set<number>();
-  const keptReasoningIndexes = new Set<number>();
-  for (const entry of entries) {
-    if (!entry.removed && entry.reasoningIndex !== undefined) {
-      keptReasoningIndexes.add(entry.reasoningIndex);
-    }
-  }
-
-  for (const entry of removedEntries) {
-    if (entry.callIndex >= 0) removeIndexes.add(entry.callIndex);
-    if (entry.outputIndex !== undefined) removeIndexes.add(entry.outputIndex);
-    if (entry.reasoningIndex !== undefined && !keptReasoningIndexes.has(entry.reasoningIndex)) {
-      removeIndexes.add(entry.reasoningIndex);
-    }
-  }
-
-  const summaryLines = removedEntries
-    .filter((entry) => entry.callIndex >= 0)
-    .sort((a, b) => a.callIndex - b.callIndex)
-    .slice(0, Math.max(0, config.summaryMax))
-    .map((entry) => describeToolCall(entry, config.outputChars));
-
-  let summaryText = `Earlier tool calls (${removedToolCalls}) were summarised to stay under the Azure 128 tool-call limit.`;
-  if (summaryLines.length > 0) {
-    summaryText = `${summaryText}\n\n${summaryLines.join("\n")}`;
-  }
-  if (removedToolCalls > summaryLines.length) {
-    summaryText = `${summaryText}\n\n(${removedToolCalls - summaryLines.length} more tool call(s) omitted.)`;
-  }
-
-  const summaryIdBase = `msg_tool_summary_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const summaryId = summaryIdBase.length <= 64 ? summaryIdBase : summaryIdBase.slice(0, 64).replace(/_+$/, "");
-  const summaryMessage: ToolCallMessage = {
-    type: "message",
-    role: "assistant",
-    content: [
-      {
-        type: "output_text",
-        text: summaryText,
-        annotations: [],
-      },
-    ],
-    status: "completed",
-    id: summaryId,
-  };
-
-  const insertIndex = Math.min(...Array.from(removeIndexes));
-  let insertAt = 0;
-  for (let i = 0; i < messages.length && i < insertIndex; i += 1) {
-    if (!removeIndexes.has(i)) insertAt += 1;
-  }
-
-  const filtered = messages.filter((_, idx) => !removeIndexes.has(idx));
-  filtered.splice(insertAt, 0, summaryMessage);
 
   return {
-    messages: filtered,
+    messages: trimmedMessages,
     toolCallTotal,
     toolCallKept,
     toolCallRemoved,
     toolCallDeduped,
+    toolCallBudgetRemoved,
     summaryText,
+    estimatedTokensBeforeTrim,
+    estimatedTokensAfterTrim,
+    maxEstimatedTokens: config.maxEstimatedTokens,
+    budgetTrimApplied,
   };
 }

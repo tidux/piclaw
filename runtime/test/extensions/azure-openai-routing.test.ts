@@ -7,7 +7,7 @@
  * - Slice 3: Foundry compat flags on model registration
  */
 import { expect, test, describe } from "bun:test";
-import { registerAzureProviders, capToolFlowReasoning } from "../../extensions/integrations/azure-openai.ts";
+import { registerAzureProviders, capToolFlowReasoning, getAzureMaxEstimatedInputTokens } from "../../extensions/integrations/azure-openai.ts";
 
 describe("Slice 1: Responses-only routing", () => {
   test("gpt-5-4-pro is registered with the Responses API name", () => {
@@ -79,6 +79,16 @@ describe("Slice 3: Foundry compat flags", () => {
       // Azure OpenAI models should not have Foundry-specific compat
       expect(model.compat).toBeUndefined();
     }
+  });
+});
+
+describe("Proactive token-budget guard", () => {
+  test("gpt-5-4 uses a conservative share of its TPM budget", () => {
+    expect(getAzureMaxEstimatedInputTokens("gpt-5-4")).toBe(65000);
+  });
+
+  test("unknown models fall back to the absolute cap", () => {
+    expect(getAzureMaxEstimatedInputTokens("unknown-model")).toBe(120000);
   });
 });
 

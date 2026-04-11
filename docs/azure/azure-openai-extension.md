@@ -1,282 +1,377 @@
-# Azure OpenAI + Foundry managed-identity extension (experimental)
+# Azure OpenAI extension
 
-> **Status: experimental** - this extension is bundled with piclaw but its API surface and configuration may change between releases.
+> **Status:** experimental
+>
+> This bundled extension adds Azure OpenAI and Azure AI Foundry support to piclaw. Its configuration and internal APIs may still change between releases.
 
-> **Caveat:** This extension is primarily designed for running inside **private Azure VNets** with **private Azure OpenAI endpoints** and **managed identity** authentication. It may shadow or conflict with future first-party Azure OpenAI support in [pi-mono](https://github.com/badlogic/pi-mono) - if upstream adds native Azure provider support, this extension should be reviewed and potentially retired.
+This document focuses on the Azure OpenAI features the extension implements, how it registers providers safely, and the Azure-specific safeguards it applies at runtime.
 
-This note documents the piclaw extension that registers Azure OpenAI and Azure AI Foundry providers using **managed identity (IMDS)** or a static API key. It also explains the **custom API names** required to avoid overriding global OpenAI handlers.
+## What this extension provides
 
-## Purpose
+### Azure OpenAI provider
 
-- Provide an Azure OpenAI provider (`azure-openai`) using managed identity (no Azure CLI dependency).
-- Provide an Azure AI Foundry provider (`azure-foundry`) for text and image endpoints.
-- Expose workspace-backed `/image` and `/flux` commands for image generation; `/image` supports `--transparent` and writes transparent PNG output when Azure OpenAI accepts it.
-- Stream Responses API output with tool-call ID normalization and text output forcing.
-- **Avoid global handler overrides** by using custom API names.
+Registers an `azure-openai` provider that routes Azure text models through the **Responses API**.
 
-## Key design choices
+Key capabilities:
 
-- **Managed identity token** via Azure IMDS (no `az` CLI dependency), or a static API key (`AOAI_API_KEY`) for environments where a separate service handles token acquisition.
-- **Token cache** written to `${AOAI_TOKEN_CACHE_DIR}` with a refresh skew.
-- **OpenAI client** from the `openai` package, configured with the Azure Responses API base URL.
-- **Custom API names** so this extension does *not* replace the global `openai-responses` / `openai-completions` handlers.
-- **Tool-call ID normalization + sanitization** for Azure Responses constraints.
-- **Model-switch tool-call cleanup** strips tool-call item IDs when providers/models differ.
-- **Thinking level support** maps `/thinking` settings to `reasoning.effort` (clamped for xhigh when needed).
-- **Runtime flags** to disable tools or reasoning (`AOAI_DISABLE_TOOLS`, `AOAI_DISABLE_REASONING`, `AOAI_DISABLE_REASONING_MODELS`).
-- **Phase capture + replay** for GPT-5.3 Codex output metadata (`AOAI_LOG_PHASES` for debug).
-- **Rate-limit-aware retry backoff** detects Azure's silent TPM exhaustion pattern (`response.failed` with `error:null` and empty output in streaming mode) and uses a 15-second backoff instead of the default 2–4s retry delay. Azure does not return `429` or `Retry-After` headers in this case.
-- **User-visible retry feedback** streams a short status note during retry backoff so the chat does not appear hung. Rate-limit retries surface a temporary message such as `Azure rate limit hit — waiting 15s before retry…`.
-- **Stream failure logging** for `response.failed` / `error` events with request summaries.
-- **Tool-call trimming + summarisation** to stay under Azure's 128 tool-call limit (default cap 96, with optional dedupe of `tool_output_search`). Summary messages use `msg_`-prefixed IDs to satisfy Responses API validation.
-- **Function-call arguments sanitisation** after message conversion - ensures every `function_call` input item has a valid `arguments` string. Prevents silent `response.failed` errors when cross-provider replay or compaction leaves `arguments` undefined.
-- **Tool schema sanitisation** before request send - fixes `type: "array"` properties missing `items` (and other strict JSON Schema violations that Azure rejects but OpenAI/Anthropic silently accept). Recurses into nested `properties`, `items`, and `anyOf`/`oneOf`/`allOf` branches.
-- **Helper resolution that walks up to parent `node_modules/` trees** so local source runs and packaged installs both find the shared pi-ai Responses helper cleanly.
-- **Workspace-backed image output formatting** so generated images render as inline workspace images plus file listings instead of raw download-link spam.
-- **Text output forcing** via `text: { format: { type: "text" }, verbosity: "medium" }`.
+- managed-identity auth via Azure IMDS
+- optional static API-key mode
+- GPT-5 reasoning support
+- streaming output
+- tool calling
+- model-specific request shaping and safeguards
+- cross-model and cross-provider replay cleanup
 
-## Pitfalls / guardrails
+### Azure AI Foundry provider
 
-- **Do not use** `api: "openai-responses"` or `api: "openai-completions"` in this extension. That overrides global handlers and breaks other providers (e.g., GitHub Copilot).
-- **Always set per-model `api`** to the custom API names. If you omit it, the model routes through global handlers and fails with auth errors.
-- The OpenAI SDK always injects `Authorization: Bearer <apiKey>`. **Do not** add `Authorization` / `api-key` headers yourself or enable `authHeader`.
-- This extension is **managed identity by default**. When `AOAI_API_KEY` is set, it uses the static key instead (skipping IMDS). `AOAI_RESOURCE` / `FOUNDRY_RESOURCE` must match the target resource or MI tokens will be invalid (401/403).
-- `MODEL_SPECS.reasoning=false` will clamp thinking to off for that model.
-- Do not remove tool-call ID sanitization or `TOOL_CALL_PROVIDERS`; Azure Responses rejects non‑compliant IDs.
-- **Azure validates tool schemas strictly.** Tool parameter schemas with `type: "array"` but no `items` property will cause silent `response.failed` errors in streaming mode (error = null). The extension auto-fixes these before sending, but upstream tool definitions should still aim for valid JSON Schema.
-- **Cross-provider replay can produce `function_call` items with `arguments: undefined`.** The extension auto-fixes these to `"{}"` before sending. This typically happens when switching from Claude/Copilot to Azure mid-session.
+Registers an `azure-foundry` provider for Foundry text and image models.
 
-## Provider registration
+Key capabilities:
 
-### Azure OpenAI (Responses)
+- custom provider registration separate from Azure OpenAI
+- completions-based text routing for Foundry text models
+- image-generation support for Foundry image models
+- shared token acquisition path and cache behavior
 
-- Provider ID: `azure-openai`
-- API name: `azure-openai-responses-mi`
-- Base URL: `AOAI_BASE_URL` (example: `https://{RESOURCE}.openai.azure.com/openai/v1`)
-- Model IDs: `AOAI_MODEL_IDS` (defaults to `AOAI_MODEL_ID`)
+### Image commands
 
-Registered by `registerProvider()`:
+Adds workspace-backed image commands:
 
-```ts
-pi.registerProvider("azure-openai", {
-  baseUrl: AOAI_BASE_URL,
-  api: "azure-openai-responses-mi",
-  apiKey: token,
-  streamSimple: streamSimpleAzureOpenAIResponses,
-  models: [
-    {
-      id: "gpt-5-2-codex",
-      name: "Azure GPT-5.2 Codex",
-      api: "azure-openai-responses-mi",
-      reasoning: true,
-      input: ["text"],
-      contextWindow: 200000,
-      maxTokens: 64000,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    },
-  ],
-});
-```
+- `/image`
+- `/flux`
 
-### Azure AI Foundry (Completions)
+Features:
 
-- Provider ID: `azure-foundry`
-- API name: `azure-foundry-openai-completions-mi`
-- Base URL: `FOUNDRY_BASE_URL` (example: `https://{FOUNDRY_RESOURCE}.cognitiveservices.azure.com/openai/v1`)
-- Model IDs: `FOUNDRY_MODEL_IDS`
+- writes generated files to the workspace
+- renders inline previews in the timeline
+- supports transparent PNG output for `/image` when the Azure OpenAI image model accepts it
+- normalizes requested sizes to provider-supported values
 
-The Foundry stream wrapper forces the model API to `openai-completions` when invoking the built-in OpenAI completions implementation, while keeping a **custom API name** for routing:
+---
 
-```ts
-function streamSimpleFoundryOpenAICompletions(model, context, options) {
-  const overrideModel = model.api === "openai-completions" ? model : { ...model, api: "openai-completions" };
-  return streamSimpleOpenAICompletions(overrideModel, context, options);
-}
-```
+## Azure OpenAI features implemented here
 
-## Token handling
+### 1. Safe provider registration
 
-### Token cache format
+The extension uses **custom API names** instead of overriding the global OpenAI handlers.
 
-```json
-{
-  "accessToken": "...",
-  "expiresOn": "2026-03-04 12:05:41.000000",
-  "expiresOnEpoch": 1772625941
-}
-```
+Why this matters:
 
-### IMDS fetch
+- prevents collisions with other providers
+- avoids breaking providers such as GitHub Copilot
+- keeps Azure routing explicit per model
 
-- URL: `http://169.254.169.254/metadata/identity/oauth2/token`
-- API version: `2018-02-01`
-- Resource: `https://cognitiveservices.azure.com/` (override with `AOAI_RESOURCE` / `FOUNDRY_RESOURCE`)
-- Header: `Metadata: true`
+Rules:
 
-## Streaming and message conversion
+- Azure OpenAI models use `azure-openai-responses-mi`
+- Foundry text models use `azure-foundry-openai-completions-mi`
+- do **not** register this extension as `openai-responses` or `openai-completions`
 
-### Tool-call ID normalization
+### 2. Managed-identity-first auth
 
-Uses `convertResponsesMessages(model, context, TOOL_CALL_PROVIDERS)` with:
+The extension is designed for Azure environments that can obtain tokens from IMDS.
 
-```ts
-const TOOL_CALL_PROVIDERS = new Set([
-  "openai",
-  "openai-codex",
-  "opencode",
-  "azure-openai",
-  "azure-foundry",
-]);
-```
+Supported auth modes:
 
-Additional sanitization enforces Azure constraints (64-char max, `[a-zA-Z0-9_-]`).
+- **managed identity** by default
+- **static API key** when `AOAI_API_KEY` is set
 
-### Text output forcing
+It also maintains a local token cache with refresh skew to avoid unnecessary token fetches.
 
-The Azure Responses API can return only reasoning items unless a text output format is provided. The extension injects:
+### 3. Azure Responses streaming
 
-```ts
-text: { format: { type: "text" }, verbosity: "medium" }
-```
+For Azure OpenAI text models, the extension streams via the Responses API and applies Azure-specific request shaping.
 
-### Thinking levels
+This includes:
 
-- Thinking level is passed via `options.reasoning` and clamped if necessary (`xhigh` → `high` unless model supports xhigh).
-- If `reasoningEffort` / `reasoningSummary` are present:
+- text-output forcing so the model returns normal text output, not only reasoning items
+- reasoning-effort mapping from piclaw thinking levels
+- tool-call replay cleanup for Azure validation rules
+- request summaries for debugging failed streams
 
-```ts
-reasoning: { effort: ..., summary: ... }
-include: ["reasoning.encrypted_content"]
-```
+### 4. GPT-5 reasoning support
 
-- If not explicitly set and the model is GPT-5, a developer instruction suppresses hidden reasoning.
+The extension maps piclaw reasoning controls onto Azure-compatible request fields.
 
-## Environment variables
+Behavior:
 
-- `AOAI_BASE_URL` - Azure OpenAI Responses API base URL (required to activate the extension)
-- `AOAI_API_KEY` - static API key; when set, skips managed-identity token fetch (useful when a separate service handles authentication)
-- `AOAI_MODEL_ID` - model deployment ID
-- `AOAI_MODEL_IDS` - comma-separated list of model IDs
-- `AOAI_MODEL_NAME` / `AOAI_MODEL_NAMES` - display names
-- `AOAI_IMAGE_MODEL_ID` - image model ID (optional)
-- `AOAI_RESOURCE` - resource URI for IMDS token fetch (default `https://cognitiveservices.azure.com/`)
-- `AOAI_TOKEN_CACHE_DIR` - cache directory (default `/workspace/.piclaw/cache`)
-- `AOAI_TOKEN_CACHE_FILE` - cache file path (default `${AOAI_TOKEN_CACHE_DIR}/aoai-token.json`)
-- `AOAI_TOKEN_SKEW_SECONDS` - refresh skew in seconds (default `300`)
-- `AOAI_API_VERSION` - Azure OpenAI API version (default `2024-02-15-preview`)
-- `AOAI_DISABLE_TOOLS` - disable tool calls (`true`/`1`/`yes`)
-- `AOAI_DISABLE_REASONING` - disable reasoning (`true`/`1`/`yes`)
-- `AOAI_DISABLE_REASONING_MODELS` - comma-separated model IDs to force reasoning off
-- `AOAI_LOG_PHASES` - log GPT-5.3 phase replay details (`true`/`1`/`yes`)
-- `AOAI_MAX_TOOL_CALLS` - maximum tool calls per request before trimming (default `96`)
-- `AOAI_TOOL_CALL_SUMMARY_MAX` - max tool-call entries to include in the summary message (default `12`)
-- `AOAI_TOOL_CALL_OUTPUT_CHARS` - max chars per tool output snippet in summaries (default `200`)
-- `AOAI_DEDUPE_TOOL_OUTPUT_SEARCH` - dedupe repeated `tool_output_search` calls (`1` default, set `0` to disable)
+- supports reasoning-enabled GPT-5-family models
+- clamps unsupported reasoning levels when necessary
+- can disable reasoning globally or per model with env flags
+- caps reasoning for known unstable tool-heavy model flows
 
-- `FOUNDRY_BASE_URL` - Foundry base URL
-- `FOUNDRY_MODEL_IDS` / `FOUNDRY_MODEL_NAMES` - Foundry model list + names
-- `FOUNDRY_IMAGE_MODEL_ID` - Foundry image model ID
-- `FOUNDRY_API_VERSION` - Foundry API version override (defaults to `AOAI_API_VERSION`)
-- `FOUNDRY_IMAGE_BASE_URL` - Optional explicit Foundry image base URL
-- `FOUNDRY_IMAGE_API_VERSION` - Foundry image API version (default `preview`)
-- `FOUNDRY_RESOURCE` - resource URI for IMDS token fetch
+### 5. GPT-5.3 Codex phase replay
 
-## Files and paths
+Some GPT-5.3 Codex responses include output-item phase metadata. The extension captures and replays that metadata so follow-up turns preserve continuity.
 
-- **Extension source**: `runtime/extensions/integrations/azure-openai.ts` (bundled inside the package)
-- **Shared helper resolution**: `runtime/src/extensions/azure-openai-api.ts`
-- **Token cache**: `${AOAI_TOKEN_CACHE_DIR}/aoai-token.json`
+This is mainly relevant for:
 
-## Image generation commands
+- long multi-step coding sessions
+- replay after tool use
+- model switching back into GPT-5.3 Codex
 
-User-facing slash commands exposed by the extension:
+### 6. Azure-specific tool-call sanitization
 
-- `/image <prompt> [--size 1024x1024] [--count 1] [--quality low|medium|high] [--style natural|vivid] [--transparent]`
-- `/flux <prompt> [--size 1024x1024] [--count 1] [--quality low|medium|high]`
+Azure validates replayed tool-call history more strictly than other providers.
+
+The extension compensates for that by:
+
+- normalizing tool-call IDs
+- sanitizing `id` / `call_id` fields to Azure-safe formats
+- removing provider-specific IDs that become invalid after replay
+- filling missing `function_call.arguments` with valid JSON text
+
+This avoids silent stream failures caused by replay artifacts when switching providers or compacting history.
+
+### 7. Strict tool-schema sanitization
+
+Azure validates tool parameter schemas more strictly than OpenAI and Anthropic.
+
+Before sending tool definitions, the extension fixes common schema issues such as:
+
+- `type: "array"` without `items`
+- nested schema branches that need the same fix
+
+This is applied recursively so Azure does not reject otherwise-valid tool surfaces that other providers tolerate.
+
+### 8. Tool-history trimming and summarization
+
+Azure requests can fail when too many historical tool calls are replayed.
+
+The extension proactively trims older tool history and replaces it with a compact assistant summary.
+
+Current protections:
+
+- cap historical tool calls before send
+- optionally dedupe repeated `tool_output_search` calls
+- preserve continuity with a synthetic summary message
+- use Azure-safe message IDs for that summary
+
+### 9. Proactive input-budget guard
+
+The extension now applies a **preflight size guard** before sending Azure requests.
+
+It estimates request size and trims older tool history further when the reconstructed input is too large relative to the model's token-per-minute budget.
+
+Why this exists:
+
+- long agent turns replay the full conversation repeatedly
+- Azure throttling is token-budget-based
+- reducing oversized tool history before send is safer than retrying after a throttle event
+
+### 10. Throttle-aware retry behavior
+
+Azure streaming failures do not always look like normal HTTP throttling.
+
+In some cases, the stream fails with:
+
+- `response.failed`
+- `error: null`
+- empty output
+
+The extension treats that pattern as likely token-budget exhaustion and:
+
+- uses a longer retry backoff
+- emits user-visible retry feedback in the stream
+- surfaces a clearer final error if retries are exhausted
+
+### 11. User-visible retry feedback
+
+When Azure throttling or another retryable transient failure is detected, the extension streams a short temporary status note into the active reply.
+
+Examples:
+
+- `Azure rate limit hit — waiting 15s before retry…`
+- `Request failed — retrying in Ns…`
+
+This prevents the chat from appearing silently hung during backoff.
+
+### 12. Workspace-friendly image output
+
+Generated images are formatted for normal piclaw usage rather than raw API output.
+
+The extension:
+
+- saves images into the workspace
+- returns timeline-friendly output with previews and file paths
+- keeps `/image --transparent` on the Azure OpenAI image path
+- keeps `/flux` separate, without transparent-background support
+
+---
+
+## Providers registered
+
+### Azure OpenAI
+
+- **Provider ID:** `azure-openai`
+- **API name:** `azure-openai-responses-mi`
+- **Base URL env:** `AOAI_BASE_URL`
+- **Model list env:** `AOAI_MODEL_IDS`
+
+### Azure AI Foundry
+
+- **Provider ID:** `azure-foundry`
+- **API name:** `azure-foundry-openai-completions-mi`
+- **Base URL env:** `FOUNDRY_BASE_URL`
+- **Model list env:** `FOUNDRY_MODEL_IDS`
+
+---
+
+## Important guardrails
+
+- Do **not** use `openai-responses` or `openai-completions` as this extension's API names.
+- Always set each Azure model's `api` to the custom Azure API name.
+- Do **not** manually inject `Authorization` or `api-key` headers on top of the OpenAI SDK client.
+- Managed-identity resource values must match the target Azure resource.
+- Do not remove tool-call ID sanitization or replay cleanup.
+- Do not remove tool-schema sanitization unless upstream tool schemas are guaranteed Azure-clean.
+
+---
+
+## Configuration
+
+### Required Azure OpenAI settings
+
+- `AOAI_BASE_URL`
+- `AOAI_MODEL_ID` or `AOAI_MODEL_IDS`
+
+### Optional Azure OpenAI settings
+
+- `AOAI_API_KEY`
+- `AOAI_MODEL_NAME` / `AOAI_MODEL_NAMES`
+- `AOAI_IMAGE_MODEL_ID`
+- `AOAI_RESOURCE`
+- `AOAI_TOKEN_CACHE_DIR`
+- `AOAI_TOKEN_CACHE_FILE`
+- `AOAI_TOKEN_SKEW_SECONDS`
+- `AOAI_API_VERSION`
+
+### Optional behavior flags
+
+- `AOAI_DISABLE_TOOLS`
+- `AOAI_DISABLE_REASONING`
+- `AOAI_DISABLE_REASONING_MODELS`
+- `AOAI_LOG_PHASES`
+- `AOAI_MAX_TOOL_CALLS`
+- `AOAI_TOOL_CALL_SUMMARY_MAX`
+- `AOAI_TOOL_CALL_OUTPUT_CHARS`
+- `AOAI_DEDUPE_TOOL_OUTPUT_SEARCH`
+- `AOAI_MAX_TPM_SHARE`
+- `AOAI_ABSOLUTE_INPUT_TOKEN_CAP`
+
+### Foundry settings
+
+- `FOUNDRY_BASE_URL`
+- `FOUNDRY_MODEL_IDS`
+- `FOUNDRY_MODEL_NAMES`
+- `FOUNDRY_IMAGE_MODEL_ID`
+- `FOUNDRY_API_VERSION`
+- `FOUNDRY_IMAGE_BASE_URL`
+- `FOUNDRY_IMAGE_API_VERSION`
+- `FOUNDRY_RESOURCE`
+
+---
+
+## User-facing commands
+
+### Image generation
+
+- `/image <prompt> [--size ...] [--count ...] [--quality ...] [--style ...] [--transparent]`
+- `/flux <prompt> [--size ...] [--count ...] [--quality ...]`
 
 Notes:
-- `/image --transparent` sets `background: "transparent"` and forces `output_format: "png"` in the Azure OpenAI image request payload.
-- Requested sizes are snapped to the provider-supported raster sizes before dispatch.
-- `/flux` still rejects transparent background requests for now.
-- Successful image runs save files into the workspace and render inline workspace-backed previews in the timeline.
 
-## Model-switch regression test (web)
+- `/image --transparent` requests transparent PNG output on the Azure OpenAI image path
+- `/flux` does not support transparent background requests
 
-Use this to validate cross-provider tool-call ID handling after changes to the extension.
+---
 
-Notes:
-- IPC message files only send outbound bot messages; they do **not** trigger `/model` control commands.
-- Use the internal web endpoint with the internal secret to issue `/model` and prompt messages.
+## Common Azure-specific failure modes
 
-Example (run on the host where piclaw runs):
+### Silent streaming throttle/exhaustion
+
+Symptoms:
+
+- `response.failed`
+- `error: null`
+- empty output
+
+Typical cause:
+
+- the request consumed too much of the model deployment's token-per-minute budget
+
+Mitigations in this extension:
+
+- proactive input-budget trimming
+- longer retry backoff
+- user-visible retry feedback
+
+### Silent validation failure
+
+Typical causes:
+
+- invalid tool schema
+- missing `function_call.arguments`
+- oversized or invalid replayed tool history
+- unsupported request fields
+
+Mitigations in this extension:
+
+- schema sanitization
+- argument sanitization
+- tool-history cleanup
+- Azure-safe ID normalization
+
+### Missing output text
+
+Typical cause:
+
+- the request did not force normal text output formatting
+
+Mitigation:
+
+- the extension injects a text format block for Azure Responses requests
+
+---
+
+## Troubleshooting checklist
+
+1. Confirm the model is routed through the Azure custom API name, not a global OpenAI handler.
+2. Confirm auth mode and resource configuration are correct.
+3. If a stream fails silently, compare request size to deployment TPM limits.
+4. If needed, replay the same payload non-streaming to get a clearer validation error.
+5. Check stream logs for request summaries, tool-call counts, and trim behavior.
+6. If failures persist, reduce replayed tool history or raise deployment capacity.
+
+Useful log filter:
 
 ```bash
-BASE="http://localhost:3000"
-SECRET="$PICLAW_INTERNAL_SECRET"
-
-send_msg() {
-  local msg="$1"
-  curl -sS -H "x-piclaw-internal-secret: $SECRET" \
-    -H "Content-Type: application/json" \
-    -d "$(jq -n --arg content "$msg" '{content:$content}')" \
-    "$BASE/agent/default/message" >/tmp/piclaw-test-last.json
-}
-
-wait_idle() {
-  for i in $(seq 1 60); do
-    status=$(curl -sS -H "x-piclaw-internal-secret: $SECRET" \
-      "$BASE/agent/status?chat_jid=web:default" | jq -r .status)
-    [ "$status" = "idle" ] && return 0
-    sleep 2
-  done
-  return 1
-}
-
-# List models if needed
-send_msg "/model"; wait_idle
-
-# Smoke test sequence
-send_msg "/model azure-openai/gpt-5-2-codex"; wait_idle
-send_msg "ping 1"; wait_idle
-send_msg "/model azure-openai/gpt-5-3-codex"; wait_idle
-send_msg "ping 2"; wait_idle
-send_msg "/model azure-openai/gpt-5-1-codex-mini"; wait_idle
-send_msg "ping 3"; wait_idle
-send_msg "/model github-copilot/claude-opus-4.6"; wait_idle
-send_msg "ping opus"; wait_idle
-send_msg "/model azure-openai/gpt-5-3-codex"; wait_idle
-send_msg "ping after opus"; wait_idle
+journalctl --user -u piclaw.service --no-pager | rg "azure-openai\] Stream"
 ```
 
-## GPT-5.3 Codex challenges
+---
 
-- GPT-5.3 adds a `phase` field on assistant output items (commentary vs `final_answer`). The extension captures it from the Responses stream and replays it on the next request so continuity is preserved.
-- Even with phase replay enabled, long multi-model sessions can still emit `response.failed` (sometimes with `error: null`) and `/compact` can return "Unknown error."
-- Disabling tools/reasoning (`AOAI_DISABLE_TOOLS`, `AOAI_DISABLE_REASONING`) does not consistently resolve the failure once it appears.
-- For diagnosis, enable `AOAI_LOG_PHASES=1` and review stream failure logs + request summaries to see message counts and tool-call volume.
-- Workarounds: restart the session, reduce tool-call history, or use `gpt-5-2-codex` until upstream handling stabilizes.
+## Source files
 
-## Troubleshooting
+- `runtime/extensions/integrations/azure-openai.ts`
+- `runtime/src/extensions/azure-openai-api.ts`
+- `runtime/src/utils/azure-tool-call-limit.ts`
 
-- **Rate limiting disguised as silent streaming failures:** Azure's Responses API may not return HTTP 429 or `Retry-After` headers when a deployment's per-minute token budget (TPM) is exceeded during streaming. Instead, it can emit `response.failed` with `error: null` and empty `output: []`. This looks very similar to a validation error. To distinguish them:
-  - Compare the deployment TPM quota to the request's input token count.
-  - Agent tool-call loops replay the full conversation history on each step, so a large context can exhaust TPM across multiple requests in one turn.
-  - Non-streaming replays of the same payload may succeed later because prompt caching reduces effective token cost and the rate-limit window has advanced.
-  - The extension detects this fingerprint and uses a longer retry backoff instead of short immediate retries.
-  - If repeated turns still fail, either shorten the effective conversation/tool history or increase deployment capacity.
-- **Silent `response.failed` with `error: null` in streaming mode:** This is Azure’s generic rejection shape for both some validation failures and some throttle/exhaustion cases. To get the real error message, replay the same payload with `stream: false` when possible. Common validation causes:
-  - Tool schema has `type: "array"` without `items` — fixed automatically by the extension’s `sanitizeToolSchema`.
-  - `function_call` input item is missing the `arguments` field — fixed automatically by the extension’s post-conversion sanitization.
-  - Input exceeds deployment token limits or contains unsupported fields.
-- If model output is missing: verify the `text` format block is being injected.
-- If tool call errors appear: ensure `TOOL_CALL_PROVIDERS` includes `azure-openai`/`azure-foundry` and that ID sanitization remains.
-- If helper imports fail in one environment but not another: verify `runtime/src/extensions/azure-openai-api.ts` can walk up to the packaged or repo-local `@mariozechner/pi-ai` install.
-- If `/image --transparent` is ignored or rejected: confirm you are using the Azure OpenAI image path rather than `/flux`, and check whether the deployed image model supports transparent PNG output.
-- If tokens fail: check IMDS connectivity (`curl -H Metadata:true http://169.254.169.254/...`).
-- If other providers break: verify you did **not** register `openai-responses` / `openai-completions` in this extension.
-- **User feedback during retries:** when a retryable transient failure is detected, the extension streams a short temporary status message into the active response:
-  - rate-limit case: `Azure rate limit hit — waiting 15s before retry…`
-  - other transient failures: `Request failed — retrying in Ns…`
-  These notes are transient and are cleared when the next retry attempt starts.
-- Stream failures now log `response.failed` / `error` events plus a request summary (model, message counts, tool counts):
-  - `journalctl --user -u piclaw.service --no-pager | rg "azure-openai\] Stream"`
+---
+
+## Summary
+
+This extension is more than a thin Azure transport adapter. It adds the Azure-specific behavior piclaw needs to make Azure OpenAI usable in long-running tool-heavy sessions:
+
+- safe provider registration
+- managed-identity auth
+- Responses API streaming
+- GPT-5 reasoning support
+- Codex phase replay
+- tool-call and schema sanitization
+- proactive history trimming
+- token-budget-aware request shaping
+- throttle-aware retries
+- workspace-friendly image output
+
+Those safeguards are the main reason this extension exists as a separate integration layer instead of relying on the generic OpenAI path.

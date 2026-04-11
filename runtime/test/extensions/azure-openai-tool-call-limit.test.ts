@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import "../helpers.js";
 
-const { applyToolCallLimit } = await import("../../src/utils/azure-tool-call-limit");
+const { applyToolCallLimit, estimateAzureRequestTokens } = await import("../../src/utils/azure-tool-call-limit");
 
 const config = {
   limit: 1,
@@ -136,4 +136,39 @@ test("applyToolCallLimit truncates summary output", () => {
   const summary = result.messages.find((item) => item?.type === "message" && item?.role === "assistant");
   const summaryText = summary?.content?.[0]?.text || "";
   expect(summaryText).toContain("…");
+});
+
+test("applyToolCallLimit proactively trims by estimated token budget", () => {
+  const largeOutput = "x".repeat(4000);
+  const messages = [
+    makeReasoning("rs_old"),
+    makeCall("call1", "fc_old", "bash", { command: "cat big.txt" }),
+    makeOutput("call1", largeOutput),
+    makeReasoning("rs_mid"),
+    makeCall("call2", "fc_mid", "bash", { command: "cat bigger.txt" }),
+    makeOutput("call2", largeOutput),
+    makeReasoning("rs_keep"),
+    makeCall("call3", "fc_keep", "bash", { command: "pwd" }),
+    makeOutput("call3", "short"),
+  ];
+
+  const before = estimateAzureRequestTokens(messages);
+  const result = applyToolCallLimit(messages, {
+    ...config,
+    limit: 10,
+    maxEstimatedTokens: Math.max(200, Math.floor(before / 2)),
+  });
+
+  expect(result.budgetTrimApplied).toBe(true);
+  expect(result.toolCallBudgetRemoved).toBeGreaterThan(0);
+  expect(result.estimatedTokensAfterTrim).toBeLessThan(result.estimatedTokensBeforeTrim);
+  expect(result.estimatedTokensAfterTrim).toBeLessThanOrEqual(result.maxEstimatedTokens || 0);
+
+  const remainingCallIds = result.messages
+    .filter((item) => item?.type === "function_call")
+    .map((item) => item.call_id);
+  expect(remainingCallIds).toEqual(["call3"]);
+
+  const summary = result.messages.find((item) => item?.type === "message" && item?.role === "assistant");
+  expect(summary?.content?.[0]?.text || "").toContain("estimated token budget");
 });
