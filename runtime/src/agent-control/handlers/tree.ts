@@ -67,6 +67,7 @@ function getEntryMeta(entry: SessionTreeEntry): Record<string, unknown> {
   return meta;
 }
 
+function describeEntry(entry: SessionTreeEntry): string {
   switch (entry.type) {
     case "message": {
       const msg = (entry.message && typeof entry.message === "object")
@@ -117,46 +118,19 @@ export async function handleTree(session: AgentSession, command: TreeCommand): P
       return { status: "success", message: "Tree is empty." };
     }
 
-    // Only return the widget block; no text output cluttering the timeline.
-    const flatNodes: Array<Record<string, unknown>> = [];
-    const treeStack: SessionTreeNode[] = [];
-    for (let i = roots.length - 1; i >= 0; i--) treeStack.push(roots[i]);
-    while (treeStack.length > 0) {
-      const node = treeStack.pop()!;
-      flatNodes.push({
-        id: node.entry.id,
-        parentId: node.entry.parentId ?? null,
-        type: node.entry.type,
-        timestamp: node.entry.timestamp,
-        label: node.label ?? null,
-        active: node.entry.id === leafId,
-        preview: describeEntry(node.entry),
-        childCount: (node.children || []).length,
-        ...getEntryMeta(node.entry),
-      });
-      const children = node.children || [];
-      for (let i = children.length - 1; i >= 0; i--) treeStack.push(children[i]);
-    }
-
-    const cappedNodes = flatNodes.length > 500 ? flatNodes.slice(-500) : flatNodes;
+    // Only return the widget block; the widget fetches live data from the API.
     const widgetBlock = {
       type: "generated_widget",
       widget_id: `session-tree-${Date.now()}`,
       title: "Session Tree",
-      subtitle: "Interactive session tree viewer",
-      description: "Browse the active session tree, inspect branches, and jump to any entry.",
+      subtitle: `${roots.length > 0 ? 'Interactive session tree viewer' : 'Empty'}`,
+      description: "",
       open_label: "Open tree viewer",
       auto_open: true,
       capabilities: ["interactive"],
       artifact: {
         kind: "session_tree",
-        tree: {
-          leafId,
-          nodes: cappedNodes,
-          flat: true,
-          total: flatNodes.length,
-          capped: flatNodes.length > 500,
-        },
+        tree: { leafId },
       },
     };
     return { status: "success", message: "", contentBlocks: [widgetBlock] };

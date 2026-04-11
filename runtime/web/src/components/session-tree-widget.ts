@@ -100,9 +100,7 @@ export function SessionTreeWidget({ widget, onWidgetEvent }) {
     };
 
     useEffect(() => {
-        if (!initialTree || !Array.isArray(initialTree?.nodes) || initialTree.nodes.length === 0) {
-            loadTree();
-        }
+        loadTree();
     }, [chatJid]);
 
     const flatRows = useMemo(() => {
