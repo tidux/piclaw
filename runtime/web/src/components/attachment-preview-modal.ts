@@ -130,7 +130,7 @@ export function AttachmentPreviewModal({ mediaId, info, onClose }) {
     const previewKind = useMemo(() => getAttachmentPreviewKind(info?.content_type, filename), [info?.content_type, filename]);
     const previewLabel = getAttachmentPreviewLabel(previewKind);
     const isMarkdown = useMemo(() => isMarkdownAttachmentPreview(info?.content_type), [info?.content_type]);
-    const [loading, setLoading] = useState(previewKind === 'text' || previewKind === 'archive');
+    const [loading, setLoading] = useState(previewKind === 'text' || previewKind === 'html' || previewKind === 'archive');
     const [textContent, setTextContent] = useState('');
     const [archivePreview, setArchivePreview] = useState(null);
     const [error, setError] = useState(null);
@@ -166,7 +166,7 @@ export function AttachmentPreviewModal({ mediaId, info, onClose }) {
         let cancelled = false;
 
         async function loadPreview() {
-            if (previewKind !== 'text' && previewKind !== 'archive') {
+            if (previewKind !== 'text' && previewKind !== 'html' && previewKind !== 'archive') {
                 setLoading(false);
                 setError(null);
                 setTextContent('');
