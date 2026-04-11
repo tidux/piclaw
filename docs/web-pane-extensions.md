@@ -19,7 +19,8 @@ UI, and the lower-level `extension_ui_*` bridge, see
 | `office-viewer` | tabs | Route-backed JS Office viewer for `.docx/.xlsx/.pptx` and OpenDocument files. Workspace preview exposes an **Open in Tab** CTA. |
 | `csv-viewer` | tabs | Table viewer for `.csv` / `.tsv` files. Workspace preview exposes an **Open in Tab** CTA. |
 | `pdf-viewer` | tabs | Inline PDF viewer. Workspace preview exposes an **Open in Tab** CTA. |
-| `image-viewer` | tabs | Inline image viewer with zoom. Workspace preview exposes an **Open in Tab** CTA. |
+| `image-viewer` | tabs | Inline image viewer with zoom (PNG, JPEG, GIF, WebP, SVG, BMP, ICO). Workspace preview exposes an **Open in Tab** CTA. |
+| `html-viewer` | tabs | HTML file preview — renders workspace `.html`/`.htm` files in a sandboxed iframe. Preview card has **Preview in Tab** and **Edit Source** buttons. |
 | `workspace-preview` | tabs | Default workspace preview surface. Generic text previews keep the lightweight explorer-header editor action instead. |
 | `terminal` | dock | Authenticated terminal pane (feature-flagged, default hidden to workspace actions if disabled). |
 | `terminal-tab` | tabs | Same terminal pane instance, opened via explicit tab path `piclaw://terminal`. |

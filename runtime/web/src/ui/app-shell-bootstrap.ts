@@ -12,6 +12,7 @@ import {
   csvViewerPaneExtension,
   pdfViewerPaneExtension,
   imageViewerPaneExtension,
+  htmlViewerPaneExtension,
   videoViewerPaneExtension,
   drawioPaneExtension,
   mindmapPaneExtension,
@@ -54,6 +55,7 @@ export function registerAppPaneExtensions(): void {
   paneRegistry.register(csvViewerPaneExtension);
   paneRegistry.register(pdfViewerPaneExtension);
   paneRegistry.register(imageViewerPaneExtension);
+  paneRegistry.register(htmlViewerPaneExtension);
   paneRegistry.register(videoViewerPaneExtension);
   paneRegistry.register(drawioPaneExtension);
   paneRegistry.register(mindmapPaneExtension);

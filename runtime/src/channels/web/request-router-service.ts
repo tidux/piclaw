@@ -39,6 +39,7 @@ import "./http/csv-viewer-route.js";
 import "./http/image-viewer-route.js";
 import "./http/video-viewer-route.js";
 import "./http/pdf-viewer-route.js";
+import "./http/html-viewer-route.js";
 import { handleExtensionRoutes } from "./http/extension-routes.js";
 import { enforceRequestGuards } from "./http/request-guards.js";
 import { getRouteFlags } from "./http/route-flags.js";
