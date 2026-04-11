@@ -314,6 +314,7 @@ const groupDefinitions: GroupDefinition[] = [
       "queue/",
       "remote/",
       "router/",
+      "secure/",
       "tools/",
       "utils/",
     ].some((prefix) => relativePath.startsWith(prefix)),
