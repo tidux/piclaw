@@ -35,8 +35,8 @@ function buildTreeFromFlat(flatNodes) {
         node.resultId = child.id;
         // Preview becomes "tool → result summary"
         const cmdPart = node.toolInput || node.toolName;
-        const outPart = child.detail ? child.detail.slice(0, 120) : (child.preview || '');
-        node.preview = `${node.toolName}: ${cmdPart ? cmdPart.slice(0, 200) : ''}\n→ ${outPart}`;
+        const outPart = child.detail ? (child.detail.length > 120 ? child.detail.slice(0, 119) + '…' : child.detail) : (child.preview || '');
+        node.preview = `${node.toolName}: ${cmdPart ? (cmdPart.length > 200 ? cmdPart.slice(0, 199) + '…' : cmdPart) : ''}\n→ ${outPart}`;
         node.merged = true;
         // Re-parent result's children to the call node
         node.children = child.children;

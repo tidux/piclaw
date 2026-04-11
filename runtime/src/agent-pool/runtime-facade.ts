@@ -53,12 +53,12 @@ function getToolCallInput(content: unknown): string | null {
       // Fallback: dump all non-standard keys on the block itself
       const skip = new Set(["type", "name", "toolCallId", "id"]);
       const extra = Object.keys(b).filter(k => !skip.has(k));
-      if (extra.length > 0) return extra.map(k => `${k}: ${JSON.stringify(b[k]).slice(0, 100)}`).join(', ').slice(0, 500);
+      if (extra.length > 0) { const s = extra.map(k => `${k}: ${JSON.stringify(b[k]).slice(0, 100)}`).join(', '); return s.length > 500 ? s.slice(0, 499) + '\u2026' : s; }
       continue;
     }
     const input = raw as Record<string, unknown>;
     // bash: show command
-    if (typeof input.command === "string") return input.command.slice(0, 500);
+    if (typeof input.command === "string") return input.command.length > 500 ? input.command.slice(0, 499) + '\u2026' : input.command;
     // read/write: show path
     if (typeof input.path === "string") {
       let s = input.path as string;
@@ -70,7 +70,7 @@ function getToolCallInput(content: unknown): string | null {
     if (typeof input.file === "string") return input.file as string;
     // generic: JSON summary of keys
     const keys = Object.keys(input);
-    if (keys.length > 0) return keys.map(k => `${k}: ${String(input[k]).slice(0, 80)}`).join(', ').slice(0, 500);
+    if (keys.length > 0) { const s = keys.map(k => { const v = String(input[k]); return `${k}: ${v.length > 80 ? v.slice(0, 79) + '\u2026' : v}`; }).join(', '); return s.length > 500 ? s.slice(0, 499) + '\u2026' : s; }
   }
   return null;
 }
