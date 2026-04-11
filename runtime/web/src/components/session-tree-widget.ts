@@ -6,14 +6,7 @@ function buildTreeFromFlat(flatNodes) {
     const roots = [];
     for (const node of flatNodes || []) {
         byId.set(node.id, {
-            id: node.id,
-            parentId: node.parentId || null,
-            type: node.type || null,
-            timestamp: node.timestamp || null,
-            label: node.label || null,
-            active: Boolean(node.active),
-            preview: node.preview || `[${node.type || 'entry'}]`,
-            childCount: Number.isFinite(node.childCount) ? node.childCount : 0,
+            ...node,
             children: [],
             depth: 0,
         });
