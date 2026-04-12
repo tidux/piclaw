@@ -16,6 +16,38 @@ function makeMessage(chatJid: string, content: string, timestamp: string, isBot 
   };
 }
 
+test("all-chat search annotates agent responses with the branch short agent name", () => {
+  db.initDatabase();
+
+  const chatJid = `web:timeline-search-agent-${Date.now()}`;
+  const agentName = `agent-${Date.now()}`;
+  db.storeChatMetadata(chatJid, new Date().toISOString(), "Agent");
+  db.ensureChatBranch({
+    chat_jid: chatJid,
+    root_chat_jid: chatJid,
+    agent_name: agentName,
+  });
+
+  db.storeMessage(makeMessage(chatJid, "needle agent", "2024-03-01T00:00:00.000Z", true));
+  db.storeMessage(makeMessage(chatJid, "needle user", "2024-03-01T00:01:00.000Z", false));
+
+  const result = getSearchResponse(chatJid, "needle", 10, 0, "all", null);
+  expect(result.status).toBe(200);
+
+  const body = result.body as {
+    results: Array<{ data: { content: string; type: string }; chat_agent_name?: string }>;
+  };
+  expect(body.results).toHaveLength(2);
+  expect(body.results[0]).toMatchObject({
+    data: { content: "needle user", type: "user_message" },
+  });
+  expect(body.results[0]?.chat_agent_name).toBeUndefined();
+  expect(body.results[1]).toMatchObject({
+    data: { content: "needle agent", type: "agent_response" },
+    chat_agent_name: agentName,
+  });
+});
+
 test("root-scoped search derives the root chat from the registry", () => {
   db.initDatabase();
 

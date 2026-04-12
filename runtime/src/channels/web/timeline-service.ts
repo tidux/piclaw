@@ -20,6 +20,8 @@ import {
   searchMessagesAcrossChats,
 } from "../../db.js";
 
+import type { InteractionRow } from "../../db/types.js";
+
 const QUEUE_PLACEHOLDER_MARKER = "\u2063";
 const LEGACY_QUEUE_STATUS = "Queued as a follow-up (one-at-a-time).";
 
@@ -67,6 +69,24 @@ export function getHashtagResponse(
 
 export type SearchScope = "current" | "root" | "all";
 
+function annotateSearchResultsWithAgentNames(results: InteractionRow[]): InteractionRow[] {
+  const chatAgentNameCache = new Map<string, string | null>();
+  return results.map((row) => {
+    if (row?.data?.type !== "agent_response") return row;
+    const chatJid = typeof row.chat_jid === "string" ? row.chat_jid.trim() : "";
+    if (!chatJid) return row;
+    let agentName = chatAgentNameCache.get(chatJid);
+    if (agentName === undefined) {
+      const branch = getChatBranchByChatJid(chatJid);
+      agentName = typeof branch?.agent_name === "string" && branch.agent_name.trim()
+        ? branch.agent_name.trim()
+        : null;
+      chatAgentNameCache.set(chatJid, agentName);
+    }
+    return agentName ? { ...row, chat_agent_name: agentName } : row;
+  });
+}
+
 function resolveSearchRootChatJid(chatJid: string, requestedRootChatJid?: string | null): string {
   const branch = getChatBranchByChatJid(chatJid);
   const registryRoot = typeof branch?.root_chat_jid === "string" && branch.root_chat_jid.trim()
@@ -106,7 +126,14 @@ export function getSearchResponse(
 
   return {
     status: 200,
-    body: { query, results, limit, offset, scope, root_chat_jid: effectiveRootChatJid },
+    body: {
+      query,
+      results: annotateSearchResultsWithAgentNames(results),
+      limit,
+      offset,
+      scope,
+      root_chat_jid: effectiveRootChatJid,
+    },
   };
 }
 

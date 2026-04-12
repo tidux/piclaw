@@ -60,6 +60,8 @@ export interface InteractionRow {
   id: number;
   /** Optional logical chat identifier for branch-aware web consumers. */
   chat_jid?: string;
+  /** Optional short agent/branch handle for search results spanning multiple chats. */
+  chat_agent_name?: string;
   /** ISO-8601 timestamp of when the interaction was recorded. */
   timestamp: string;
   /** The parsed JSON payload (see InteractionData). */

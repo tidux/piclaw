@@ -267,6 +267,19 @@
     font-weight: 700;
 }
 
+.post-chat-agent-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--accent-color);
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent-color) 32%, transparent);
+}
+
 .post-time {
     color: var(--text-secondary);
     font-size: var(--font-size-sm);

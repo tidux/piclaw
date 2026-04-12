@@ -623,6 +623,8 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
     const isAgent = data.type === 'agent_response';
     const resolvedUserName = userName || 'You';
     const displayName = isAgent ? (agentName || DEFAULT_AGENT_NAME) : resolvedUserName;
+    const searchChatAgentName = typeof post.chat_agent_name === 'string' ? post.chat_agent_name.trim() : '';
+    const showSearchChatAgentTag = Boolean(isAgent && highlightQuery && searchChatAgentName && searchChatAgentName !== displayName);
 
     // Get avatar info based on the name
     const avatarInfo = isAgent
@@ -911,6 +913,7 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                 </div>
                 <div class="post-meta">
                     <span class="post-author">${displayName}</span>
+                    ${showSearchChatAgentTag && html`<span class="post-chat-agent-tag" title=${`Chat: ${searchChatAgentName}`}>@${searchChatAgentName}</span>`}
                     <a class="post-time" href=${`#msg-${post.id}`} onClick=${(e) => {
                         e.preventDefault();
                         e.stopPropagation();
