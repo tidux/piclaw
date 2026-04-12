@@ -1453,6 +1453,12 @@ export function WorkspaceExplorer({
         return Boolean(targetEl?.closest?.('.workspace-node-icon, .workspace-label-text'));
     };
 
+    const isEditableKeyboardTarget = (targetEl) => {
+        if (!targetEl) return false;
+        if (targetEl.closest?.('input, textarea, [contenteditable="true"]')) return true;
+        return Boolean(targetEl.isContentEditable);
+    };
+
     // ── Double-click to rename selected workspace entry ────────────────────
     const handleTreeDblClick = useRef((e) => {
         const targetEl = getEventTargetElement(e);
@@ -1588,6 +1594,8 @@ export function WorkspaceExplorer({
     }, []);
 
     const handleTreeKeyDown = useCallback((e) => {
+        const targetEl = getEventTargetElement(e);
+        if (renamingPathRef.current || isEditableKeyboardTarget(targetEl)) return;
         const currentRows = rows;
         if (!currentRows || currentRows.length === 0) return;
         const currentIndex = selectedPath
@@ -2355,6 +2363,7 @@ export function WorkspaceExplorer({
                                                 value=${renameValue}
                                                 onInput=${(e) => setRenameValue(e?.target?.value || '')}
                                                 onKeyDown=${(e) => {
+                                                    e.stopPropagation();
                                                     if (e.key === 'Enter') {
                                                         e.preventDefault();
                                                         commitRename();
