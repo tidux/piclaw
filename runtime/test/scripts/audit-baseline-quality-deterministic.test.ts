@@ -45,9 +45,9 @@ describe("audit-baseline-quality-deterministic", () => {
     expect(stderr.trim()).toBe("");
 
     const lines = stdout.trim().split(/\r?\n/);
-    expect(lines).toContain("channels-web-agent-flow\t42\tchannels web agent flow");
+    expect(lines).toContain("channels-web-agent-flow\t43\tchannels web agent flow");
     expect(lines).toContain("channels-web-auth-security\t17\tchannels web auth and security");
-    expect(lines).toContain("channels-web-http-routes\t31\tchannels web http and route surfaces");
+    expect(lines).toContain("channels-web-http-routes\t32\tchannels web http and route surfaces");
     expect(lines).toContain("channels-web-media-workspace-remote\t15\tchannels web media, workspace, and remote surfaces");
     expect(lines).toContain("web-ui-interaction-and-state\t69\tweb ui interaction and state");
     expect(lines).toContain("web-ui-rendering-and-panes\t59\tweb ui rendering and panes");
