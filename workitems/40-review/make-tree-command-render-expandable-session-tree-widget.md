@@ -1,9 +1,9 @@
 ---
 id: make-tree-command-render-expandable-session-tree-widget
 title: Make /tree render an expandable session-tree widget in the timeline
-status: inbox
+status: review
 created: 2026-04-11
-updated: 2026-04-11
+updated: 2026-04-12
 priority: medium
 estimate: M
 risk: medium
@@ -159,6 +159,14 @@ we can branch by channel cleanly.
 - [ ] Ticket front matter updated
 
 ## Updates
+
+### 2026-04-12
+- Lane change: `00-inbox` → `40-review`.
+- `/tree` now posts a generated session-tree widget in the web timeline instead of plain text for the web path, while keeping the existing navigation behavior and non-web fallback semantics in the handler.
+- The shipped widget flow now uses live `/agent/session-tree` data, iterative tree flattening for deep histories, compact one-line rows, sidebar detail, theme-tinted tags, and an in-widget search/filter box.
+- Implementation touched the server command path, web session-tree endpoint, generated-widget plumbing, floating widget pane rendering, post rendering, and the dedicated `session-tree-widget` component.
+- Pending review focus: final user verification of the widget UX and any remaining scope mismatch against the original “expandable” wording.
+- Quality: ★★★★☆ 8/10 (problem: 2, scope: 1, test: 1, deps: 2, risk: 2)
 
 ### 2026-04-11
 - Created from user request to make `/tree` render an expandable visual session
