@@ -1,10 +1,10 @@
 ---
 id: add-per-chat-extensions-command-and-card
 title: Add per-chat /extensions command and adaptive-card extension manager
-status: next
+status: inbox
 priority: medium
 created: 2026-03-31
-updated: 2026-04-06
+updated: 2026-04-12
 target_release: next
 estimate: L
 risk: high

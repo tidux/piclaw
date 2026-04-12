@@ -1,7 +1,7 @@
 ---
 id: adopt-mcp-style-discovery-for-internal-tools
 title: Adopt MCP-style discovery for internal tools
-status: next
+status: inbox
 priority: medium
 created: 2026-04-05
 updated: 2026-04-12

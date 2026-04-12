@@ -1,10 +1,10 @@
 ---
 id: folder-drag-drop-confirmation
 title: Folder drag and drop operations should require confirmation
-status: inbox
+status: next
 priority: medium
 created: 2026-03-19
-updated: 2026-03-19
+updated: 2026-04-12
 tags:
   - work-item
   - kanban

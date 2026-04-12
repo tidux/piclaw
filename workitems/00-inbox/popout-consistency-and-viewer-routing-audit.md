@@ -1,10 +1,10 @@
 ---
 id: popout-consistency-and-viewer-routing-audit
 title: Ensure pop-out consistency and backend routing across all editors and viewers
-status: next
+status: inbox
 priority: high
 created: 2026-04-01
-updated: 2026-04-06
+updated: 2026-04-12
 target_release: next
 estimate: L
 risk: medium

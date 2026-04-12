@@ -1,10 +1,10 @@
 ---
 id: terminal-hyperlink-and-clipboard-improvements
 title: Terminal hyperlink detection and clipboard improvements
-status: inbox
+status: next
 priority: medium
 created: 2026-03-18
-updated: 2026-03-18
+updated: 2026-04-12
 target_release: next
 tags:
   - work-item

@@ -1,9 +1,9 @@
 ---
 id: dynamic-slash-command-autocomplete
 title: Dynamic slash command autocomplete from registered commands and extensions
-status: inbox
+status: next
 created: 2026-04-10
-updated: 2026-04-10
+updated: 2026-04-12
 tags:
   - work-item
   - kanban

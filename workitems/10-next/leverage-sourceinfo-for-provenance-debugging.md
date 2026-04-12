@@ -1,10 +1,10 @@
 ---
 id: leverage-sourceinfo-for-provenance-debugging
 title: "Use sourceInfo provenance in debug/introspection views"
-status: inbox
+status: next
 priority: low
 created: 2026-03-23
-updated: 2026-03-23
+updated: 2026-04-12
 tags:
   - work-item
   - kanban

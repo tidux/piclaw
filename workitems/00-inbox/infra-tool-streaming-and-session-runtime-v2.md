@@ -1,10 +1,10 @@
 ---
 id: infra-tool-streaming-and-session-runtime-v2
 title: Add v2 streaming and session runtime primitives for infra tools
-status: next
+status: inbox
 priority: high
 created: 2026-04-05
-updated: 2026-04-05
+updated: 2026-04-12
 target_release: v2.0.0
 estimate: XL
 risk: high
