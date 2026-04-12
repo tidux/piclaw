@@ -7,7 +7,7 @@ import {
   replaceMessageContent,
 } from "../../../db.js";
 import { setWebTotpSecret } from "../../../core/config.js";
-import { createLogger } from "../../../utils/logger.js";
+import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
 import type { SendMessageOptions } from "../messaging/message-write-flows.js";
 import {
   buildAdaptiveCardSubmissionText,
@@ -606,16 +606,21 @@ export class WebAdaptiveCardSidePromptService {
           closed = true;
           try {
             controller.close();
-          } catch {
-            /* expected: ReadableStream controller may already be closed/cancelled. */
+          } catch (error) {
+            debugSuppressedError(log, "Adaptive-card side-prompt stream controller was already closed during shutdown.", error, {
+              chatJid,
+            });
           }
         };
         const send = (eventType: string, data: unknown) => {
           if (closed) return;
           try {
             controller.enqueue(encoder.encode(formatSseEvent(eventType, data)));
-          } catch {
-            /* expected: enqueue may race a controller that was already closed via abort/cancel. */
+          } catch (error) {
+            debugSuppressedError(log, "Adaptive-card side-prompt stream enqueue raced a closed controller.", error, {
+              chatJid,
+              eventType,
+            });
             close();
           }
         };
