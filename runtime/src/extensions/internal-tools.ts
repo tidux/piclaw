@@ -6,7 +6,8 @@ import type {
   ExtensionAPI,
   ExtensionFactory,
 } from "@mariozechner/pi-coding-agent";
-import { getToolsetsForTool } from "./tool-activation.js";
+import { getToolsetsForTool, getDefaultActiveToolNames } from "./tool-activation.js";
+import { getToolCapability, type ToolActivation } from "./tool-capabilities.js";
 
 const InternalToolsSchema = Type.Object({
   query: Type.Optional(Type.String({ description: "Filter by tool name/description substring." })),
@@ -51,23 +52,33 @@ export const internalTools: ExtensionFactory = (pi: ExtensionAPI) => {
       const includeParameters = Boolean(params.include_parameters);
 
       const activeSet = new Set(pi.getActiveTools());
+      const defaultSet = new Set(getDefaultActiveToolNames());
       const visibleTools = process.platform === "win32" && pi.getAllTools().some((tool) => tool.name === "powershell")
         ? pi.getAllTools().filter((tool) => tool.name !== "bash")
         : pi.getAllTools();
       const all = visibleTools
-        .map((tool) => ({
-          name: tool.name,
-          description: summarizeDescription(tool.description),
-          parameters: includeParameters ? tool.parameters : undefined,
-          active: activeSet.has(tool.name),
-          toolsets: getToolsetsForTool(tool.name),
-        }))
+        .map((tool) => {
+          const cap = getToolCapability(tool.name);
+          const activation: ToolActivation = defaultSet.has(tool.name) ? "default" : "on-demand";
+          return {
+            name: tool.name,
+            description: summarizeDescription(tool.description),
+            parameters: includeParameters ? tool.parameters : undefined,
+            active: activeSet.has(tool.name),
+            activation,
+            kind: cap.kind,
+            weight: cap.weight,
+            summary: cap.summary,
+            toolsets: getToolsetsForTool(tool.name),
+          };
+        })
         .sort((a, b) => a.name.localeCompare(b.name));
 
       const filtered = query
         ? all.filter((tool) =>
             tool.name.toLowerCase().includes(query)
-            || tool.description.toLowerCase().includes(query),
+            || tool.description.toLowerCase().includes(query)
+            || tool.summary.toLowerCase().includes(query),
           )
         : all;
 
@@ -86,7 +97,8 @@ export const internalTools: ExtensionFactory = (pi: ExtensionAPI) => {
       const lines = tools.map((tool) => {
         const active = tool.active ? " [active]" : "";
         const toolsets = tool.toolsets.length > 0 ? ` {${tool.toolsets.join(", ")}}` : "";
-        return `• ${tool.name} — ${tool.description}${active}${toolsets}`;
+        const meta = `[${tool.kind}, ${tool.weight}, ${tool.activation}]`;
+        return `• ${tool.name} — ${tool.summary}${active}${toolsets} ${meta}`;
       });
 
       return {
