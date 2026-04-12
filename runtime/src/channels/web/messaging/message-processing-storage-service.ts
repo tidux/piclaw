@@ -29,6 +29,7 @@ export interface WebMessageProcessingStorageChannel extends WebChannelLike, Link
 export interface WebMessageProcessingStorageServiceOptions {
   defaultAgentId: string;
   getAssistantName(): string;
+  getUserName?(): string | null | undefined;
   processChat(
     channel: WebChannelLike,
     chatJid: string,
@@ -44,11 +45,12 @@ export interface WebMessageProcessingStorageServiceOptions {
 
 export function createWebMessageProcessingStorageService(
   channel: WebMessageProcessingStorageChannel,
-  defaults: { defaultAgentId: string; getAssistantName(): string },
+  defaults: { defaultAgentId: string; getAssistantName(): string; getUserName?(): string | null | undefined },
 ): WebMessageProcessingStorageService {
   return new WebMessageProcessingStorageService(channel, {
     defaultAgentId: defaults.defaultAgentId,
     getAssistantName: defaults.getAssistantName,
+    getUserName: defaults.getUserName,
     processChat: (target, chatJid, agentId, threadRootId) =>
       processAgentChat(target, chatJid, agentId, threadRootId),
     storeWebMessage: (target, params, options) => persistWebMessage(target, params, options),
@@ -81,6 +83,7 @@ export class WebMessageProcessingStorageService {
         mediaIds,
         agentId: this.options.defaultAgentId,
         agentName: this.options.getAssistantName(),
+        userName: this.options.getUserName?.() ?? null,
       },
       {
         contentBlocks: options.contentBlocks,

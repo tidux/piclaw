@@ -3,7 +3,7 @@
  *
  * Responsible for:
  *   - Detecting the channel type (web, whatsapp) from a chat JID.
- *   - Formatting arrays of NewMessage objects into XML for the agent prompt.
+ *   - Formatting arrays of NewMessage objects into a compact transcript for the agent prompt.
  *   - Stripping `<internal>…</internal>` tags from agent output before delivery.
  *   - Applying channel-specific output escaping (HTML entities for web).
  *
@@ -18,7 +18,6 @@
  */
 
 import type { NewMessage } from "./types.js";
-import { getChannelFormattingInstructions } from "./channels/formatting.js";
 
 /** Recognised channel types. */
 export type ChatChannel = "web" | "whatsapp" | "unknown";
@@ -37,23 +36,42 @@ export function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+function normalizePromptHeaderValue(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function normalizePromptSenderName(message: NewMessage): string {
+  const senderName = normalizePromptHeaderValue(message.sender_name);
+  if (senderName) return senderName;
+  const sender = normalizePromptHeaderValue(message.sender);
+  return sender || "User";
+}
+
+function formatPromptMessage(message: NewMessage): string {
+  const sender = normalizePromptSenderName(message);
+  const timestamp = normalizePromptHeaderValue(message.timestamp);
+  const content = typeof message.content === "string" ? message.content.replace(/\r\n/g, "\n").replace(/\r/g, "\n") : "";
+  const header = timestamp ? `${sender} @ ${timestamp}:` : `${sender}:`;
+  if (!content) return header;
+  const indented = content.split("\n").map((line) => `  ${line}`).join("\n");
+  return `${header}\n${indented}`;
+}
+
 /**
- * Serialise an array of NewMessage objects into an XML `<messages>` block
- * that becomes part of the agent's prompt. Includes channel metadata and
- * formatting instructions when the channel is known.
+ * Serialise an array of NewMessage objects into a compact transcript block
+ * for the agent prompt. Includes channel metadata when the channel is known,
+ * but keeps stable formatting instructions in persistent session context.
  */
 export function formatMessages(messages: NewMessage[], channel?: ChatChannel): string {
-  const lines = messages.map(
-    (m) => `<message sender=\"${escapeXml(m.sender_name)}\" time=\"${m.timestamp}\">${escapeXml(m.content)}</message>`
-  );
   const knownChannel = channel && channel !== "unknown" ? channel : undefined;
-  const channelAttr = knownChannel ? ` channel=\"${knownChannel}\"` : "";
-  const metaLines: string[] = [];
-  if (knownChannel) metaLines.push(`<channel>${knownChannel}</channel>`);
-  const formatting = getChannelFormattingInstructions(knownChannel);
-  if (formatting) metaLines.push(`<formatting>${formatting}</formatting>`);
-  const meta = metaLines.length > 0 ? `${metaLines.join("\n")}\n` : "";
-  return `<messages${channelAttr}>\n${meta}${lines.join("\n")}\n</messages>`;
+  const sections: string[] = [];
+  if (knownChannel) sections.push(`Channel: ${knownChannel}`);
+  if (messages.length > 0) {
+    const body = messages.map((message) => formatPromptMessage(message)).join("\n\n");
+    sections.push(messages.length > 1 ? `Messages:\n${body}` : body);
+  }
+  return sections.join("\n\n");
 }
 
 const INTERNAL_OPEN_PLACEHOLDER = "\u0000PICLAW_INTERNAL_OPEN\u0000";

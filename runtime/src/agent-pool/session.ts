@@ -31,6 +31,8 @@ import {
 } from "@mariozechner/pi-coding-agent";
 
 import { SESSIONS_DIR, WORKSPACE_DIR } from "../core/config.js";
+import { buildChannelSystemPromptAppendix } from "../channels/formatting.js";
+import { detectChannel } from "../router.js";
 import { builtinExtensionFactories } from "../extensions/index.js";
 import { bindImmediateToolActivation } from "./tool-activation-live-update.js";
 import { ensureExtensionNodeModulesLink } from "./session-node-modules-link.js";
@@ -142,8 +144,13 @@ export async function createSessionInDir(
     settingsManager: SettingsManager;
     tools: NonNullable<AgentSessionCreateOptions["tools"]>;
     extensionFactories?: ExtensionFactory[];
+    chatJid?: string;
   }
 ): Promise<AgentSessionRuntime> {
+  const channelSystemPromptAppendix = buildChannelSystemPromptAppendix(
+    options.chatJid ? detectChannel(options.chatJid) : null,
+  );
+
   const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
     const services = await createAgentSessionServices({
       cwd,
@@ -154,6 +161,11 @@ export async function createSessionInDir(
       resourceLoaderOptions: {
         extensionFactories: [...builtinExtensionFactories, ...(options.extensionFactories ?? [])],
         additionalExtensionPaths: getBundledExtensionPaths(),
+        ...(channelSystemPromptAppendix
+          ? {
+              appendSystemPromptOverride: (base: string[]) => [...base, channelSystemPromptAppendix],
+            }
+          : {}),
       },
     });
 
@@ -190,7 +202,10 @@ export async function createDefaultSession(
   }
 ): Promise<AgentSessionRuntime> {
   const chatSessionDir = ensureSessionDir(chatJid);
-  return createSessionInDir(chatSessionDir, options);
+  return createSessionInDir(chatSessionDir, {
+    ...options,
+    chatJid,
+  });
 }
 
 /** Replace characters that are unsafe for filesystem paths. */

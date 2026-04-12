@@ -110,7 +110,7 @@ function getRowDisplay(node) {
 
     // User message
     if (role === 'user') {
-        const raw = node.detail || node.preview || '';
+        const raw = node.previewText || node.detail || node.preview || '';
         const cleaned = raw.replace(/^user:\s*"?/, '').replace(/"?\s*$/, '');
         const firstLine = cleaned.split('\n')[0];
         const trunc = firstLine.length > 120 ? firstLine.slice(0, 119) + '\u2026' : firstLine;
@@ -256,6 +256,12 @@ export function SessionTreeWidget({ widget, onWidgetEvent }) {
                             <div class="st-side-section">
                                 <div class="st-side-label">${selectedNode.role === 'toolResult' ? 'Output' : 'Content'}${selectedNode.contentLength ? ` (${formatSizeLong(selectedNode.contentLength)})` : ''}</div>
                                 <pre class="st-side-code">${selectedNode.detail}</pre>
+                            </div>
+                        `}
+                        ${selectedNode.rawDetail && html`
+                            <div class="st-side-section">
+                                <div class="st-side-label">Raw prompt${selectedNode.rawContentLength ? ` (${formatSizeLong(selectedNode.rawContentLength)})` : ''}</div>
+                                <pre class="st-side-code">${selectedNode.rawDetail}</pre>
                             </div>
                         `}
                         ${selectedNode.timestamp && html`

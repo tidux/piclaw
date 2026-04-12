@@ -118,6 +118,88 @@ test("AgentRuntimeFacade removes one queued follow-up and replays the remaining 
   ]);
 });
 
+test("AgentRuntimeFacade normalizes session-tree user prompts for display while keeping raw detail", () => {
+  const session = {
+    sessionManager: {
+      getLeafId: () => "m1",
+      getTree: () => [
+        {
+          label: null,
+          children: [],
+          entry: {
+            id: "m1",
+            parentId: null,
+            type: "message",
+            timestamp: "2026-04-12T22:24:55Z",
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: [
+                    "Channel: web",
+                    "",
+                    "Formatting:",
+                    "Markdown is allowed.",
+                    "",
+                    "Rui Carmo @ 2026-04-12T22:24:55Z:",
+                    "  show a normalized preview.",
+                  ].join("\n"),
+                },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  };
+
+  const fixture = createFacade();
+  fixture.pool.set("web:default", { runtime: createRuntime(session), lastUsed: Date.now() });
+
+  const tree = fixture.facade.getSessionTreeForChat("web:default");
+  expect(tree?.nodes).toHaveLength(1);
+  expect(tree?.nodes[0]).toMatchObject({
+    id: "m1",
+    role: "user",
+    detail: "Rui Carmo (2026-04-12T22:24:55Z): show a normalized preview.",
+    previewText: "show a normalized preview.",
+  });
+  expect((tree?.nodes[0] as any).rawDetail).toContain("Channel: web");
+});
+
+test("AgentRuntimeFacade leaves legacy XML session-tree entries unnormalized", () => {
+  const session = {
+    sessionManager: {
+      getLeafId: () => "m1",
+      getTree: () => [
+        {
+          label: null,
+          children: [],
+          entry: {
+            id: "m1",
+            parentId: null,
+            type: "message",
+            timestamp: "2026-04-12T22:24:55Z",
+            message: {
+              role: "user",
+              content: [{ type: "text", text: '<messages channel="web"><message sender="You" time="2026-04-12T22:24:55Z">hello</message></messages>' }],
+            },
+          },
+        },
+      ],
+    },
+  };
+
+  const fixture = createFacade();
+  fixture.pool.set("web:default", { runtime: createRuntime(session), lastUsed: Date.now() });
+
+  const tree = fixture.facade.getSessionTreeForChat("web:default");
+  expect((tree?.nodes[0] as any).detail).toContain('<messages channel="web">');
+  expect((tree?.nodes[0] as any).previewText).toBeUndefined();
+  expect((tree?.nodes[0] as any).rawDetail).toBeUndefined();
+});
+
 test("AgentRuntimeFacade clears attachments around slash commands", async () => {
   const session = { marker: true };
   const fixture = createFacade({

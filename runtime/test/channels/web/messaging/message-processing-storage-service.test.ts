@@ -46,6 +46,7 @@ describe("WebMessageProcessingStorageService", () => {
         mediaIds: number[];
         agentId: string;
         agentName: string;
+        userName?: string | null;
       };
       options: {
         contentBlocks?: unknown[];
@@ -56,6 +57,7 @@ describe("WebMessageProcessingStorageService", () => {
       };
     }> = [];
     let assistantName = "Pi";
+    let userName = "Rui";
     const firstInteraction: InteractionRow = {
       id: 11,
       chat_jid: "web:default",
@@ -77,6 +79,7 @@ describe("WebMessageProcessingStorageService", () => {
       {
         defaultAgentId: "default",
         getAssistantName: () => assistantName,
+        getUserName: () => userName,
         processChat: async () => {},
         storeWebMessage: (_channel, params, options) => {
           calls.push({ params, options });
@@ -94,6 +97,7 @@ describe("WebMessageProcessingStorageService", () => {
     });
 
     assistantName = "Pi Prime";
+    userName = "Rui Carmo";
     const storedUser = service.storeMessage("web:default", "follow-up", false, [], {});
 
     expect(storedBot).toBe(firstInteraction);
@@ -107,6 +111,7 @@ describe("WebMessageProcessingStorageService", () => {
           mediaIds: [5, 6],
           agentId: "default",
           agentName: "Pi",
+          userName: "Rui",
         },
         options: {
           contentBlocks: [{ type: "text" }],
@@ -124,6 +129,7 @@ describe("WebMessageProcessingStorageService", () => {
           mediaIds: [],
           agentId: "default",
           agentName: "Pi Prime",
+          userName: "Rui Carmo",
         },
         options: {
           contentBlocks: undefined,

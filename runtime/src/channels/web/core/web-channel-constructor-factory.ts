@@ -170,7 +170,7 @@ export interface WebChannelConstructorFactoryDeps {
   ): WebAuthGateway;
   createMessageProcessingStorageService(
     channel: WebChannelConstructorFactoryChannel,
-    defaults: { defaultAgentId: string; getAssistantName(): string },
+    defaults: { defaultAgentId: string; getAssistantName(): string; getUserName?(): string | null | undefined },
   ): WebMessageProcessingStorageService;
   createMessageWriteService(deps: WebMessageWriteServiceDeps): WebMessageWriteService;
   createRuntimeFollowupFacade(
@@ -320,6 +320,7 @@ export function createWebChannelConstructorFactory(
   const messageProcessingStorageService = deps.createMessageProcessingStorageService(channel, {
     defaultAgentId: options.defaultAgentId,
     getAssistantName: () => deps.getIdentityConfig().assistantName,
+    getUserName: () => deps.getIdentityConfig().userName,
   });
 
   const messageWriteService = deps.createMessageWriteService({

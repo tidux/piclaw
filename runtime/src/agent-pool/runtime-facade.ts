@@ -34,6 +34,87 @@ function extractTextPreview(content: unknown): string {
   return "";
 }
 
+interface PromptEnvelopeMessage {
+  sender: string;
+  time: string;
+  text: string;
+}
+
+function parseTranscriptPromptEnvelope(raw: string): PromptEnvelopeMessage[] | null {
+  const normalized = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!normalized || (!normalized.startsWith("Channel:") && !normalized.startsWith("Messages:") && !/^.+\s@\s.+:\n/m.test(normalized))) {
+    return null;
+  }
+
+  const lines = normalized.split("\n");
+  const messages: PromptEnvelopeMessage[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+    if (line.startsWith("Channel:")) {
+      index += 1;
+      continue;
+    }
+    if (line === "Messages:") {
+      index += 1;
+      continue;
+    }
+    const headerMatch = line.match(/^(.*?)\s@\s(.*?):$/);
+    if (!headerMatch) {
+      index += 1;
+      continue;
+    }
+
+    const sender = headerMatch[1].trim();
+    const time = headerMatch[2].trim();
+    index += 1;
+    const bodyLines: string[] = [];
+    while (index < lines.length) {
+      const current = lines[index];
+      if (!current.trim()) {
+        const following = lines[index + 1] || "";
+        if (/^.+\s@\s.+:$/.test(following)) {
+          index += 1;
+          break;
+        }
+        bodyLines.push("");
+        index += 1;
+        continue;
+      }
+      if (/^.+\s@\s.+:$/.test(current) && !current.startsWith("  ")) break;
+      bodyLines.push(current.startsWith("  ") ? current.slice(2) : current);
+      index += 1;
+    }
+
+    messages.push({ sender, time, text: bodyLines.join("\n").trim() });
+  }
+
+  return messages.length > 0 ? messages : null;
+}
+
+function formatPromptEnvelopePreview(raw: string): { preview: string; rowPreview: string } | null {
+  const messages = parseTranscriptPromptEnvelope(raw);
+  if (!messages || messages.length === 0) return null;
+  const lines = messages.map((message) => {
+    const sender = message.sender.trim() || "user";
+    const time = message.time.trim();
+    const text = message.text.trim();
+    const prefix = time ? `${sender} (${time})` : sender;
+    return text ? `${prefix}: ${text}` : prefix;
+  });
+  const preview = lines.join("\n\n").trim();
+  const rowPreview = messages.map((message) => message.text.trim()).filter(Boolean).join("\n\n").trim();
+  return {
+    preview,
+    rowPreview: rowPreview || preview,
+  };
+}
+
 function getToolCallName(content: unknown): string | null {
   if (!Array.isArray(content)) return null;
   for (const block of content) {
@@ -207,8 +288,17 @@ function getEntryMeta(entry: Record<string, unknown>): Record<string, unknown> {
   if (toolInputFull) meta.toolInputFull = toolInputFull;
   const text = extractTextPreview(msg.content);
   if (text) {
-    meta.contentLength = text.length;
-    meta.detail = text;
+    const promptEnvelopePreview = role === "user" ? formatPromptEnvelopePreview(text) : null;
+    if (promptEnvelopePreview) {
+      meta.contentLength = promptEnvelopePreview.preview.length;
+      meta.detail = promptEnvelopePreview.preview;
+      meta.previewText = promptEnvelopePreview.rowPreview;
+      meta.rawDetail = text;
+      meta.rawContentLength = text.length;
+    } else {
+      meta.contentLength = text.length;
+      meta.detail = text;
+    }
   }
   const thinking = (msg as any).thinking;
   if (thinking) {
@@ -233,7 +323,11 @@ function describeTreeEntry(entry: Record<string, unknown>): string {
         return `toolResult: ${toolName}`;
       }
       const text = extractTextPreview(msg.content);
-      if (text) return `${role}: \"${truncateText(text, 80)}\"`;
+      if (text) {
+        const promptEnvelopePreview = role === "user" ? formatPromptEnvelopePreview(text) : null;
+        const previewText = promptEnvelopePreview?.rowPreview || text;
+        return `${role}: \"${truncateText(previewText, 80)}\"`;
+      }
       const toolCallName = getToolCallName(msg.content);
       if (toolCallName) return `${role}: [tool ${toolCallName}]`;
       return role;

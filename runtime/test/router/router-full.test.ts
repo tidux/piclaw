@@ -38,33 +38,35 @@ describe("router", () => {
     expect(escapeXml("")).toBe("");
   });
 
-  test("formatMessages produces XML", () => {
+  test("formatMessages produces a compact transcript with channel metadata", () => {
     const msgs = [
       { id: "1", chat_jid: "web:default", sender: "user", sender_name: "Alice", content: "hello", timestamp: "2025-01-01T00:00:00Z", is_from_me: false, is_bot_message: false },
     ];
     const result = formatMessages(msgs, "web");
-    expect(result).toContain('<messages channel="web">');
-    expect(result).toContain("<channel>web</channel>");
-    expect(result).toContain("<formatting>");
-    expect(result).toContain('sender="Alice"');
-    expect(result).toContain("hello");
+    expect(result).toContain("Channel: web");
+    expect(result).toContain("Alice @ 2025-01-01T00:00:00Z:");
+    expect(result).toContain("  hello");
+    expect(result).not.toContain("<messages");
   });
 
-  test("formatMessages includes whatsapp formatting hint", () => {
+  test("formatMessages includes channel metadata but no repeated formatting hint", () => {
     const msgs = [
       { id: "1", chat_jid: "x", sender: "u", sender_name: "U", content: "hi", timestamp: "t", is_from_me: false, is_bot_message: false },
     ];
     const result = formatMessages(msgs, "whatsapp");
-    expect(result).toContain("WhatsApp formatting");
+    expect(result).toContain("Channel: whatsapp");
+    expect(result).not.toContain("Formatting:");
   });
 
-  test("formatMessages with no channel", () => {
+  test("formatMessages with no channel omits channel metadata", () => {
     const msgs = [
       { id: "1", chat_jid: "x", sender: "u", sender_name: "U", content: "hi", timestamp: "t", is_from_me: false, is_bot_message: false },
     ];
     const result = formatMessages(msgs);
-    expect(result).toContain("<messages>");
-    expect(result).not.toContain("channel=");
+    expect(result).toContain("U @ t:");
+    expect(result).toContain("  hi");
+    expect(result).not.toContain("Channel:");
+    expect(result).not.toContain("Formatting:");
   });
 
   test("stripInternalTags removes internal blocks", () => {
@@ -95,22 +97,23 @@ describe("router", () => {
     expect(detectChannel("http://example.com")).toBe("unknown");
   });
 
-  test("formatMessages escapes sender_name and content", () => {
+  test("formatMessages preserves message content verbatim but normalizes header fields", () => {
     const msgs = [
       {
         id: "1",
         chat_jid: "web:default",
         sender: "user",
-        sender_name: "A & B <C> \"D\"",
+        sender_name: "A & B <C> \"D\"\nnext",
         content: "Hello & <tag> \"quote\"",
-        timestamp: "2025-01-01T00:00:00Z",
+        timestamp: "2025-01-01T00:00:00Z\nignored",
         is_from_me: false,
         is_bot_message: false,
       },
     ];
     const result = formatMessages(msgs, "web");
-    expect(result).toContain('sender="A &amp; B &lt;C&gt; &quot;D&quot;"');
-    expect(result).toContain("Hello &amp; &lt;tag&gt; &quot;quote&quot;");
+    expect(result).toContain('A & B <C> "D" next @ 2025-01-01T00:00:00Z ignored:');
+    expect(result).toContain('  Hello & <tag> "quote"');
+    expect(result).not.toContain("&amp;");
   });
 
   test("stripInternalTags removes nested and malformed internal blocks", () => {

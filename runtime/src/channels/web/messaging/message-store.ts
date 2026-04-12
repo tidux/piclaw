@@ -42,6 +42,7 @@ export interface StoreWebMessageParams {
   mediaIds: number[];
   agentId: string;
   agentName: string;
+  userName?: string | null;
 }
 
 /** Store a web channel message in the database and attach media. */
@@ -99,7 +100,7 @@ export function storeWebMessage(
     id: messageId,
     chat_jid: params.chatJid,
     sender: params.isBot ? "web-agent" : "web-user",
-    sender_name: params.isBot ? params.agentName : "You",
+    sender_name: params.isBot ? params.agentName : (typeof params.userName === "string" && params.userName.trim() ? params.userName.trim() : "You"),
     content: params.content,
     timestamp: new Date().toISOString(),
     is_from_me: false,
