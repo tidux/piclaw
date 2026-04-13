@@ -4,7 +4,7 @@ title: "Master: codebase quality cleanup & refactoring (2026-Q1)"
 status: doing
 priority: critical
 created: 2026-03-23
-updated: 2026-03-30
+updated: 2026-04-13
 tags:
   - master
   - refactor
@@ -44,9 +44,7 @@ _All previously tracked structural blockers are now in `50-done/`._
 
 ### Active supporting quality work
 
-| Priority | Ticket | Item |
-|---|---|---|
-| P1 | `enforce-centralized-logging-for-suppressed-errors` | Standardize best-effort catch handling on centralized logging helpers and eliminate empty/comment-only catches |
+_All previously tracked P1 supporting tickets are now in `50-done/`._
 
 ### Former blockers now resolved
 
@@ -59,6 +57,7 @@ _All previously tracked structural blockers are now in `50-done/`._
 | `audit-exported-jsdoc-coverage-and-comment-quality` | done | Documentation review gate was re-established and closed |
 | `split-webchannel-god-class` | done | WebChannel was reduced to a thin 128-line coordinator shell over extracted services |
 | `split-agentpool-god-class` | done | AgentPool was reduced to a thin 322-line coordinator over extracted session/tool/turn services |
+| `enforce-centralized-logging-for-suppressed-errors` | done | Runtime/server suppressed-error handling was standardized on centralized logging helpers and silent-swallow metrics were revalidated |
 
 ## Follow-up work (P2/P3 — not blocking)
 
@@ -67,6 +66,8 @@ These are desirable but not required to close this ticket:
 | Priority | Ticket | Item |
 |---|---|---|
 | P2 | `adopt-pino-structured-logging` | Adopt structured logging and explicit error-handling guards |
+| P2 | `normalize-browser-logging-policy-and-web-console-usage` | Normalize browser/client logging policy and replace ad hoc web `console.*` usage where appropriate |
+| P2 | `split-core-config-into-domain-submodules` | Reduce `runtime/src/core/config.ts` below the umbrella threshold by extracting coherent config submodules |
 | P2 | `group-web-channel-flat-files` | Group 56 flat files into sub-directories |
 | P2 | `extract-typed-config-objects` | Extract 45 constants into typed config objects *(done — follow-up now tracked by `finish-config-injection-and-mutable-identity-cleanup`)* |
 | P3 | `continue-decompose-web-app-shell-toward-500-lines` | Completed — `runtime/web/src/app.ts` now sits at 493 lines on `main` |
@@ -84,6 +85,15 @@ These are desirable but not required to close this ticket:
 - [ ] Re-run quality assessment and confirm grade improvement
 
 ## Updates
+
+### 2026-04-13
+- Closed the last active P1 supporting ticket by confirming `enforce-centralized-logging-for-suppressed-errors` is already in `50-done/`.
+- Promoted the remaining browser/client-side logging consistency gap into its own explicit follow-up ticket:
+  - `workitems/10-next/normalize-browser-logging-policy-and-web-console-usage.md`
+- Added the next concrete structural quality slice for implementation:
+  - `workitems/10-next/split-core-config-into-domain-submodules.md`
+- The umbrella now has no active supporting quality ticket in flight; remaining work is criteria-driven plus optional P2/P3 follow-ups.
+- Quality: ★★★★☆ 8/10 (problem: 2, scope: 2, test: 2, deps: 1, risk: 1)
 
 ### 2026-03-30
 - Re-ran the silent-swallow audit via `bun run check:silent-swallows`; current repo metrics are:

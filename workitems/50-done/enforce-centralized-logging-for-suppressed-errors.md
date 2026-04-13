@@ -4,7 +4,7 @@ title: Enforce centralized logging for suppressed errors
 status: done
 priority: high
 created: 2026-04-12
-updated: 2026-04-12
+updated: 2026-04-13
 target_release: later
 estimate: M
 risk: medium
@@ -113,6 +113,10 @@ Avoid:
 
 ## Updates
 
+### 2026-04-13
+- Reconfirmed closure after board review: the ticket is correctly done for the runtime/server suppressed-error tranche.
+- Explicitly spun the remaining browser/client-side logging consistency work into `workitems/10-next/normalize-browser-logging-policy-and-web-console-usage.md` so this ticket does not get reopened for out-of-scope web logging cleanup.
+
 ### 2026-04-12
 - Implemented and merged in commit `8aedc640` after the logging-consistency autoresearch salvage.
 - Centralized logging policy is now enforced across the touched runtime helper tranches:
@@ -148,3 +152,4 @@ Avoid:
 - `runtime/src/utils/logger.ts`
 - `runtime/scripts/silent-swallow-metrics.ts`
 - `runtime/scripts/audit-comment-only-catches.ts`
+- `workitems/10-next/normalize-browser-logging-policy-and-web-console-usage.md`
