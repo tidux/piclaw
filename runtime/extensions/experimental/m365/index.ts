@@ -26,6 +26,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as os from "node:os";
 import { createLogger, debugSuppressedError } from "../../../src/utils/logger.js";
 
@@ -56,7 +57,26 @@ function logSuppressedM365Index(message: string, error: unknown, fields: Record<
  * commands for inspecting/clearing cached auth), then mostly exposes tool wrappers on
  * top of the shared helper layer.
  */
+const __m365ExtDir = path.dirname(fileURLToPath(import.meta.url));
+
 export default function (pi: ExtensionAPI) {
+	// ── Skills ──
+	pi.on("resources_discover", () => ({
+		skillPaths: [
+			path.join(__m365ExtDir, "skills", "m365-graph-query", "SKILL.md"),
+			path.join(__m365ExtDir, "skills", "m365-profile", "SKILL.md"),
+			path.join(__m365ExtDir, "skills", "m365-mail", "SKILL.md"),
+			path.join(__m365ExtDir, "skills", "m365-teams-chats", "SKILL.md"),
+			path.join(__m365ExtDir, "skills", "m365-teams-messages", "SKILL.md"),
+			path.join(__m365ExtDir, "skills", "m365-teams-send", "SKILL.md"),
+			path.join(__m365ExtDir, "skills", "m365-spo-search", "SKILL.md"),
+			path.join(__m365ExtDir, "skills", "m365-spo-browse", "SKILL.md"),
+			path.join(__m365ExtDir, "skills", "m365-spo-download", "SKILL.md"),
+			path.join(__m365ExtDir, "skills", "m365-document-link-metadata", "SKILL.md"),
+			path.join(__m365ExtDir, "skills", "m365-onedrive-share-local-file", "SKILL.md"),
+		],
+	}));
+
 	// ── Status bar ──
 	pi.on("session_start", async (_event, ctx) => {
 		try {
