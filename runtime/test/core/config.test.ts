@@ -132,6 +132,7 @@ describe("core config", () => {
         });
         expect(config.getWorkspaceSearchConfig()).toEqual({
           roots: ["notes", ".pi/skills", "docs"],
+          extraExtensions: [],
         });
         expect(config.getRemoteInteropConfig()).toEqual({
           enabled: true,

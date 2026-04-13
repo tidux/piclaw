@@ -15,6 +15,10 @@ function writeDailyNote(workspace: string, date: string, summary: string) {
   writeFileSync(join(dir, `${date}.md`), `---\ndate: ${date}\nsummarised_until: ${date}T23:59:59.000Z\nmessages_total: 4\nmessages_user: 2\nmessages_assistant: 2\nsession_trees: 1\nsession_chats: 1\nfirst_message: ${date}T12:00:00.000Z\nlast_message: ${date}T12:15:00.000Z\nscope_mode: all-web-session-trees\nscope_anchor: web:default\n---\n# ${date}\n\n## Summary\n\n${summary}\n`, "utf8");
 }
 
+function isoDateDaysAgo(daysAgo: number): string {
+  return new Date(Date.now() - daysAgo * 24 * 3_600_000).toISOString().slice(0, 10);
+}
+
 afterEach(() => {
   sentMessages.length = 0;
   try { db?.getDb().close(); } catch (_error) { void _error; }
@@ -31,7 +35,8 @@ test("internal Dream flows keep notes/memory/days model-owned and AutoDream stay
   rmSync(join(config.DATA_DIR, "workspace-search"), { recursive: true, force: true });
   rmSync(join(config.DATA_DIR, "sessions"), { recursive: true, force: true });
 
-  writeDailyNote(config.WORKSPACE_DIR, "2026-04-05", "Infra tooling and memory maintenance landed.");
+  const recentDate = isoDateDaysAgo(1);
+  writeDailyNote(config.WORKSPACE_DIR, recentDate, "Infra tooling and memory maintenance landed.");
 
   db = await importFresh("../src/db.js");
   scheduler = await importFresh("../src/task-scheduler.js");
@@ -44,7 +49,7 @@ test("internal Dream flows keep notes/memory/days model-owned and AutoDream stay
     sender: "user",
     sender_name: "You",
     content: "Make sure the dream maintenance keeps transcript-derived signals from the database, not just daily-note summaries.",
-    timestamp: "2026-04-05T12:10:00.000Z",
+    timestamp: `${recentDate}T12:10:00.000Z`,
     is_bot_message: false,
   });
   db.storeMessage({
@@ -53,7 +58,7 @@ test("internal Dream flows keep notes/memory/days model-owned and AutoDream stay
     sender: "agent",
     sender_name: "Smith",
     content: "Implemented the infra tooling and memory maintenance changes, validated with targeted tests and runtime checks.",
-    timestamp: "2026-04-05T12:20:00.000Z",
+    timestamp: `${recentDate}T12:20:00.000Z`,
     is_bot_message: true,
     is_terminal_agent_reply: true,
   });
@@ -92,10 +97,10 @@ test("internal Dream flows keep notes/memory/days model-owned and AutoDream stay
   expect(sentMessages.length).toBe(0);
   expect(db.getTaskById(manualTaskId)?.last_result).toContain("Dream updated");
   expect(existsSync(join(config.WORKSPACE_DIR, "notes/memory/MEMORY.md"))).toBe(true);
-  expect(existsSync(join(config.WORKSPACE_DIR, "notes/memory/days/2026-04-05.md"))).toBe(false);
+  expect(existsSync(join(config.WORKSPACE_DIR, `notes/memory/days/${recentDate}.md`))).toBe(false);
 
   const memoryIndexText = readFileSync(join(config.WORKSPACE_DIR, "notes/memory/MEMORY.md"), "utf8");
-  expect(memoryIndexText).toContain("[2026-04-05](../daily/2026-04-05.md)");
+  expect(memoryIndexText).toContain(`[${recentDate}](../daily/${recentDate}.md)`);
 
   const currentStateText = readFileSync(join(config.WORKSPACE_DIR, "notes/memory/current-state.md"), "utf8");
   expect(currentStateText).toContain("# Current Dream state");
@@ -144,7 +149,7 @@ test("internal Dream flows keep notes/memory/days model-owned and AutoDream stay
   expect(list.exitCode, list.stderr.toString()).toBe(0);
   const archived = list.stdout.toString("utf8");
   expect(archived).toContain("manifest.json");
-  expect(archived).toContain("notes/daily/2026-04-05.md");
+  expect(archived).toContain(`notes/daily/${recentDate}.md`);
   expect(archived).not.toContain("notes/memory/.dream.lock");
   const today = new Date().toISOString().slice(0, 10);
   const dailyPath = join(config.WORKSPACE_DIR, "notes", "daily", `${today}.md`);
