@@ -362,6 +362,7 @@ const groupDefinitions: GroupDefinition[] = [
           "compose-layout.test.ts",
           "compose-session-switcher.test.ts",
           "mobile-viewport.test.ts",
+          "meters.test.ts",
           "notification-focus.test.ts",
           "oobe-state.test.ts",
           "optional-api.test.ts",
