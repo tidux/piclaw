@@ -11,7 +11,7 @@ import { buildAdaptiveCardSubmissionFallbackText, describeAdaptiveCardSubmission
 import { buildGeneratedWidgetPayload, canRenderGeneratedWidget } from '../ui/generated-widget.js';
 import { ImageModal } from './image-modal.js';
 import { FilePill } from './file-pill.js';
-import { readSessionStorageFlagBestEffort, resolveLinkPreviewSiteName, writeClipboardTextBestEffort, writeSessionStorageFlagBestEffort } from './post-runtime-safety.js';
+import { readSessionStorageFlagBestEffort, resolveLinkPreviewSiteName, writeClipboardDataViaExecCommand, writeClipboardTextBestEffort, writeSessionStorageFlagBestEffort } from './post-runtime-safety.js';
 
 /**
  * File attachment component - keeps single-click download on the main card while
@@ -413,10 +413,15 @@ async function copyMessageToClipboard(markdown) {
     const value = typeof markdown === 'string' ? markdown : '';
     if (!value) return false;
 
+    const bodyHtml = renderMarkdown(value, null);
+    const htmlDoc = `<html><head>${CLIPBOARD_STYLE}</head><body>${bodyHtml}</body></html>`;
+
+    if (writeClipboardDataViaExecCommand(document, { text: value, html: htmlDoc })) {
+        return true;
+    }
+
     if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
         try {
-            const bodyHtml = renderMarkdown(value, null);
-            const htmlDoc = `<html><head>${CLIPBOARD_STYLE}</head><body>${bodyHtml}</body></html>`;
             const item = new ClipboardItem({
                 'text/plain': new Blob([value], { type: 'text/plain' }),
                 'text/html': new Blob([htmlDoc], { type: 'text/html' }),
