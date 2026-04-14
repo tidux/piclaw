@@ -37,6 +37,15 @@ function stripRemotePathFromSshTarget(value: unknown): string | null {
   return (match?.[1] || target).trim() || null;
 }
 
+export function getSshStatusHintTarget(chatJid: string, payload?: Record<string, unknown> | null): string | null {
+  return stripRemotePathFromSshTarget(
+    readTrimmedString(
+      payload?.ssh_target,
+      registeredHandlers?.get(chatJid)?.ssh_target,
+    ),
+  );
+}
+
 export function setSshToolHandlers(handlers: SshToolHandlers | null | undefined): void {
   registeredHandlers = handlers ?? null;
 }
@@ -44,12 +53,7 @@ export function setSshToolHandlers(handlers: SshToolHandlers | null | undefined)
 registerToolStatusHintProvider({
   id: "ssh",
   buildHints: ({ chatJid, payload }) => {
-    const target = stripRemotePathFromSshTarget(
-      readTrimmedString(
-        payload?.ssh_target,
-        registeredHandlers?.get(chatJid)?.ssh_target,
-      ),
-    );
+    const target = getSshStatusHintTarget(chatJid, payload);
     if (!target) return null;
     return {
       key: "ssh",

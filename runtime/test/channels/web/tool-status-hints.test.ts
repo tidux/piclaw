@@ -147,7 +147,58 @@ test('resolveToolStatusHints recognizes SharePoint sync-specific M365 URL fields
   ]);
 });
 
-test('resolveToolStatusHints covers keychain, bun_run, browser, windows UI, and office-file extensions', () => {
+test('resolveToolStatusHints covers local core tools, keychain, bun_run, browser, windows UI, and office-file extensions', () => {
+  const readHints = resolveToolStatusHints({
+    chatJid: 'web:local',
+    toolName: 'read',
+    args: { path: 'notes/plan.md' },
+    payload: {},
+  });
+  expect(readHints).toEqual([
+    expect.objectContaining({ key: 'read', label: 'notes/plan.md', title: 'Local read • notes/plan.md', kind: 'file' }),
+  ]);
+  expect(String(readHints[0]?.icon_svg)).toContain('fill-rule="evenodd"');
+
+  const writeHints = resolveToolStatusHints({
+    chatJid: 'web:local',
+    toolName: 'write',
+    args: { path: 'notes/out.md' },
+    payload: {},
+  });
+  expect(writeHints).toEqual([
+    expect.objectContaining({ key: 'write', label: 'notes/out.md', title: 'Local write • notes/out.md', kind: 'file' }),
+  ]);
+  expect(writeHints[0]?.icon_svg).toBe(readHints[0]?.icon_svg);
+
+  const editHints = resolveToolStatusHints({
+    chatJid: 'web:local',
+    toolName: 'edit',
+    args: { path: 'notes/out.md' },
+    payload: {},
+  });
+  expect(editHints).toEqual([
+    expect.objectContaining({ key: 'edit', label: 'notes/out.md', title: 'Local edit • notes/out.md', kind: 'file' }),
+  ]);
+  expect(editHints[0]?.icon_svg).toBe(readHints[0]?.icon_svg);
+
+  expect(resolveToolStatusHints({
+    chatJid: 'web:local',
+    toolName: 'bash',
+    args: { command: 'ls -la', cwd: '/workspace/piclaw/runtime' },
+    payload: {},
+  })).toEqual([
+    expect.objectContaining({ key: 'bash', label: '/workspace/piclaw/runtime', title: 'Local shell • /workspace/piclaw/runtime', kind: 'service' }),
+  ]);
+
+  expect(resolveToolStatusHints({
+    chatJid: 'web:ssh',
+    toolName: 'read',
+    args: { path: 'notes/plan.md' },
+    payload: {},
+  })).toEqual([
+    expect.objectContaining({ key: 'ssh', label: 'agent@example.com', title: 'SSH target', kind: 'remote' }),
+  ]);
+
   expect(resolveToolStatusHints({
     chatJid: 'web:keychain',
     toolName: 'keychain',
