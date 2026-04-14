@@ -58,17 +58,9 @@ function resetDocumentScrollRootsBestEffort(doc) {
 }
 
 /**
- * Compute the correct viewport height for --app-height.
- *
- * On iOS PWA/standalone mode in portrait, both innerHeight and
- * visualViewport.height are reported too short (iOS incorrectly subtracts
- * safe-area-inset-top). This leaves a gap at the bottom.
- *
- * The fix: in PWA portrait mode without keyboard, use screen.height directly.
- * screen.height is the physical screen height in CSS pixels and is not
- * affected by the iOS viewport bug.
- *
- * When the keyboard is open, use visualViewport.height + offsetTop.
+ * Read the viewport height for keyboard-open scenarios.
+ * Uses visualViewport.height + offsetTop when available.
+ * Falls back to innerHeight.
  */
 export function readViewportHeight(runtime = {}, options = {}) {
   const win = runtime.window ?? (typeof window !== 'undefined' ? window : null);
@@ -76,35 +68,33 @@ export function readViewportHeight(runtime = {}, options = {}) {
 
   const visualViewportHeight = Number(win.visualViewport?.height || 0);
   const visualViewportOffsetTop = Number(win.visualViewport?.offsetTop || 0);
-  const innerHeight = Number(win.innerHeight || 0);
 
-  // Keyboard open: use visualViewport height + offsetTop for the visible area
   if (options.keyboardActive && visualViewportHeight > 0) {
     const total = visualViewportHeight + Math.max(0, visualViewportOffsetTop);
     return Number.isFinite(total) && total > 0 ? Math.round(total) : null;
   }
 
-  // PWA portrait mode: use screen.height directly to sidestep the iOS bug
-  // where innerHeight/visualViewport.height are reported too short.
-  const isPWA = options.isPWA === true;
-  const isPortrait = innerHeight > Number(win.innerWidth || 0);
-  if (isPWA && isPortrait) {
-    const screenHeight = Number(win.screen?.height || 0);
-    if (Number.isFinite(screenHeight) && screenHeight > 0) {
-      return Math.round(screenHeight);
-    }
-  }
-
-  // Default: prefer visualViewport, fall back to innerHeight
   if (Number.isFinite(visualViewportHeight) && visualViewportHeight > 0) {
     return Math.round(visualViewportHeight);
   }
+  const innerHeight = Number(win.innerHeight || 0);
   if (Number.isFinite(innerHeight) && innerHeight > 0) {
     return Math.round(innerHeight);
   }
   return null;
 }
 
+/**
+ * Sync the --app-height CSS variable for mobile layout.
+ *
+ * The core layout uses `height: 100%` which inherits from body's
+ * `position: fixed; inset: 0` — this fills the entire viewport correctly
+ * on all devices including iOS with viewport-fit=cover.
+ *
+ * --app-height is ONLY set when the virtual keyboard is open, to shrink
+ * the layout to the visible area above the keyboard. When the keyboard
+ * is closed, --app-height is removed so CSS `height: 100%` takes over.
+ */
 export function syncStandaloneMobileViewport(runtime = {}, options = {}) {
   if (!shouldUseStandaloneMobileViewportFix(runtime)) {
     return null;
@@ -117,21 +107,25 @@ export function syncStandaloneMobileViewport(runtime = {}, options = {}) {
   }
 
   const keyboardActive = isTextEntryFocused(doc);
-  const isPWA = isStandaloneWebAppMode(runtime);
-  const height = readViewportHeight(
-    { window: win },
-    { keyboardActive, isPWA },
-  );
-  if (height && height > 0) {
-    doc.documentElement.style.setProperty('--app-height', `${height}px`);
+
+  if (keyboardActive) {
+    const height = readViewportHeight({ window: win }, { keyboardActive: true });
+    if (height && height > 0) {
+      doc.documentElement.style.setProperty('--app-height', `${height}px`);
+    }
+    return height;
   }
+
+  // Keyboard not open: remove --app-height so CSS height: 100% fills the
+  // full viewport via body's position: fixed; inset: 0.
+  doc.documentElement.style.removeProperty('--app-height');
 
   if (options.resetScroll === true) {
     scrollWindowToTopBestEffort(win);
     resetDocumentScrollRootsBestEffort(doc);
   }
 
-  return height;
+  return null;
 }
 
 export function installStandaloneMobileViewportFix(runtime = {}) {
@@ -173,8 +167,6 @@ export function installStandaloneMobileViewportFix(runtime = {}) {
 
   const scheduleSettledSync = () => {
     scheduleSync();
-    // Stagger retries because iOS doesn't always have safe-area env values
-    // ready at launch. Cover fast and slow devices.
     for (const delay of [50, 150, 300, 500, 800, 1200]) {
       const timer = win.setTimeout?.(() => {
         timers.delete(timer);
@@ -192,7 +184,6 @@ export function installStandaloneMobileViewportFix(runtime = {}) {
   };
 
   const handleOrientationChange = () => {
-    // iOS recalculates everything on rotation; stagger to catch it
     for (const delay of [100, 300]) {
       const timer = win.setTimeout?.(() => {
         timers.delete(timer);
@@ -210,6 +201,7 @@ export function installStandaloneMobileViewportFix(runtime = {}) {
   win.addEventListener('orientationchange', handleOrientationChange);
   doc.addEventListener('visibilitychange', handleVisibility);
   doc.addEventListener('focusin', scheduleSettledSync, true);
+  doc.addEventListener('focusout', scheduleSettledSync, true);
   viewport?.addEventListener?.('resize', scheduleSettledSync);
   viewport?.addEventListener?.('scroll', scheduleSettledSync);
 
@@ -221,6 +213,7 @@ export function installStandaloneMobileViewportFix(runtime = {}) {
     win.removeEventListener('orientationchange', handleOrientationChange);
     doc.removeEventListener('visibilitychange', handleVisibility);
     doc.removeEventListener('focusin', scheduleSettledSync, true);
+    doc.removeEventListener('focusout', scheduleSettledSync, true);
     viewport?.removeEventListener?.('resize', scheduleSettledSync);
     viewport?.removeEventListener?.('scroll', scheduleSettledSync);
   };
