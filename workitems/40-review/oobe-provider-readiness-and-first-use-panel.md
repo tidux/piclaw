@@ -181,6 +181,14 @@ Path A — native shell panel with provider-driven state.
 
 ## Updates
 
+### 2026-04-14
+- Fixed a follow-up state-resolution regression in `runtime/web/src/ui/oobe-state.ts`: configured installs with available models were being forced back to `hidden`, which prevented the intended provider-ready / first-use guidance panel from appearing.
+- Updated both source-level and runtime-side OOBE state tests to require `provider-ready` when models are available and the ready-state has not been completed.
+- Focused validation passed:
+  - `bun test web/src/ui/oobe-state.test.ts test/web/oobe-state.test.ts test/web/oobe-panel.test.ts test/web/app-main-render-composition.test.ts test/web/app-main-shell-composition.test.ts`
+  - `bun run typecheck`
+- The child ticket remains in `40-review` pending final browser evidence / closeout rather than source-level correctness.
+
 ### 2026-04-09
 - Diagnosed and fixed a lifecycle wiring bug in `runtime/web/src/ui/app-main-orchestration-composition.ts`: `/agent/models` responses were arriving, but `setAgentModelsPayload` and `setHasLoadedAgentModels` were not being forwarded into lifecycle composition, so the OOBE panel stayed hidden even after model readiness had loaded.
 - Added regression coverage for that lifecycle forwarding so the OOBE state setters stay wired through future refactors.
