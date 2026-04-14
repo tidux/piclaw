@@ -38,6 +38,16 @@ export function normalizeStatusHints(value) {
         .filter((hint) => hint.iconSvg && hint.label);
 }
 
+export function resolveAgentStatusEscapeCollapseKey(expandedPanels) {
+    if (!(expandedPanels instanceof Set) || expandedPanels.size === 0) return null;
+    const keys = Array.from(expandedPanels.values());
+    for (let index = keys.length - 1; index >= 0; index -= 1) {
+        const key = keys[index];
+        if (key === 'thought' || key === 'draft') return key;
+    }
+    return null;
+}
+
 /** Preact component: agent status bar with draft/thought/plan panels. */
 export function AgentStatus({ status, draft, plan, thought, pendingRequest, intent, extensionPanels = [], pendingPanelActions = new Set(), onExtensionPanelAction, turnId, steerQueued, onPanelToggle, showCorePanels = true, showExtensionPanels = true }) {
     const THOUGHT_MAX_LINES = 8;
@@ -113,6 +123,42 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
         setExpandedPanels(new Set());
         setHoveredSeriesPoint(null);
     }, [turnId]);
+
+    const escapeCollapseKey = useMemo(
+        () => resolveAgentStatusEscapeCollapseKey(expandedPanels),
+        [expandedPanels],
+    );
+
+    useEffect(() => {
+        if (!escapeCollapseKey || typeof document === 'undefined') return undefined;
+
+        const handleKeyDown = (event) => {
+            if (event?.defaultPrevented) return;
+            if (event?.key !== 'Escape') return;
+            if (event?.altKey || event?.ctrlKey || event?.metaKey || event?.shiftKey) return;
+
+            const target = event?.target;
+            if (target instanceof Element) {
+                if (target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+                if (target.isContentEditable) return;
+            }
+
+            setExpandedPanels((prev) => {
+                if (!(prev instanceof Set) || !prev.has(escapeCollapseKey)) return prev;
+                const next = new Set(prev);
+                next.delete(escapeCollapseKey);
+                return next;
+            });
+            if (typeof onPanelToggle === 'function') {
+                onPanelToggle(escapeCollapseKey, false);
+            }
+            event.preventDefault?.();
+            event.stopPropagation?.();
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [escapeCollapseKey, onPanelToggle]);
 
     const statusIsCompaction = isCompactionStatus(status);
     const toolContextPath = useMemo(
