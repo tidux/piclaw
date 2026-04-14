@@ -65,109 +65,58 @@ test('readViewportHeight adds offsetTop when keyboard is active', () => {
   }, { keyboardActive: true })).toBe(688);
 });
 
-test('readViewportHeight compensates for iOS PWA portrait safe-area bug', () => {
-  const mockDoc = {
-    documentElement: {
-      style: {},
+test('readViewportHeight uses screen.height in PWA portrait mode', () => {
+  // iPhone 15: visualViewport reports 785, but screen.height is 852
+  expect(readViewportHeight({
+    window: {
+      visualViewport: { height: 785 },
+      innerHeight: 785,
+      innerWidth: 393,
+      screen: { height: 852, width: 393 },
     },
-  };
-  // Simulate: screen.height=844, visualViewport.height=785 (diff=59, >15 threshold)
-  // safe-area-top=59px readable via CSS var
-  const originalGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = () => ({
-    getPropertyValue: (name: string) => name === '--safe-area-top' ? '59' : '',
-  }) as any;
-
-  try {
-    const height = readViewportHeight({
-      window: {
-        visualViewport: { height: 785 },
-        innerHeight: 785,
-        innerWidth: 390,
-        screen: { height: 844, width: 390 },
-      },
-    }, { isPWA: true, document: mockDoc });
-
-    // Should add back safe-area-top: 785 + 59 = 844
-    expect(height).toBe(844);
-  } finally {
-    if (originalGetComputedStyle) {
-      globalThis.getComputedStyle = originalGetComputedStyle;
-    } else {
-      delete globalThis.getComputedStyle;
-    }
-  }
+  }, { isPWA: true })).toBe(852);
 });
 
-test('readViewportHeight skips PWA compensation in landscape', () => {
-  const mockDoc = { documentElement: {} };
-  const originalGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = () => ({
-    getPropertyValue: () => '59',
-  }) as any;
-
-  try {
-    // landscape: innerHeight < innerWidth
-    const height = readViewportHeight({
-      window: {
-        visualViewport: { height: 390 },
-        innerHeight: 390,
-        innerWidth: 844,
-        screen: { height: 844, width: 390 },
-      },
-    }, { isPWA: true, document: mockDoc });
-
-    // No compensation — just visualViewport
-    expect(height).toBe(390);
-  } finally {
-    if (originalGetComputedStyle) {
-      globalThis.getComputedStyle = originalGetComputedStyle;
-    } else {
-      delete globalThis.getComputedStyle;
-    }
-  }
+test('readViewportHeight skips screen.height override in landscape', () => {
+  // landscape: innerHeight < innerWidth → not portrait
+  expect(readViewportHeight({
+    window: {
+      visualViewport: { height: 393 },
+      innerHeight: 393,
+      innerWidth: 852,
+      screen: { height: 852, width: 393 },
+    },
+  }, { isPWA: true })).toBe(393);
 });
 
-test('syncStandaloneMobileViewport applies PWA portrait compensation', () => {
+test('syncStandaloneMobileViewport uses screen.height in PWA portrait mode', () => {
   const cssVars = new Map<string, string>();
-  const originalGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = () => ({
-    getPropertyValue: (name: string) => name === '--safe-area-top' ? '59' : '',
-  }) as any;
 
-  try {
-    const height = syncStandaloneMobileViewport({
-      navigator: {
-        standalone: true,
-        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
-        maxTouchPoints: 5,
-      },
-      window: {
-        matchMedia: () => ({ matches: true }),
-        visualViewport: { height: 785 },
-        innerHeight: 785,
-        innerWidth: 390,
-        screen: { height: 844, width: 390 },
-      },
-      document: {
-        documentElement: {
-          style: {
-            setProperty: (name: string, value: string) => cssVars.set(name, value),
-          },
+  const height = syncStandaloneMobileViewport({
+    navigator: {
+      standalone: true,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+      maxTouchPoints: 5,
+    },
+    window: {
+      matchMedia: () => ({ matches: true }),
+      visualViewport: { height: 785 },
+      innerHeight: 785,
+      innerWidth: 393,
+      screen: { height: 852, width: 393 },
+    },
+    document: {
+      documentElement: {
+        style: {
+          setProperty: (name: string, value: string) => cssVars.set(name, value),
         },
-        activeElement: { tagName: 'DIV' },
       },
-    });
+      activeElement: { tagName: 'DIV' },
+    },
+  });
 
-    expect(height).toBe(844);
-    expect(cssVars.get('--app-height')).toBe('844px');
-  } finally {
-    if (originalGetComputedStyle) {
-      globalThis.getComputedStyle = originalGetComputedStyle;
-    } else {
-      delete globalThis.getComputedStyle;
-    }
-  }
+  expect(height).toBe(852);
+  expect(cssVars.get('--app-height')).toBe('852px');
 });
 
 test('syncStandaloneMobileViewport uses visualViewport+offsetTop when keyboard is active', () => {
@@ -183,8 +132,8 @@ test('syncStandaloneMobileViewport uses visualViewport+offsetTop when keyboard i
       matchMedia: () => ({ matches: true }),
       visualViewport: { height: 512.2, offsetTop: 146.4 },
       innerHeight: 844,
-      innerWidth: 390,
-      screen: { height: 844, width: 390 },
+      innerWidth: 393,
+      screen: { height: 852, width: 393 },
     },
     document: {
       documentElement: {

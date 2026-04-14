@@ -58,45 +58,25 @@ function resetDocumentScrollRootsBestEffort(doc) {
 }
 
 /**
- * Read the safe-area-inset-top CSS env value in pixels.
- * Returns 0 if unavailable (e.g. env values not yet computed by iOS at launch).
- */
-function readSafeAreaInsetTop(doc) {
-  try {
-    const style = doc?.documentElement
-      ? (typeof getComputedStyle === 'function' ? getComputedStyle(doc.documentElement) : null)
-      : null;
-    const raw = style?.getPropertyValue?.('--safe-area-top');
-    const value = parseInt(raw, 10);
-    return Number.isFinite(value) && value > 0 ? value : 0;
-  } catch {
-    return 0;
-  }
-}
-
-/**
  * Compute the correct viewport height for --app-height.
  *
- * On iOS PWA/standalone mode, iOS incorrectly subtracts safe-area-inset-top
- * from window.innerHeight in portrait mode, leaving a gap at the bottom.
- * The fix uses visualViewport.height as the base and adds back the safe-area
- * compensation when the shortfall is detected.
+ * On iOS PWA/standalone mode in portrait, both innerHeight and
+ * visualViewport.height are reported too short (iOS incorrectly subtracts
+ * safe-area-inset-top). This leaves a gap at the bottom.
  *
- * When the keyboard is open (text entry focused), we add visualViewport.offsetTop
- * to get the full layout height above the keyboard.
+ * The fix: in PWA portrait mode without keyboard, use screen.height directly.
+ * screen.height is the physical screen height in CSS pixels and is not
+ * affected by the iOS viewport bug.
+ *
+ * When the keyboard is open, use visualViewport.height + offsetTop.
  */
 export function readViewportHeight(runtime = {}, options = {}) {
   const win = runtime.window ?? (typeof window !== 'undefined' ? window : null);
-  const doc = options.document ?? (typeof document !== 'undefined' ? document : null);
   if (!win) return null;
 
   const visualViewportHeight = Number(win.visualViewport?.height || 0);
   const visualViewportOffsetTop = Number(win.visualViewport?.offsetTop || 0);
   const innerHeight = Number(win.innerHeight || 0);
-  const screenHeight = Math.max(
-    Number(win.screen?.height || 0),
-    Number(win.screen?.width || 0),
-  );
 
   // Keyboard open: use visualViewport height + offsetTop for the visible area
   if (options.keyboardActive && visualViewportHeight > 0) {
@@ -104,18 +84,14 @@ export function readViewportHeight(runtime = {}, options = {}) {
     return Number.isFinite(total) && total > 0 ? Math.round(total) : null;
   }
 
-  // PWA portrait compensation: iOS subtracts safe-area-inset-top from
-  // innerHeight incorrectly. Detect the shortfall and add it back.
+  // PWA portrait mode: use screen.height directly to sidestep the iOS bug
+  // where innerHeight/visualViewport.height are reported too short.
   const isPWA = options.isPWA === true;
   const isPortrait = innerHeight > Number(win.innerWidth || 0);
-  if (isPWA && isPortrait && visualViewportHeight > 0 && screenHeight > 0) {
-    const difference = screenHeight - visualViewportHeight;
-    // iPhone diff ~59px, iPad diff ~32px; use 15px threshold
-    if (difference > 15) {
-      const safeTop = readSafeAreaInsetTop(doc);
-      if (safeTop > 0) {
-        return Math.round(visualViewportHeight + safeTop);
-      }
+  if (isPWA && isPortrait) {
+    const screenHeight = Number(win.screen?.height || 0);
+    if (Number.isFinite(screenHeight) && screenHeight > 0) {
+      return Math.round(screenHeight);
     }
   }
 
@@ -144,7 +120,7 @@ export function syncStandaloneMobileViewport(runtime = {}, options = {}) {
   const isPWA = isStandaloneWebAppMode(runtime);
   const height = readViewportHeight(
     { window: win },
-    { keyboardActive, isPWA, document: doc },
+    { keyboardActive, isPWA },
   );
   if (height && height > 0) {
     doc.documentElement.style.setProperty('--app-height', `${height}px`);
