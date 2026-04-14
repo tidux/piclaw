@@ -207,6 +207,43 @@ test("applyControlCommand reports unsupported thinking", async () => {
   expect(session.thinkingLevel).toBe("off");
 });
 
+test("applyControlCommand resolves /effort max alias through thinking handler", async () => {
+  const session = new StubSession();
+  const runtime = createRuntime(session);
+  session.model = modelReasoning;
+  session.thinkingLevel = "low";
+
+  // max → xhigh via alias, but StubSession doesn't have xhigh in available levels
+  // so the session clamps to the first available level; handler reports the applied level
+  const result = await applyControlCommand(runtime as any, registry, {
+    type: "thinking",
+    level: "max",
+    raw: "/effort max",
+  });
+
+  expect(result.status).toBe("success");
+  // The handler resolves max→xhigh, session clamps to "off" (first available),
+  // and the note shows "(requested max)" because applied !== resolved
+  expect(result.message).toContain("requested max");
+  expect(result.thinking_level).toBe("off");
+});
+
+test("applyControlCommand includes thinking_level_label in response", async () => {
+  const session = new StubSession();
+  const runtime = createRuntime(session);
+  session.model = modelReasoning;
+
+  const result = await applyControlCommand(runtime as any, registry, {
+    type: "thinking",
+    level: "high",
+    raw: "/thinking high",
+  });
+
+  expect(result.status).toBe("success");
+  expect(result.thinking_level).toBe("high");
+  expect(result.thinking_level_label).toBe("high");
+});
+
 test("applyControlCommand sends immediate steering when stream active", async () => {
   const session = new StubSession();
   const runtime = createRuntime(session);
