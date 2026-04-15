@@ -8,7 +8,7 @@ import { applyControlCommand } from "../agent-control/index.js";
 import { formatThinkingLevelForDisplay } from "../agent-control/agent-control-helpers.js";
 import { detectChannel } from "../router.js";
 import { executeSlashCommand } from "./slash-command.js";
-import { getProviderUsage } from "./provider-usage.js";
+import { peekProviderUsage, warmProviderUsage } from "./provider-usage.js";
 import { resolveModelLabel } from "../utils/model-utils.js";
 import { createLogger } from "../utils/logger.js";
 import { withChatContext } from "../core/chat-context.js";
@@ -390,8 +390,10 @@ export class AgentRuntimeFacade {
         return model ? `${model.provider}/${model.id}` : null;
     }
     async getAvailableModels(chatJid) {
-        const session = (await this.options.getOrCreateRuntime(chatJid)).session;
-        const registry = session.modelRegistry ?? this.options.modelRegistry;
+        // Passive UI refreshes should not hydrate a cold runtime just to render
+        // model state for the picker.
+        const session = this.options.pool.get(chatJid)?.runtime.session ?? null;
+        const registry = session?.modelRegistry ?? this.options.modelRegistry;
         registry.refresh();
         const available = registry.getAvailable();
         const modelOptions = available.map((model) => ({
@@ -405,15 +407,18 @@ export class AgentRuntimeFacade {
             reasoning: Boolean(model.reasoning),
         }));
         const models = modelOptions.map((model) => model.label);
-        const currentModel = session.model ? `${session.model.provider}/${session.model.id}` : null;
-        const thinkingLevel = session.thinkingLevel ?? null;
-        const supportsThinking = typeof session.supportsThinking === "function"
+        const currentModel = session?.model ? `${session.model.provider}/${session.model.id}` : null;
+        const thinkingLevel = session?.thinkingLevel ?? null;
+        const supportsThinking = session && typeof session.supportsThinking === "function"
             ? session.supportsThinking()
-            : Boolean(session.model?.reasoning);
-        const providerUsage = session.model?.provider
-            ? await getProviderUsage(this.options.authStorage, session.model.provider)
+            : Boolean(session?.model?.reasoning);
+        const providerUsage = session?.model?.provider
+            ? (peekProviderUsage(session.model.provider, { allowStale: true }) ?? null)
             : null;
-        const thinkingLevelLabel = thinkingLevel && session.model?.provider
+        if (session?.model?.provider) {
+            void warmProviderUsage(this.options.authStorage, session.model.provider);
+        }
+        const thinkingLevelLabel = thinkingLevel && session?.model?.provider
             ? formatThinkingLevelForDisplay(thinkingLevel, session.model.provider)
             : thinkingLevel;
         return {

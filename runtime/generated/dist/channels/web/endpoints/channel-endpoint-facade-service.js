@@ -11,6 +11,7 @@ import { handleAgentsRequest, handleAvatarRequest } from "./identity-endpoints.j
 import { handleManifestRequest } from "../manifest.js";
 import { handleInternalPostRequest, handleUpdatePostRequest } from "../post-mutations.js";
 import { handleAgentRespondRequest, handleThoughtVisibilityRequest, handleWorkspaceVisibilityRequest, } from "./ui-endpoints.js";
+import { appendServerTiming, measureSync } from "../http/server-timing.js";
 /**
  * Extracted facade for endpoint-wrapper methods that mostly bind shared contexts
  * or live identity state before delegating to focused handler modules.
@@ -105,18 +106,28 @@ export class WebChannelEndpointFacadeService {
         });
     }
     handleAgentActiveChats() {
-        return this.options.json({ chats: this.options.listActiveChats() }, 200);
+        const { result, durationMs } = measureSync(() => this.options.json({ chats: this.options.listActiveChats() }, 200));
+        return appendServerTiming(result, {
+            name: "agent_active_chats",
+            durationMs,
+        });
     }
     handleAgentBranches(req) {
-        const url = new URL(req.url);
-        const rootChatJid = typeof url.searchParams.get("root_chat_jid") === "string"
-            ? url.searchParams.get("root_chat_jid").trim()
-            : "";
-        const includeArchived = ["1", "true", "yes", "on"].includes(String(url.searchParams.get("include_archived") || "").trim().toLowerCase());
-        const chats = typeof this.options.listKnownChats === "function"
-            ? this.options.listKnownChats(rootChatJid || null, { includeArchived })
-            : this.options.listActiveChats();
-        return this.options.json({ chats }, 200);
+        const { result, durationMs } = measureSync(() => {
+            const url = new URL(req.url);
+            const rootChatJid = typeof url.searchParams.get("root_chat_jid") === "string"
+                ? url.searchParams.get("root_chat_jid").trim()
+                : "";
+            const includeArchived = ["1", "true", "yes", "on"].includes(String(url.searchParams.get("include_archived") || "").trim().toLowerCase());
+            const chats = typeof this.options.listKnownChats === "function"
+                ? this.options.listKnownChats(rootChatJid || null, { includeArchived })
+                : this.options.listActiveChats();
+            return this.options.json({ chats }, 200);
+        });
+        return appendServerTiming(result, {
+            name: "agent_branches",
+            durationMs,
+        });
     }
     async handleAgentRespond(req) {
         return await handleAgentRespondRequest(req, this.options.endpointContexts.ui());

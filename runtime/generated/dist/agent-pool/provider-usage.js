@@ -1,6 +1,7 @@
 import { createLogger, debugSuppressedError } from "../utils/logger.js";
 const USAGE_CACHE_TTL_MS = Number(process.env.PICLAW_PROVIDER_USAGE_TTL_MS || "60000");
 const usageCache = new Map();
+const usageRefreshInFlight = new Map();
 const log = createLogger("agent-pool.provider-usage");
 function clampPercent(value) {
     const num = Number(value);
@@ -183,32 +184,75 @@ async function fetchGitHubCopilotUsage(authStorage) {
         hint_short: buildCopilotHint(primary, secondary),
     };
 }
-export async function getProviderUsage(authStorage, providerId) {
-    if (providerId !== "openai-codex" && providerId !== "github-copilot")
+function isSupportedProviderId(providerId) {
+    return providerId === "openai-codex" || providerId === "github-copilot";
+}
+function getCachedUsageEntry(providerId) {
+    return usageCache.get(providerId) ?? null;
+}
+function hasFreshCachedUsage(providerId) {
+    const cached = getCachedUsageEntry(providerId);
+    return Boolean(cached && cached.expiresAt > Date.now());
+}
+async function fetchProviderUsage(authStorage, providerId) {
+    return providerId === "openai-codex"
+        ? await fetchCodexUsage(authStorage)
+        : await fetchGitHubCopilotUsage(authStorage);
+}
+export function peekProviderUsage(providerId, options = {}) {
+    if (!isSupportedProviderId(providerId))
         return null;
-    const cached = usageCache.get(providerId);
+    const cached = getCachedUsageEntry(providerId);
+    if (!cached)
+        return null;
+    if (options.allowStale === true) {
+        return cached.value;
+    }
+    return cached.expiresAt > Date.now() ? cached.value : null;
+}
+export async function warmProviderUsage(authStorage, providerId) {
+    if (!isSupportedProviderId(providerId))
+        return null;
+    if (hasFreshCachedUsage(providerId)) {
+        return peekProviderUsage(providerId);
+    }
+    const existing = usageRefreshInFlight.get(providerId);
+    if (existing) {
+        return await existing;
+    }
+    const cached = getCachedUsageEntry(providerId);
+    const refreshPromise = (async () => {
+        let value;
+        try {
+            value = await fetchProviderUsage(authStorage, providerId);
+        }
+        catch (error) {
+            debugSuppressedError(log, "Provider usage refresh failed; returning the cached usage snapshot when available.", error, {
+                providerId,
+                hasCachedValue: cached?.value != null,
+            });
+            value = cached?.value ?? null;
+        }
+        usageCache.set(providerId, {
+            expiresAt: Date.now() + USAGE_CACHE_TTL_MS,
+            value,
+        });
+        usageRefreshInFlight.delete(providerId);
+        return value;
+    })();
+    usageRefreshInFlight.set(providerId, refreshPromise);
+    return await refreshPromise;
+}
+export async function getProviderUsage(authStorage, providerId) {
+    if (!isSupportedProviderId(providerId))
+        return null;
+    const cached = getCachedUsageEntry(providerId);
     if (cached && cached.expiresAt > Date.now()) {
         return cached.value;
     }
-    let value;
-    try {
-        value = providerId === "openai-codex"
-            ? await fetchCodexUsage(authStorage)
-            : await fetchGitHubCopilotUsage(authStorage);
-    }
-    catch (error) {
-        debugSuppressedError(log, "Provider usage refresh failed; returning the cached usage snapshot when available.", error, {
-            providerId,
-            hasCachedValue: cached?.value != null,
-        });
-        value = cached?.value ?? null;
-    }
-    usageCache.set(providerId, {
-        expiresAt: Date.now() + USAGE_CACHE_TTL_MS,
-        value,
-    });
-    return value;
+    return await warmProviderUsage(authStorage, providerId);
 }
 export function clearProviderUsageCache() {
     usageCache.clear();
+    usageRefreshInFlight.clear();
 }
