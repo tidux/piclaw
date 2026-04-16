@@ -39,6 +39,7 @@ import {
   isNoisyAgentSseEvent,
   resolveSseEventRoutingContext,
 } from './app-sse-event-routing.js';
+import { isAppChatActivationRecent } from './app-refresh-coordination.js';
 
 type StateSetter<T> = (next: T | ((prev: T) => T)) => void;
 
@@ -222,6 +223,9 @@ export function handleAppSseEvent(
     setPendingRequest(null);
     pendingRequestRef.current = null;
     clearAgentRunState();
+    if (isAppChatActivationRecent(currentChatJid)) {
+      return;
+    }
 
     const targetChatJid = currentChatJid;
     getAgentStatus(targetChatJid)
