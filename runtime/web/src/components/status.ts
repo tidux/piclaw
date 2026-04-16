@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { html, useEffect, useMemo, useState } from '../vendor/preact-htm.js';
+import { html, useCallback, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js';
 import { addToWhitelist, getWorkspaceBranch, respondToAgentRequest } from '../api.js';
 import { renderThinkingMarkdown } from '../markdown.js';
 import { getTurnColor } from '../ui/agent-utils.js';
@@ -74,6 +74,19 @@ export function formatAgentStatusGitLabel(repoPath, branch) {
 }
 
 /** Preact component: agent status bar with draft/thought/plan panels. */
+function formatElapsed(isoString) {
+    if (!isoString) return null;
+    const ms = Date.now() - new Date(isoString).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return null;
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+}
+
 export function AgentStatus({ status, draft, plan, thought, pendingRequest, intent, extensionPanels = [], pendingPanelActions = new Set(), onExtensionPanelAction, turnId, steerQueued, onPanelToggle, showCorePanels = true, showExtensionPanels = true }) {
     const THOUGHT_MAX_LINES = 8;
     const DRAFT_MAX_LINES = 8;
@@ -148,6 +161,16 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
         setExpandedPanels(new Set());
         setHoveredSeriesPoint(null);
     }, [turnId]);
+
+    // Tick nowMs every second when any extension panel with timestamps is expanded
+    useEffect(() => {
+        const hasExpandedTimestampPanel = Array.isArray(extensionPanels) && extensionPanels.some(
+            (p) => expandedPanels.has(p?.key) && (p?.started_at || p?.last_activity_at),
+        );
+        if (!hasExpandedTimestampPanel) return;
+        const interval = setInterval(() => setNowMs(Date.now()), 1000);
+        return () => clearInterval(interval);
+    }, [expandedPanels, extensionPanels]);
 
     const escapeCollapseKey = useMemo(
         () => resolveAgentStatusEscapeCollapseKey(expandedPanels),
@@ -556,9 +579,15 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
         const series = Array.isArray(panel?.series) ? panel.series : [];
         const actions = Array.isArray(panel?.actions) ? panel.actions : [];
 
-        const hasDetailColumn = Boolean(detailText || tmuxCommand);
+        // Elapsed time labels (tick with nowMs)
+        const experimentElapsed = formatElapsed(panel?.started_at);
+        const currentRunElapsed = formatElapsed(panel?.last_activity_at);
+        const elapsedSuffix = experimentElapsed ? ` · ${experimentElapsed}` : '';
+        const displayCollapsed = collapsedText + elapsedSuffix;
+
+        const hasDetailColumn = Boolean(detailText || tmuxCommand || experimentElapsed);
         const isExpandable = Boolean(detailText || series.length > 0 || tmuxCommand);
-        const collapsedTooltip = [titleText, collapsedText].filter(Boolean).join(' — ');
+        const collapsedTooltip = [titleText, displayCollapsed].filter(Boolean).join(' — ');
 
         return html`
             <div
@@ -576,7 +605,7 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
                     >
                         ${color && html`<span class=${panelDotClass} aria-hidden="true"></span>`}
                         <span class="agent-thinking-title-text">${titleText}</span>
-                        ${collapsedText && html`<span class="agent-thinking-title-meta">${collapsedText}</span>`}
+                        ${displayCollapsed && html`<span class="agent-thinking-title-meta">${displayCollapsed}</span>`}
                     </button>
                     ${(actions.length > 0 || isExpandable) && html`
                         <div class="agent-thinking-tools-inline">
@@ -620,6 +649,12 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
                     <div class=${`agent-thinking-autoresearch-layout${hasDetailColumn ? '' : ' chart-only'}`}>
                         ${hasDetailColumn && html`
                             <div class="agent-thinking-autoresearch-meta-stack">
+                                ${(experimentElapsed || currentRunElapsed) && html`
+                                    <div class="agent-thinking-autoresearch-elapsed">
+                                        ${experimentElapsed && html`<span title="Experiment duration">⏱ ${experimentElapsed}</span>`}
+                                        ${currentRunElapsed && panel?.state === 'running' && html`<span title="Since last activity">⟳ ${currentRunElapsed} ago</span>`}
+                                    </div>
+                                `}
                                 ${detailText && html`
                                     <div
                                         class="agent-thinking-body agent-thinking-autoresearch-detail"

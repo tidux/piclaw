@@ -608,6 +608,18 @@
     min-width: 0;
 }
 
+.agent-thinking-autoresearch-elapsed {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    padding: 0 0 4px;
+}
+
+.agent-thinking-autoresearch-elapsed span {
+    white-space: nowrap;
+}
+
 .agent-thinking-autoresearch-detail {
     margin: 0;
 }
