@@ -90,3 +90,31 @@ test('service worker opens an absolute notification URL when no client matches',
 
   expect(openedTo).toBe('https://example.com/?chat_jid=web%3Aother');
 });
+
+test('service worker hides notification source markers by default', async () => {
+  let shownTitle = '';
+
+  workerSelf.registration.showNotification = async (title: string) => {
+    shownTitle = title;
+  };
+
+  let pending: Promise<unknown> | null = null;
+  handlers.get('push')?.({
+    data: {
+      json() {
+        return {
+          title: 'PiClaw reply',
+          body: 'Reply body',
+          sourceLabel: 'Web Push',
+        };
+      },
+    },
+    waitUntil(promise: Promise<unknown>) {
+      pending = promise;
+    },
+  });
+
+  await pending;
+
+  expect(shownTitle).toBe('PiClaw reply');
+});

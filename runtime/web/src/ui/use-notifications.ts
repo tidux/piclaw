@@ -14,9 +14,15 @@ import {
 export const LOCAL_NOTIFICATION_SOURCE_LABEL = 'Local';
 export const WEB_PUSH_NOTIFICATION_SOURCE_LABEL = 'Web Push';
 
-export function formatNotificationTitle(title, sourceLabel = '') {
+export function shouldShowNotificationSourceLabels(runtimeWindow = typeof window !== 'undefined' ? window : null) {
+  return Boolean(runtimeWindow?.__PICLAW_NOTIFICATION_SOURCE_LABELS_ENABLED__);
+}
+
+export function formatNotificationTitle(title, sourceLabel = '', runtimeWindow = typeof window !== 'undefined' ? window : null) {
   const normalizedTitle = typeof title === 'string' && title.trim() ? title.trim() : 'PiClaw';
-  const normalizedSource = typeof sourceLabel === 'string' ? sourceLabel.trim() : '';
+  const normalizedSource = shouldShowNotificationSourceLabels(runtimeWindow) && typeof sourceLabel === 'string'
+    ? sourceLabel.trim()
+    : '';
   return normalizedSource ? `${normalizedTitle} [${normalizedSource}]` : normalizedTitle;
 }
 
@@ -270,7 +276,7 @@ export function useNotifications(options = {}) {
     if (typeof Notification === 'undefined') return false;
     if (Notification.permission !== 'granted') return false;
     try {
-      const notification = new Notification(formatNotificationTitle(title, options?.sourceLabel || ''), { body });
+      const notification = new Notification(formatNotificationTitle(title, options?.sourceLabel || '', window), { body });
       notification.onclick = () => {
         focusWindowBestEffort(window);
       };
