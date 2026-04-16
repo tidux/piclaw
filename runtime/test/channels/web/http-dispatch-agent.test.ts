@@ -132,6 +132,29 @@ describe("web http agent dispatch", () => {
     const cardReq = new Request("https://example.com/agent/card-action", { method: "POST" });
     expect((await handleAgentRoutes(channel, cardReq, "/agent/card-action", new URL(cardReq.url)))?.status).toBe(205);
 
+    const vapidReq = new Request("https://example.com/agent/push/vapid-public-key", { method: "GET" });
+    expect((await handleAgentRoutes(channel, vapidReq, "/agent/push/vapid-public-key", new URL(vapidReq.url)))?.status).toBe(200);
+
+    const upsertReq = new Request("https://example.com/agent/push/subscription", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        subscription: {
+          endpoint: "https://push.example.test/device/dispatch",
+          expirationTime: null,
+          keys: { auth: "auth-token", p256dh: "p256dh-token" },
+        },
+      }),
+    });
+    expect((await handleAgentRoutes(channel, upsertReq, "/agent/push/subscription", new URL(upsertReq.url)))?.status).toBe(200);
+
+    const deleteReq = new Request("https://example.com/agent/push/subscription", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ endpoint: "https://push.example.test/device/dispatch" }),
+    });
+    expect((await handleAgentRoutes(channel, deleteReq, "/agent/push/subscription", new URL(deleteReq.url)))?.status).toBe(200);
+
     const sidePromptReq = new Request("https://example.com/agent/side-prompt", { method: "POST" });
     expect((await handleAgentRoutes(channel, sidePromptReq, "/agent/side-prompt", new URL(sidePromptReq.url)))?.status).toBe(206);
 

@@ -3,6 +3,11 @@
  */
 
 import type { WebChannelLike } from "../core/web-channel-contracts.js";
+import {
+  handleWebPushSubscriptionDelete,
+  handleWebPushSubscriptionUpsert,
+  handleWebPushVapidPublicKey,
+} from "../push/web-push-routes.js";
 
 interface ExactAgentRoute {
   method: string;
@@ -144,6 +149,21 @@ const EXACT_AGENT_ROUTES: ExactAgentRoute[] = [
     method: "POST",
     path: "/agent/card-action",
     handle: (channel, req) => channel.handleAdaptiveCardAction(req),
+  },
+  {
+    method: "GET",
+    path: "/agent/push/vapid-public-key",
+    handle: () => handleWebPushVapidPublicKey(),
+  },
+  {
+    method: "POST",
+    path: "/agent/push/subscription",
+    handle: (_channel, req) => handleWebPushSubscriptionUpsert(req),
+  },
+  {
+    method: "DELETE",
+    path: "/agent/push/subscription",
+    handle: (_channel, req) => handleWebPushSubscriptionDelete(req),
   },
   {
     method: "POST",
