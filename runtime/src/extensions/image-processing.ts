@@ -45,7 +45,7 @@ const TRANSPARENCY_FORMATS = new Set<OutputFormat>(["png", "webp", "avif", "tiff
 
 const ImageProcessSchema = Type.Object({
   action: Type.String({
-    description: "Operation: resize | crop | convert | optimize | trim | rotate | flip | blur | sharpen | composite | info",
+    description: "Operation: resize | crop | convert | optimize | trim | rotate | flip | blur | sharpen | composite | frames | spritesheet_to_gif | info",
   }),
   input: Type.String({ description: "Input file path (relative to workspace or absolute)." }),
   output: Type.Optional(Type.String({ description: "Output file path. Default: auto-generated next to input." })),
@@ -62,6 +62,11 @@ const ImageProcessSchema = Type.Object({
   gravity: Type.Optional(Type.String({ description: "Overlay gravity: center | north | south | east | west | northeast | northwest | southeast | southwest. Default: southeast." })),
   preserve_transparency: Type.Optional(Type.Boolean({ description: "Preserve transparency. Default: true. Set false to flatten to white background." })),
   overwrite: Type.Optional(Type.Boolean({ description: "Allow overwriting the input file. Default: false. When false, output auto-generates a suffixed filename next to the input." })),
+  animated: Type.Optional(Type.Boolean({ description: "Preserve animation frames when processing animated GIFs/WebPs. Default: true for animated inputs." })),
+  delay: Type.Optional(Type.Union([Type.Integer({ minimum: 10 }), Type.Array(Type.Integer({ minimum: 10 }))], { description: "Frame delay in ms for GIF output. Single value or per-frame array. Default: 100." })),
+  loop: Type.Optional(Type.Integer({ description: "GIF loop count. 0 = infinite. Default: 0.", minimum: 0 })),
+  frame_count: Type.Optional(Type.Integer({ description: "Number of frames to split from a spritesheet (for spritesheet_to_gif). Default: auto from width." , minimum: 1 })),
+  direction: Type.Optional(Type.String({ description: "Spritesheet direction: horizontal (default) or vertical." })),
 });
 
 type ImageProcessParams = Static<typeof ImageProcessSchema>;
@@ -162,8 +167,13 @@ async function executeImageProcess(
   const preserveTransparency = params.preserve_transparency !== false;
   const quality = params.quality ?? 80;
 
+  // Detect and preserve animation by default
+  const inputMeta = action !== "info" ? await sharp(inputPath).metadata() : null;
+  const isAnimated = (inputMeta?.pages ?? 1) > 1;
+  const shouldAnimate = params.animated !== false && isAnimated;
+
   // Start the pipeline
-  let pipeline = sharp(inputPath);
+  let pipeline = sharp(inputPath, shouldAnimate ? { animated: true } : undefined);
 
   // If converting to a format that doesn't support transparency, flatten
   if (!preserveTransparency || !TRANSPARENCY_FORMATS.has(outputFormat)) {
@@ -255,9 +265,126 @@ async function executeImageProcess(
       break;
     }
 
+    case "frames": {
+      // Extract individual frames from an animated GIF/WebP
+      const meta = await sharp(inputPath, { animated: true }).metadata();
+      const pageCount = meta.pages ?? 1;
+      if (pageCount <= 1) {
+        return {
+          content: [{ type: "text", text: `${params.input} has only 1 frame — nothing to extract.` }],
+          details: { action: "frames", input: params.input, pages: 1 },
+        };
+      }
+      const pageHeight = meta.pageHeight ?? meta.height ?? 0;
+      const frameDir = params.output ? resolveWorkspacePath(params.output) : buildOutputPath(inputPath, "png", "-frames");
+      const { mkdirSync: mkdirSyncFs } = await import("node:fs");
+      mkdirSyncFs(frameDir, { recursive: true });
+      const extracted: string[] = [];
+      for (let i = 0; i < pageCount; i++) {
+        const framePath = join(frameDir, `frame-${String(i).padStart(4, "0")}.png`);
+        await sharp(inputPath, { animated: true, page: i }).png().toFile(framePath);
+        extracted.push(framePath);
+      }
+      const relDir = frameDir.startsWith(WORKSPACE_DIR) ? frameDir.slice(WORKSPACE_DIR.length + 1) : frameDir;
+      return {
+        content: [{ type: "text", text: `Extracted ${extracted.length} frames to ${relDir}/` }],
+        details: { action: "frames", input: params.input, frameCount: extracted.length, outputDir: relDir },
+      };
+    }
+
+    case "spritesheet_to_gif": {
+      // Assemble a horizontal/vertical spritesheet into an animated GIF
+      const meta = await sharp(inputPath).metadata();
+      const imgWidth = meta.width ?? 0;
+      const imgHeight = meta.height ?? 0;
+      const direction = (params.direction || "horizontal").toLowerCase();
+
+      let frameW: number, frameH: number, frameCount: number;
+      if (direction === "vertical") {
+        frameW = imgWidth;
+        frameCount = params.frame_count ?? (params.height ? Math.floor(imgHeight / params.height) : 1);
+        frameH = params.height ?? Math.floor(imgHeight / frameCount);
+      } else {
+        frameH = imgHeight;
+        frameCount = params.frame_count ?? (params.width ? Math.floor(imgWidth / params.width) : 1);
+        frameW = params.width ?? Math.floor(imgWidth / frameCount);
+      }
+
+      if (frameCount < 2) {
+        return {
+          content: [{ type: "text", text: `Could not split spritesheet into multiple frames. Provide frame_count or frame width/height.` }],
+          details: { error: "insufficient_frames", width: imgWidth, height: imgHeight, direction },
+        };
+      }
+
+      const delay = typeof params.delay === "number" ? params.delay
+        : Array.isArray(params.delay) ? params.delay[0] ?? 100
+        : 100;
+      const perFrameDelay = Array.isArray(params.delay) ? params.delay : Array(frameCount).fill(delay);
+      const loopCount = params.loop ?? 0;
+
+      // Extract frames using sharp, then assemble with gifenc
+      const { GIFEncoder, quantize, applyPalette } = await import("gifenc");
+      const gif = GIFEncoder();
+
+      for (let i = 0; i < frameCount; i++) {
+        const left = direction === "horizontal" ? i * frameW : 0;
+        const top = direction === "vertical" ? i * frameH : 0;
+        const frameRaw = await sharp(inputPath)
+          .extract({ left, top, width: frameW, height: frameH })
+          .ensureAlpha()
+          .raw()
+          .toBuffer();
+        const rgba = new Uint8Array(frameRaw);
+        const palette = quantize(rgba, 256, { format: "rgba4444" });
+        const indexed = applyPalette(rgba, palette, "rgba4444");
+        gif.writeFrame(indexed, frameW, frameH, {
+          palette,
+          delay: perFrameDelay[i] ?? delay,
+          repeat: i === 0 ? loopCount : undefined,
+        });
+      }
+      gif.finish();
+
+      const gifOutputPath = params.output
+        ? resolveWorkspacePath(params.output)
+        : buildOutputPath(inputPath, "gif", "-animated");
+
+      // Overwrite check
+      const canOverwrite = params.overwrite === true;
+      if (params.output && existsSync(gifOutputPath) && !canOverwrite) {
+        return {
+          content: [{ type: "text", text: `Output file already exists: ${params.output}. Set overwrite=true to replace it.` }],
+          details: { error: "output_exists", output: params.output },
+        };
+      }
+
+      const { writeFileSync: writeFs } = await import("node:fs");
+      writeFs(gifOutputPath, Buffer.from(gif.bytes()));
+
+      const gifStat = statSync(gifOutputPath);
+      const relOutput = gifOutputPath.startsWith(WORKSPACE_DIR) ? gifOutputPath.slice(WORKSPACE_DIR.length + 1) : gifOutputPath;
+      return {
+        content: [{ type: "text", text: `Animated GIF created: ${relOutput} (${frameW}x${frameH}, ${frameCount} frames, ${formatBytes(gifStat.size)})` }],
+        details: {
+          action: "spritesheet_to_gif",
+          input: params.input,
+          output: relOutput,
+          format: "gif",
+          width: frameW,
+          height: frameH,
+          frameCount,
+          delay: perFrameDelay.slice(0, frameCount),
+          loop: loopCount,
+          size: gifStat.size,
+          mimeType: "image/gif",
+        },
+      };
+    }
+
     default:
       return {
-        content: [{ type: "text", text: `Unknown action: ${action}. Use: resize, crop, convert, optimize, trim, rotate, flip, blur, sharpen, composite, info` }],
+        content: [{ type: "text", text: `Unknown action: ${action}. Use: resize, crop, convert, optimize, trim, rotate, flip, blur, sharpen, composite, frames, spritesheet_to_gif, info` }],
         details: { error: "unknown_action", action },
       };
   }
@@ -313,9 +440,10 @@ async function executeImageProcess(
 
 const HINT = [
   "## Image Processing",
-  "Use image_process to manipulate workspace images: resize, crop, convert, optimize, trim, rotate, flip, blur, sharpen, composite, or get info.",
+  "Use image_process to manipulate workspace images: resize, crop, convert, optimize, trim, rotate, flip, blur, sharpen, composite, frames, spritesheet_to_gif, or get info.",
   "Non-destructive by default: output goes to a new file next to the input. Set overwrite=true to replace the original.",
-  "Supports PNG, JPEG, WebP, AVIF, TIFF, GIF. Preserves transparency by default.",
+  "Supports PNG, JPEG, WebP, AVIF, TIFF, GIF. Preserves transparency and animation frames by default.",
+  "spritesheet_to_gif converts a horizontal/vertical sprite strip into an animated GIF with configurable delay and loop.",
   "Output quality is configurable (1-100). Use action='info' to inspect image metadata before processing.",
 ].join("\n");
 
@@ -330,9 +458,10 @@ export const imageProcessing: ExtensionFactory = (pi: ExtensionAPI) => {
     label: "image_process",
     description:
       "Process workspace images with sharp: resize, crop, convert formats, optimize file size, trim transparent pixels, " +
-      "rotate, flip, blur, sharpen, composite/overlay, or get metadata. Non-destructive by default (output goes to a new file). " +
-      "Supports PNG, JPEG, WebP, AVIF, TIFF, GIF. Preserves transparency by default. Output quality is configurable.",
-    promptSnippet: "image_process: manipulate workspace images (resize, crop, convert, optimize, trim, rotate, blur, sharpen, composite, info).",
+      "rotate, flip, blur, sharpen, composite/overlay, extract frames from animated GIFs, or assemble a spritesheet into an animated GIF. " +
+      "Non-destructive by default (output goes to a new file). " +
+      "Supports PNG, JPEG, WebP, AVIF, TIFF, GIF. Preserves transparency and animation frames by default. Output quality is configurable.",
+    promptSnippet: "image_process: manipulate workspace images (resize, crop, convert, optimize, trim, rotate, blur, sharpen, composite, frames, spritesheet_to_gif, info).",
     parameters: ImageProcessSchema,
     execute: executeImageProcess,
   });

@@ -187,4 +187,78 @@ describe("image_process tool", () => {
     const result = await tool.execute("t6", { action: "info", input: join(ws.workspace, "nonexistent.png") });
     expect(result.details.error).toBe("not_found");
   });
+
+test("spritesheet_to_gif creates an animated GIF from a horizontal strip", async () => {
+  const ws2 = createTempWorkspace("piclaw-imgproc-anim-");
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws2.workspace });
+
+  // Create a 150x50 horizontal strip (3 frames of 50x50)
+  const strip = await sharp({
+    create: { width: 150, height: 50, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+  .composite([
+    { input: await sharp({ create: { width: 50, height: 50, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } } }).png().toBuffer(), left: 0, top: 0 },
+    { input: await sharp({ create: { width: 50, height: 50, channels: 4, background: { r: 0, g: 255, b: 0, alpha: 1 } } }).png().toBuffer(), left: 50, top: 0 },
+    { input: await sharp({ create: { width: 50, height: 50, channels: 4, background: { r: 0, g: 0, b: 255, alpha: 1 } } }).png().toBuffer(), left: 100, top: 0 },
+  ])
+  .png().toFile(join(ws2.workspace, "strip.png"));
+
+  const { imageProcessing } = await import("../../src/extensions/image-processing.js");
+  const fake = makeFakeApi();
+  imageProcessing(fake.api as any);
+
+  const tool = fake.tools.get("image_process");
+  const result = await tool.execute("t-anim", {
+    action: "spritesheet_to_gif",
+    input: join(ws2.workspace, "strip.png"),
+    frame_count: 3,
+    delay: 200,
+    loop: 0,
+  });
+
+  expect(result.details.action).toBe("spritesheet_to_gif");
+  expect(result.details.frameCount).toBe(3);
+  expect(result.details.width).toBe(50);
+  expect(result.details.height).toBe(50);
+  expect(result.details.format).toBe("gif");
+
+  // Verify with sharp that it's actually animated
+  const gifMeta = await sharp(result.details.output.startsWith("/") ? result.details.output : join(ws2.workspace, result.details.output), { animated: true }).metadata();
+  expect(gifMeta.pages).toBe(3);
+
+  ws2.cleanup();
+});
+
+test("spritesheet_to_gif supports vertical strips", async () => {
+  const ws2 = createTempWorkspace("piclaw-imgproc-vert-");
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws2.workspace });
+
+  // Create a 50x100 vertical strip (2 frames of 50x50)
+  const strip = await sharp({
+    create: { width: 50, height: 100, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+  .composite([
+    { input: await sharp({ create: { width: 50, height: 50, channels: 4, background: { r: 255, g: 255, b: 0, alpha: 1 } } }).png().toBuffer(), left: 0, top: 0 },
+    { input: await sharp({ create: { width: 50, height: 50, channels: 4, background: { r: 0, g: 255, b: 255, alpha: 1 } } }).png().toBuffer(), left: 0, top: 50 },
+  ])
+  .png().toFile(join(ws2.workspace, "vstrip.png"));
+
+  const { imageProcessing } = await import("../../src/extensions/image-processing.js");
+  const fake = makeFakeApi();
+  imageProcessing(fake.api as any);
+
+  const tool = fake.tools.get("image_process");
+  const result = await tool.execute("t-vert", {
+    action: "spritesheet_to_gif",
+    input: join(ws2.workspace, "vstrip.png"),
+    frame_count: 2,
+    direction: "vertical",
+    delay: [150, 300],
+  });
+
+  expect(result.details.frameCount).toBe(2);
+  expect(result.details.delay).toEqual([150, 300]);
+
+  ws2.cleanup();
+});
 });

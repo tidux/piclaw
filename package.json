@@ -99,6 +99,7 @@
     "docx-preview": "^0.3.7",
     "fflate": "0.8.2",
     "ghostty-web": "github:rcarmo/ghostty-web#fcc47d423a7fce1c02c702b6464d0b1ab89175f1",
+    "gifenc": "^1.0.3",
     "htm": "3.1.1",
     "js-yaml": "^4.1.1",
     "katex": "0.16.45",
