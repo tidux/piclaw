@@ -384,12 +384,20 @@ export async function runAcceptPairFlow(idOrFingerprint: string, pi: ExtensionAP
 
   const fp = formatFingerprint(req.instance_id);
   const nameLabel = req.display_name ? ` (${req.display_name})` : "";
+  const origin = base_url ?? "unknown";
   const notifyNote = base_url
     ? (initiatorNotified ? " Initiator was notified." : " Could not notify initiator — they can still detect the pairing via `/pair list`.")
     : " No callback URL stored; initiator was not notified.";
+  const details = [
+    `- **Request ID:** \`${req.id}\``,
+    `- **Instance ID:** \`${req.instance_id}\``,
+    `- **Fingerprint:** \`${fp}\``,
+    req.display_name ? `- **Display Name:** ${req.display_name}` : null,
+    `- **Origin:** \`${origin}\``,
+  ].filter(Boolean).join("\n");
   pi.sendMessage({
     customType: "remote-pair",
-    content: `Accepted pairing with \`${fp}\`${nameLabel}.${notifyNote}`,
+    content: `Accepted pairing with \`${fp}\`${nameLabel}.${notifyNote}\n\n${details}`,
     display: true,
   });
 }
