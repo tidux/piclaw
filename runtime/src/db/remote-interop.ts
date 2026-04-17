@@ -21,7 +21,7 @@ export interface RemotePeerRecord {
   status: RemotePeerStatus;
   mode: RemotePeerMode;
   profile: RemotePeerProfile;
-  trust_epoch: number;
+  trust_epoch: number | null;
   created_at: string;
   updated_at: string;
   last_seen_at: string | null;

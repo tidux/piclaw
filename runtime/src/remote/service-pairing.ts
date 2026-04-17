@@ -36,6 +36,7 @@ export interface RemotePairingHandlersContext {
   pairLimiter: SlidingWindowLimiter;
   pairConfirmLimiter: SlidingWindowLimiter;
   nonceCache: RemoteNonceCache;
+  validateCallbackUrl?: typeof validateCallbackUrl;
 }
 
 /** Handle `/api/remote/pair-request` validation and pending request creation. */
@@ -69,7 +70,22 @@ export async function handlePairRequest(req: Request, context: RemotePairingHand
     return jsonResponse({ error: "instance_id does not match public_key." }, 400);
   }
 
-  const callbackCheck = await validateCallbackUrl(callbackUrl);
+  const peer = getRemotePeer(instanceId);
+  if (peer?.status === "blocked") {
+    logAudit(peer, "/api/remote/pair-request", "blocked", "blocked");
+    return jsonResponse({ error: "Peer is blocked." }, 403);
+  }
+  if (peer?.status === "paired") {
+    logAudit(peer, "/api/remote/pair-request", "paired", "paired");
+    return jsonResponse({ error: "Peer is already paired." }, 409);
+  }
+
+  const rateKey = `${getClientKey(req)}:${instanceId}`;
+  if (!context.pairLimiter.allow(rateKey)) {
+    return jsonResponse({ error: "Pairing rate limit exceeded." }, 429);
+  }
+
+  const callbackCheck = await (context.validateCallbackUrl ?? validateCallbackUrl)(callbackUrl);
   if (!callbackCheck.ok) {
     return jsonResponse({ error: callbackCheck.error }, 400);
   }
@@ -82,12 +98,6 @@ export async function handlePairRequest(req: Request, context: RemotePairingHand
   const maxExpiry = now + 24 * 60 * 60 * 1000;
   if (expiresAt <= now || expiresAt > maxExpiry) {
     return jsonResponse({ error: "expires_at is out of range." }, 400);
-  }
-
-  const peer = getRemotePeer(instanceId);
-  if (peer?.status === "blocked") {
-    logAudit(peer, "/api/remote/pair-request", "blocked", "blocked");
-    return jsonResponse({ error: "Peer is blocked." }, 403);
   }
 
   const pending = getPendingPairRequest(instanceId);
@@ -104,11 +114,6 @@ export async function handlePairRequest(req: Request, context: RemotePairingHand
       );
     }
     updatePairRequestStatus(pending.id, "expired");
-  }
-
-  const rateKey = `${getClientKey(req)}:${instanceId}`;
-  if (!context.pairLimiter.allow(rateKey)) {
-    return jsonResponse({ error: "Pairing rate limit exceeded." }, 429);
   }
 
   const requestId = createUuid("pair");
@@ -187,7 +192,7 @@ export async function handlePairConfirm(req: Request, context: RemotePairingHand
     status: "pending",
     mode: "mediated",
     profile: "restricted",
-    trust_epoch: 1,
+    trust_epoch: null,
     created_at: pending.created_at,
     updated_at: pending.created_at,
     last_seen_at: null,
