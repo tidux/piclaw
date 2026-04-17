@@ -80,6 +80,7 @@ export class WebSocketRemoteDisplayBoundary {
     private readonly options: RemoteDisplaySocketBoundaryOptions;
     private bytesIn = 0;
     private bytesOut = 0;
+    private pendingOutbound: Array<string | ArrayBuffer | ArrayBufferView | Blob> = [];
 
     constructor(options: RemoteDisplaySocketBoundaryOptions) {
         this.options = options;
@@ -92,6 +93,7 @@ export class WebSocketRemoteDisplayBoundary {
         socket.binaryType = this.options.binaryType || 'arraybuffer';
         socket.addEventListener('open', () => {
             if (this.disposed || this.socket !== socket) return;
+            this.flushPendingOutbound(socket);
             this.options.onOpen?.();
         });
         socket.addEventListener('message', (event) => {
@@ -129,11 +131,13 @@ export class WebSocketRemoteDisplayBoundary {
     }
 
     send(data: string | ArrayBuffer | ArrayBufferView | Blob): void {
-        if (this.disposed || !this.socket) return;
-        const size = measureOutboundSize(data);
-        this.bytesOut += size;
-        this.emitMetrics();
-        this.socket.send(data);
+        if (this.disposed) return;
+        const socket = this.socket;
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            this.pendingOutbound.push(data);
+            return;
+        }
+        this.sendNow(socket, data);
     }
 
     sendControl(payload: unknown): void {
@@ -156,5 +160,24 @@ export class WebSocketRemoteDisplayBoundary {
 
     private emitMetrics(): void {
         this.options.onMetrics?.(this.getMetrics());
+    }
+
+    private sendNow(socket: WebSocket, data: string | ArrayBuffer | ArrayBufferView | Blob): void {
+        const size = measureOutboundSize(data);
+        this.bytesOut += size;
+        this.emitMetrics();
+        socket.send(data);
+    }
+
+    private flushPendingOutbound(socket: WebSocket): void {
+        if (this.pendingOutbound.length === 0) return;
+        const pending = this.pendingOutbound.splice(0);
+        for (let index = 0; index < pending.length; index += 1) {
+            if (this.disposed || this.socket !== socket || socket.readyState !== WebSocket.OPEN) {
+                this.pendingOutbound.unshift(...pending.slice(index));
+                return;
+            }
+            this.sendNow(socket, pending[index]);
+        }
     }
 }
