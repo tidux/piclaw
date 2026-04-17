@@ -226,6 +226,7 @@ export function createWhatsAppChannel(state: RuntimeState): WhatsAppChannel {
           type: "message",
           chatJid: "web:default",
           text: code,
+          noNudge: true,
         };
         const filePath = join(ipcDir, `${createUuid("pairing")}.json`);
         writeFileSync(filePath, JSON.stringify(payload));

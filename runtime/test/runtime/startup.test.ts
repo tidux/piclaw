@@ -153,6 +153,45 @@ describe("runtime startup helpers", () => {
     expect(recentCalls).toEqual([{ limit: 5, excludeChatJids: ["web:default"] }]);
   });
 
+  test("createWhatsAppChannel writes pairing IPC payloads with noNudge enabled", () => {
+    const ws = createTempWorkspace("piclaw-startup-pairing-");
+
+    try {
+      const run = Bun.spawnSync({
+        cmd: [
+          TEST_SHELL,
+          "-lc",
+          "bun -e \"import { createWhatsAppChannel } from './src/runtime/startup.js'; const state = { chatJids: new Set(), saveChats() {} }; const channel = createWhatsAppChannel(state); channel.opts.onPairingCode('123-456');\"",
+        ],
+        cwd: RUNTIME_DIR,
+        env: {
+          ...process.env,
+          PICLAW_WORKSPACE: ws.workspace,
+          PICLAW_STORE: ws.store,
+          PICLAW_DATA: ws.data,
+          PICLAW_DB_IN_MEMORY: "1",
+          PICLAW_DISABLE_BACKGROUND_WORKSPACE_INDEX: "1",
+          WHATSAPP_PHONE: "+15551234567",
+        },
+      });
+      expect(run.exitCode, run.stderr.toString() || run.stdout.toString()).toBe(0);
+
+      const ipcDir = join(ws.data, "ipc", "messages");
+      const [fileName] = readdirSync(ipcDir);
+      expect(fileName).toBeTruthy();
+
+      const payload = JSON.parse(readFileSync(join(ipcDir, fileName), "utf8"));
+      expect(payload).toEqual({
+        type: "message",
+        chatJid: "web:default",
+        text: "123-456",
+        noNudge: true,
+      });
+    } finally {
+      ws.cleanup();
+    }
+  });
+
   test("resolveStartupSessionWarmupOptions reads env-backed warmup controls", () => {
     expect(resolveStartupSessionWarmupOptions({
       PICLAW_STARTUP_WARM_DEFAULT_CHAT: "true",
