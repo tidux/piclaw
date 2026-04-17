@@ -30,4 +30,11 @@ describe("web http rate-limit", () => {
     expect(isRateLimitedForClient("ip1", "bucket", 100, 1, start + 50)).toBe(true);
     expect(isRateLimitedForClient("ip1", "bucket", 100, 1, start + 150)).toBe(false);
   });
+
+  test("blocked requests do not extend the lockout window", () => {
+    const start = 4_000_000;
+    expect(isRateLimitedForClient("ip1", "bucket", 100, 1, start)).toBe(false);
+    expect(isRateLimitedForClient("ip1", "bucket", 100, 1, start + 99)).toBe(true);
+    expect(isRateLimitedForClient("ip1", "bucket", 100, 1, start + 101)).toBe(false);
+  });
 });
