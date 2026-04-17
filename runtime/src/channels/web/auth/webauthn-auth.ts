@@ -17,9 +17,9 @@ import {
   createWebSession,
   DEFAULT_WEB_USER_ID,
   consumeWebauthnEnrollment,
+  getWebauthnEnrollment,
   getWebauthnCredentialById,
   getWebauthnCredentialsForRpId,
-  getWebauthnEnrollment,
   storeWebauthnCredential,
   updateWebauthnCredentialCounter,
 } from "../../../db.js";
@@ -58,23 +58,8 @@ export async function handleWebauthnLoginStart(req: Request, ctx: WebauthnAuthCo
   if (!ctx.isPasskeyEnabled()) return ctx.json({ error: "Passkeys disabled" }, 404);
 
   const { rpId } = resolveWebauthnRpInfo(req);
-  const credentials = getWebauthnCredentialsForRpId(DEFAULT_WEB_USER_ID, rpId);
-  if (credentials.length === 0) {
-    ctx.logAuthEvent(req, "WebAuthn login requested but no passkeys registered");
-    return ctx.json({ error: "No passkeys registered" }, 404);
-  }
-
-  const allowCredentials = credentials.map((cred) => {
-    const transports = cred.transports ? JSON.parse(cred.transports) : undefined;
-    return {
-      id: cred.credential_id,
-      transports: Array.isArray(transports) ? transports : undefined,
-    };
-  });
-
   const options = await generateAuthenticationOptions({
     rpID: rpId,
-    allowCredentials,
     userVerification: "preferred",
   });
 
@@ -235,13 +220,14 @@ export async function handleWebauthnRegisterFinish(req: Request, ctx: WebauthnAu
     return ctx.json({ error: "Missing credential" }, 400);
   }
 
-  const pending = ctx.challenges.consumeRegistration(token, (ctx.now ?? Date.now)());
+  const now = (ctx.now ?? Date.now)();
+  const pending = ctx.challenges.getRegistration(token, now);
   if (!pending) {
     ctx.logAuthEvent(req, "WebAuthn registration expired or unknown token");
     return ctx.json({ error: "Registration expired" }, 400);
   }
 
-  const enrollment = consumeWebauthnEnrollment(token);
+  const enrollment = getWebauthnEnrollment(token);
   if (!enrollment) {
     ctx.logAuthEvent(req, "WebAuthn registration invalid or expired enrol token");
     return ctx.json({ error: "Invalid or expired enrol token" }, 400);
@@ -276,6 +262,16 @@ export async function handleWebauthnRegisterFinish(req: Request, ctx: WebauthnAu
   }
 
   const info = result.registrationInfo;
+  const consumedPending = ctx.challenges.consumeRegistration(token, now);
+  if (!consumedPending) {
+    ctx.logAuthEvent(req, "WebAuthn registration expired or unknown token");
+    return ctx.json({ error: "Registration expired" }, 400);
+  }
+  const consumedEnrollment = consumeWebauthnEnrollment(token);
+  if (!consumedEnrollment) {
+    ctx.logAuthEvent(req, "WebAuthn registration invalid or expired enrol token");
+    return ctx.json({ error: "Invalid or expired enrol token" }, 400);
+  }
   const transports = Array.isArray(credential.response.transports)
     ? JSON.stringify(credential.response.transports)
     : null;

@@ -78,6 +78,17 @@ export class WebauthnChallengeTracker {
   }
 
   /**
+   * Read a pending WebAuthn registration challenge without consuming it.
+   * @param token Challenge token key used for lookup.
+   * @param now Optional timestamp override for deterministic tests.
+   * @returns The pending challenge when found, otherwise null.
+   */
+  getRegistration(token: string, now = Date.now()): PendingWebauthnChallenge | null {
+    this.prune(now);
+    return this.pendingRegistrations.get(token) ?? null;
+  }
+
+  /**
    * Consume and remove a pending WebAuthn registration challenge.
    * @param token Challenge token key used for lookup.
    * @param now Optional timestamp override for deterministic tests.

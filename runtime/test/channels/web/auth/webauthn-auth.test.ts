@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { getTestWorkspace, setEnv } from "../../../helpers.js";
 import {
   handleWebauthnLoginFinish,
   handleWebauthnLoginStart,
@@ -7,6 +8,13 @@ import {
   type WebauthnAuthContext,
 } from "../../../../src/channels/web/auth/webauthn-auth.js";
 import { WebauthnChallengeTracker } from "../../../../src/channels/web/auth/webauthn-challenges.js";
+
+let restoreEnv: (() => void) | null = null;
+
+afterEach(() => {
+  restoreEnv?.();
+  restoreEnv = null;
+});
 
 function createContext(passkeyEnabled = true) {
   const authEvents: string[] = [];
@@ -26,6 +34,58 @@ function createContext(passkeyEnabled = true) {
 }
 
 describe("webauthn auth handlers", () => {
+  test("login start returns generic options even when no passkeys are registered", async () => {
+    const ws = getTestWorkspace();
+    restoreEnv?.();
+    restoreEnv = setEnv({
+      PICLAW_WORKSPACE: ws.workspace,
+      PICLAW_STORE: ws.store,
+      PICLAW_DATA: ws.data,
+    });
+
+    const db = await import("../../../../src/db.js");
+    db.initDatabase();
+
+    const { ctx } = createContext(true);
+    const req = new Request("https://example.com/auth/webauthn/login/start", { method: "POST" });
+    const res = await handleWebauthnLoginStart(req, ctx);
+    const body = await res.json() as any;
+
+    expect(res.status).toBe(200);
+    expect(body.token).toBeString();
+    expect(body.options?.challenge).toBeString();
+    expect(body.options?.allowCredentials ?? []).toEqual([]);
+  });
+
+  test("login start does not expose stored credential ids", async () => {
+    const ws = getTestWorkspace();
+    restoreEnv?.();
+    restoreEnv = setEnv({
+      PICLAW_WORKSPACE: ws.workspace,
+      PICLAW_STORE: ws.store,
+      PICLAW_DATA: ws.data,
+    });
+
+    const db = await import("../../../../src/db.js");
+    db.initDatabase();
+    db.storeWebauthnCredential({
+      user_id: "default",
+      rp_id: "example.com",
+      credential_id: "cred-public-id",
+      public_key: "ZmFrZS1rZXk",
+      sign_count: 0,
+      transports: JSON.stringify(["internal"]),
+    });
+
+    const { ctx } = createContext(true);
+    const req = new Request("https://example.com/auth/webauthn/login/start", { method: "POST" });
+    const res = await handleWebauthnLoginStart(req, ctx);
+    const body = await res.json() as any;
+
+    expect(res.status).toBe(200);
+    expect(body.options?.allowCredentials ?? []).toEqual([]);
+  });
+
   test("rejects passkey endpoints when passkeys are disabled", async () => {
     const { ctx } = createContext(false);
 
@@ -97,5 +157,48 @@ describe("webauthn auth handlers", () => {
 
     expect(authEvents).toContain("WebAuthn registration missing enrol token");
     expect(authEvents).toContain("WebAuthn registration missing credential payload");
+  });
+
+  test("register finish keeps challenge and enrollment when verification fails", async () => {
+    const ws = getTestWorkspace();
+    restoreEnv?.();
+    restoreEnv = setEnv({
+      PICLAW_WORKSPACE: ws.workspace,
+      PICLAW_STORE: ws.store,
+      PICLAW_DATA: ws.data,
+    });
+
+    const db = await import("../../../../src/db.js");
+    db.initDatabase();
+    const { ctx } = createContext(true);
+    const enrollment = db.createWebauthnEnrollment("default", 300);
+    ctx.challenges.trackRegistration(enrollment.token, {
+      challenge: "challenge-value",
+      rpId: "example.com",
+      userId: "default",
+    });
+
+    const req = new Request("https://example.com/auth/webauthn/register/finish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: enrollment.token,
+        credential: {
+          id: "cred-id",
+          rawId: "cred-id",
+          type: "public-key",
+          response: {
+            clientDataJSON: "",
+            attestationObject: "",
+            transports: ["internal"],
+          },
+        },
+      }),
+    });
+
+    const res = await handleWebauthnRegisterFinish(req, ctx);
+    expect(res.status).toBe(401);
+    expect(ctx.challenges.getRegistration(enrollment.token)).not.toBeNull();
+    expect(db.getWebauthnEnrollment(enrollment.token)).not.toBeNull();
   });
 });
