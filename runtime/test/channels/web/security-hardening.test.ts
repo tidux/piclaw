@@ -877,7 +877,7 @@ describe("media download headers", () => {
     restoreEnv();
   });
 
-  test("inline-safe images omit Content-Disposition", async () => {
+  test("SVG downloads use attachment disposition", async () => {
     const ws = getTestWorkspace();
     const restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
 
@@ -901,7 +901,7 @@ describe("media download headers", () => {
     }
 
     const res = handleMedia(new StubChannel() as any, mediaId, false);
-    expect(res.headers.get("Content-Disposition")).toBeNull();
+    expect(res.headers.get("Content-Disposition")).toBe("attachment");
 
     restoreEnv();
   });

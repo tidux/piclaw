@@ -50,7 +50,6 @@ const INLINE_SAFE_TYPES = new Set([
   "image/jpeg",
   "image/gif",
   "image/webp",
-  "image/svg+xml",
   "image/bmp",
   "image/x-icon",
 ]);
