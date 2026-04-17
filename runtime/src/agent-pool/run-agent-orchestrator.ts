@@ -39,11 +39,11 @@ async function maybeAutoRotateSession(
   runtime: AgentSessionRuntime,
   chatJid: string,
   options: Pick<RunAgentOrchestratorOptions, "onInfo" | "onWarn">,
-): Promise<void> {
+): Promise<AgentSession> {
   const sessionStorageConfig = getSessionStorageConfig();
   const autoRotateEnabled = sessionStorageConfig.autoRotate
     || ["1", "true", "yes", "on"].includes((process.env.PICLAW_SESSION_AUTO_ROTATE || "").trim().toLowerCase());
-  if (!autoRotateEnabled) return;
+  if (!autoRotateEnabled) return session;
 
   const envThresholdMb = parseInt(process.env.PICLAW_SESSION_MAX_SIZE_MB || "", 10);
   const thresholdBytes = Number.isFinite(envThresholdMb) && envThresholdMb > 0
@@ -51,7 +51,7 @@ async function maybeAutoRotateSession(
     : sessionStorageConfig.maxSizeBytes;
 
   const sessionFileSize = getSessionFileSize(session.sessionFile);
-  if (sessionFileSize === null || sessionFileSize < thresholdBytes) return;
+  if (sessionFileSize === null || sessionFileSize < thresholdBytes) return session;
 
   const result = await rotateSession(session, runtime, { reason: "automatic" });
   if (result.status === "success") {
@@ -61,7 +61,7 @@ async function maybeAutoRotateSession(
       previousSize: result.previousSize ?? sessionFileSize,
       nextSize: result.nextSize ?? "unknown",
     });
-    return;
+    return runtime.session;
   }
 
   options.onWarn?.("Auto-rotation skipped", {
@@ -69,6 +69,7 @@ async function maybeAutoRotateSession(
     chatJid,
     reason: result.message,
   });
+  return session;
 }
 
 function estimateMessageTokens(message: any): number {
@@ -216,8 +217,8 @@ export async function runAgentPrompt(
 
   try {
     const runtime = await options.getOrCreateRuntime(chatJid);
-    const session = runtime.session;
-    await maybeAutoRotateSession(session, runtime, chatJid, options);
+    let session = runtime.session;
+    session = await maybeAutoRotateSession(session, runtime, chatJid, options);
     await maybeAutoCompactSessionBeforePrompt(session, chatJid, options, runOptions.onEvent);
     pruneOrphanToolResults(session, chatJid);
     const forkBaseLeafId = typeof session.sessionManager?.getLeafId === "function"

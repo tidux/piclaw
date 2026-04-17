@@ -1,14 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, truncateSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { DEFAULT_COMPACTION_SETTINGS } from "@mariozechner/pi-coding-agent";
+import { SessionManager } from "@mariozechner/pi-coding-agent";
 import type { AgentSessionRuntime } from "@mariozechner/pi-coding-agent";
 
+import { ensureSessionDir } from "../../src/agent-pool/session.js";
 import { getAttachmentRegistry } from "../../src/agent-pool/attachments.js";
 import { AgentTurnCoordinator } from "../../src/agent-pool/turn-coordinator.js";
 import { runAgentPrompt } from "../../src/agent-pool/run-agent-orchestrator.js";
+import { setEnv } from "../helpers.js";
 
 function createRuntime(session: any): AgentSessionRuntime {
   return {
@@ -40,6 +43,25 @@ afterEach(() => {
     rmSync(logsDir, { recursive: true, force: true });
   }
 });
+
+function createAssistantMessage(text: string) {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text }],
+    provider: "openai",
+    model: "gpt-test",
+    usage: {
+      input: 1,
+      output: 1,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 2,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "stop",
+    timestamp: Date.now(),
+  } as const;
+}
 
 test("runAgentPrompt aggregates deltas and returns pending attachments", async () => {
   const attachments = getAttachmentRegistry();
@@ -226,6 +248,148 @@ test("runAgentPrompt skips pre-prompt auto-compaction when it is disabled", asyn
 
   expect(result.status).toBe("success");
   expect(calls).toEqual(["prompt"]);
+});
+
+test("runAgentPrompt prompts the rotated runtime session after auto-rotation swaps objects", async () => {
+  const workspaceBase = mkdtempSync(join(tmpdir(), "piclaw-run-agent-rotate-"));
+  const restoreEnv = setEnv({
+    PICLAW_WORKSPACE: workspaceBase,
+    PICLAW_STORE: join(workspaceBase, "store"),
+    PICLAW_DATA: join(workspaceBase, "data"),
+    PICLAW_SESSION_AUTO_ROTATE: "1",
+    PICLAW_SESSION_MAX_SIZE_MB: "1",
+  });
+
+  class SessionBeforeRotate {
+    sessionManager: SessionManager;
+    sessionFile: string | undefined;
+    sessionName = "Before rotate";
+    model = { provider: "openai", id: "gpt-test", reasoning: true } as const;
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    pendingMessageCount = 0;
+    promptCalls = 0;
+
+    constructor() {
+      const sessionDir = ensureSessionDir("web:default");
+      this.sessionManager = SessionManager.create(workspaceBase, sessionDir);
+      this.sessionManager.appendMessage({ role: "user", content: "rotate me", timestamp: Date.now() } as const);
+      this.sessionManager.appendMessage(createAssistantMessage("pre-rotation context"));
+      this.sessionFile = this.sessionManager.getSessionFile();
+      truncateSync(this.sessionFile!, 2 * 1024 * 1024);
+    }
+
+    subscribe() {
+      return () => {};
+    }
+
+    async compact() {
+      const firstKeptEntryId = this.sessionManager.getEntries()[0]?.id ?? "root";
+      this.sessionManager.appendCompaction("rotation summary", firstKeptEntryId, 100);
+      this.sessionFile = this.sessionManager.getSessionFile();
+      return { summary: "rotation summary", firstKeptEntryId, tokensBefore: 100 };
+    }
+
+    async prompt() {
+      this.promptCalls += 1;
+      throw new Error("stale session should not be prompted after auto-rotation");
+    }
+
+    async abort() {}
+  }
+
+  class SessionAfterRotate {
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager: SessionManager;
+    sessionFile: string | undefined;
+    sessionName = "After rotate";
+    model = { provider: "openai", id: "gpt-test", reasoning: true } as const;
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    pendingMessageCount = 0;
+    promptCalls = 0;
+
+    constructor(sessionManager: SessionManager) {
+      this.sessionManager = sessionManager;
+      this.sessionFile = sessionManager.getSessionFile();
+    }
+
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+
+    async prompt() {
+      this.promptCalls += 1;
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "rotated ok" } });
+      }
+    }
+
+    async abort() {}
+  }
+
+  try {
+    const oldSession = new SessionBeforeRotate();
+    let activeSession: SessionBeforeRotate | SessionAfterRotate = oldSession;
+    const runtime = {
+      get session() {
+        return activeSession;
+      },
+      cwd: workspaceBase,
+      diagnostics: [],
+      services: {} as any,
+      modelFallbackMessage: undefined,
+      newSession: async (options?: { parentSession?: string; setup?: (sessionManager: SessionManager) => Promise<void> | void }) => {
+        const manager = SessionManager.create(workspaceBase, ensureSessionDir("web:default"));
+        manager.newSession({ parentSession: options?.parentSession });
+        if (options?.setup) {
+          await options.setup(manager);
+        }
+        activeSession = new SessionAfterRotate(manager);
+        return { cancelled: false };
+      },
+      switchSession: async () => ({ cancelled: false }),
+      fork: async () => ({ cancelled: false }),
+      importFromJsonl: async () => ({ cancelled: false }),
+      dispose: async () => {},
+    } as AgentSessionRuntime;
+
+    const forkStates: Array<string | null> = [];
+    const turnCoordinator = new AgentTurnCoordinator({
+      takeAttachments: () => [],
+      touchSession: () => {},
+      recordMessageUsage: () => {},
+    });
+
+    const result = await runAgentPrompt("test", "web:default", { timeoutMs: 0 }, {
+      getOrCreateRuntime: async () => runtime as any,
+      turnCoordinator,
+      clearAttachments: () => {},
+      takeAttachments: () => [],
+      logsDir: createTestLogsDir(),
+      setActiveForkBaseLeaf: (_chatJid, leafId) => {
+        forkStates.push(leafId);
+      },
+      clearActiveForkBaseLeaf: () => {
+        forkStates.push(null);
+      },
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.result).toBe("rotated ok");
+    expect(oldSession.promptCalls).toBe(0);
+    expect((activeSession as SessionAfterRotate).promptCalls).toBe(1);
+    expect(forkStates).toHaveLength(2);
+    expect(forkStates.at(-1)).toBe(null);
+  } finally {
+    restoreEnv();
+    rmSync(workspaceBase, { recursive: true, force: true });
+  }
 });
 
 test("runAgentPrompt surfaces provider error instead of returning null result", async () => {
