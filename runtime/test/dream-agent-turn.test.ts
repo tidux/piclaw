@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { importFresh } from "./helpers.js";
@@ -88,4 +88,67 @@ test("runDreamAgentTurn reaps a stale dream lock and materializes memory files a
   } finally {
     Date.now = realNow;
   }
+});
+
+test("runDreamAgentTurn skips gracefully when another live Dream run holds the lock", async () => {
+  const config = await import("../src/core/config.js");
+  rmSync(join(config.WORKSPACE_DIR, "notes"), { recursive: true, force: true });
+  mkdirSync(join(config.WORKSPACE_DIR, "notes", "memory"), { recursive: true });
+  writeFileSync(join(config.WORKSPACE_DIR, "notes", "memory", ".dream.lock"), "424242\n", "utf8");
+
+  const realKill = process.kill;
+  try {
+    process.kill = ((pid: number, signal?: number | NodeJS.Signals) => {
+      expect(pid).toBe(424242);
+      void signal;
+      return true;
+    }) as typeof process.kill;
+
+    const dream = await importFresh<typeof import("../src/dream.js")>("../src/dream.js");
+    const result = await dream.runDreamAgentTurn({
+      chatJid: "web:default",
+      days: 2,
+      mode: "auto",
+      agentPool: {
+        runAgent: async () => ({ status: "success", result: "should not run" }),
+        disposeChatSession: async () => {},
+      } as any,
+    });
+
+    expect(result.skipped).toBe(true);
+    expect(result.result).toContain("Dream already running");
+    expect(readFileSync(join(config.WORKSPACE_DIR, "notes", "memory", ".dream.lock"), "utf8")).toContain("424242");
+  } finally {
+    process.kill = realKill;
+  }
+});
+
+test("runDreamAgentTurn falls back to deterministic refresh when the model pass errors", async () => {
+  const config = await import("../src/core/config.js");
+  rmSync(join(config.WORKSPACE_DIR, "notes"), { recursive: true, force: true });
+  rmSync(join(config.DATA_DIR, "dream-backups"), { recursive: true, force: true });
+  rmSync(join(config.DATA_DIR, "workspace-search"), { recursive: true, force: true });
+
+  const dream = await importFresh<typeof import("../src/dream.js")>("../src/dream.js");
+  let capturedTimeoutMs: number | undefined;
+  const result = await dream.runDreamAgentTurn({
+    chatJid: "web:default",
+    days: 2,
+    mode: "auto",
+    agentPool: {
+      runAgent: async (_prompt: string, _chatJid: string, options?: { timeoutMs?: number }) => {
+        capturedTimeoutMs = options?.timeoutMs;
+        return { status: "error", error: "Timed out after 3m" };
+      },
+      disposeChatSession: async () => {},
+    } as any,
+  });
+
+  expect(result.skipped).toBe(false);
+  expect(result.result).toContain("model pass failed; deterministic refresh completed");
+  expect(result.result).toContain("Timed out after 3m");
+  expect(result.result).toContain("Memory refreshed after Dream: yes");
+  expect(capturedTimeoutMs).toBeGreaterThan(0);
+  expect(existsSync(join(config.WORKSPACE_DIR, "notes", "memory", "MEMORY.md"))).toBe(true);
+  expect(existsSync(join(config.WORKSPACE_DIR, "notes", "memory", ".dream.lock"))).toBe(false);
 });

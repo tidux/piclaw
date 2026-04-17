@@ -9,7 +9,7 @@ import { buildDreamPrompt } from "./agent-memory/dream-prompt.js";
 import { inspectDailyNoteSummaryBacklog, refreshDailyNotesFromMessages } from "./agent-memory/daily-notes.js";
 import { refreshAgentMemoryFromDailyNotes, type RefreshAgentMemoryResult } from "./agent-memory/refresh.js";
 import { AUTO_DREAM_DEFAULT_DAYS, MANUAL_DREAM_DEFAULT_DAYS } from "./dream-defaults.js";
-import { DATA_DIR, SESSIONS_DIR, WORKSPACE_DIR } from "./core/config.js";
+import { DATA_DIR, SESSIONS_DIR, WORKSPACE_DIR, getAgentRuntimeConfig } from "./core/config.js";
 import { getTaskById, createTask, getDb, updateTask } from "./db.js";
 import { refreshWorkspaceIndex } from "./workspace-search.js";
 import { computeNextRun } from "./task-scheduler-utils.js";
@@ -53,6 +53,7 @@ const DREAM_RECENT_CONTEXT_PATH = resolve(DREAM_MEMORY_DIR, "recent-context.md")
 const DREAM_MEMORY_PATH = resolve(DREAM_MEMORY_DIR, "MEMORY.md");
 const DREAM_BACKUP_KEEP = Math.max(1, Number.parseInt(process.env.PICLAW_DREAM_BACKUP_KEEP || "10", 10) || 10);
 const DREAM_MODEL = process.env.PICLAW_DREAM_MODEL?.trim() || null;
+const DEFAULT_DREAM_AGENT_TIMEOUT_MS = 3 * 60 * 1000;
 const log = createLogger("dream");
 
 type FflateModule = typeof import("fflate");
@@ -238,43 +239,109 @@ async function cleanupDreamChat(agentPool: AgentPool, dreamChatJid: string): Pro
   reapDreamArtifacts(null);
 }
 
-function canReapDreamLock(): boolean {
-  if (!existsSync(DREAM_LOCK_PATH)) return false;
+type DreamLockInspection = {
+  held: boolean;
+  ownerPid: number | null;
+  stale: boolean;
+};
+
+function inspectDreamLock(): DreamLockInspection {
+  if (!existsSync(DREAM_LOCK_PATH)) {
+    return { held: false, ownerPid: null, stale: false };
+  }
+
   try {
     const raw = readFileSync(DREAM_LOCK_PATH, "utf8").trim();
     const pid = Number.parseInt(raw, 10);
-    if (!Number.isFinite(pid) || pid <= 0) return true;
+    if (!Number.isFinite(pid) || pid <= 0) {
+      return { held: false, ownerPid: null, stale: true };
+    }
+    if (pid === process.pid) {
+      return { held: true, ownerPid: pid, stale: false };
+    }
     try {
       process.kill(pid, 0);
-      return false;
+      return { held: true, ownerPid: pid, stale: false };
     } catch (error) {
       debugSuppressedError(log, "Dream lock owner PID is stale or inaccessible", error, { pid });
       if (error && typeof error === "object" && "code" in error && error.code === "EPERM") {
-        return false;
+        return { held: true, ownerPid: pid, stale: false };
       }
-      return true;
+      return { held: false, ownerPid: pid, stale: true };
     }
   } catch (error) {
     debugSuppressedError(log, "failed to inspect Dream lock", error, { path: DREAM_LOCK_PATH });
-    return true;
+    return { held: false, ownerPid: null, stale: true };
   }
 }
 
-function acquireDreamLock(): number {
-  mkdirSync(DREAM_MEMORY_DIR, { recursive: true });
+function removeDreamLockIfOwnedByCurrentProcess(): void {
+  const inspection = inspectDreamLock();
+  if (!inspection.held || inspection.ownerPid !== process.pid) return;
   try {
+    rmSync(DREAM_LOCK_PATH, { force: true });
+  } catch (error) {
+    debugSuppressedError(log, "failed to remove Dream lock file", error, { path: DREAM_LOCK_PATH });
+  }
+}
+
+let dreamLockExitCleanupRegistered = false;
+
+function onDreamProcessExit(): void {
+  removeDreamLockIfOwnedByCurrentProcess();
+}
+
+function ensureDreamLockExitCleanup(): void {
+  if (dreamLockExitCleanupRegistered) return;
+  dreamLockExitCleanupRegistered = true;
+  process.on("exit", onDreamProcessExit);
+}
+
+function clearDreamLockExitCleanup(): void {
+  if (!dreamLockExitCleanupRegistered) return;
+  dreamLockExitCleanupRegistered = false;
+  process.off("exit", onDreamProcessExit);
+}
+
+function describeDreamLockConflict(ownerPid: number | null): string {
+  return ownerPid && Number.isFinite(ownerPid)
+    ? `Dream already running (pid ${ownerPid}).`
+    : "Dream already running.";
+}
+
+function acquireDreamLock(): { fd: number | null; busyReason: string | null } {
+  mkdirSync(DREAM_MEMORY_DIR, { recursive: true });
+  const tryOpen = () => {
     const fd = openSync(DREAM_LOCK_PATH, "wx");
     writeFileSync(DREAM_LOCK_PATH, String(process.pid), "utf8");
     return fd;
+  };
+
+  try {
+    const fd = tryOpen();
+    ensureDreamLockExitCleanup();
+    return { fd, busyReason: null };
   } catch (error) {
     const code = error instanceof Error && "code" in error ? String((error as any).code) : "";
-    if (code === "EEXIST" && canReapDreamLock()) {
+    if (code !== "EEXIST") throw error;
+
+    const inspection = inspectDreamLock();
+    if (!inspection.held && inspection.stale) {
+      log.warn("Reaping stale Dream lock", {
+        operation: "acquire_dream_lock.reap_stale",
+        path: DREAM_LOCK_PATH,
+        ownerPid: inspection.ownerPid,
+      });
       rmSync(DREAM_LOCK_PATH, { force: true });
-      const fd = openSync(DREAM_LOCK_PATH, "wx");
-      writeFileSync(DREAM_LOCK_PATH, String(process.pid), "utf8");
-      return fd;
+      const fd = tryOpen();
+      ensureDreamLockExitCleanup();
+      return { fd, busyReason: null };
     }
-    throw error;
+
+    return {
+      fd: null,
+      busyReason: describeDreamLockConflict(inspection.ownerPid),
+    };
   }
 }
 
@@ -284,11 +351,16 @@ function releaseDreamLock(fd: number): void {
   } catch (error) {
     debugSuppressedError(log, "failed to close Dream lock fd", error, { fd, path: DREAM_LOCK_PATH });
   }
-  try {
-    rmSync(DREAM_LOCK_PATH, { force: true });
-  } catch (error) {
-    debugSuppressedError(log, "failed to remove Dream lock file", error, { path: DREAM_LOCK_PATH });
-  }
+  removeDreamLockIfOwnedByCurrentProcess();
+  clearDreamLockExitCleanup();
+}
+
+function getDreamAgentTimeoutMs(): number {
+  const configured = Number.parseInt(process.env.PICLAW_DREAM_AGENT_TIMEOUT_MS || "", 10);
+  if (Number.isFinite(configured) && configured > 0) return configured;
+  const backgroundTimeoutMs = getAgentRuntimeConfig().backgroundTimeoutMs;
+  if (Number.isFinite(backgroundTimeoutMs) && backgroundTimeoutMs > 0) return backgroundTimeoutMs;
+  return DEFAULT_DREAM_AGENT_TIMEOUT_MS;
 }
 
 async function refreshWorkspaceSearchIndex(): Promise<boolean> {
@@ -393,16 +465,25 @@ export async function runDreamAgentTurn(options: { chatJid: string; days?: numbe
   }
 
   let lockFd: number | null = null;
+  let shouldCleanupDreamChat = false;
   const dreamChatJid = buildDreamChatJid(chatJid, mode);
   try {
-    lockFd = acquireDreamLock();
+    const lock = acquireDreamLock();
+    if (lock.busyReason) {
+      return {
+        mode,
+        skipped: true,
+        result: `${mode === "auto" ? "AutoDream" : "Dream"} skipped: ${lock.busyReason}`,
+      };
+    }
+    lockFd = lock.fd;
+    shouldCleanupDreamChat = true;
     reapDreamArtifacts(null);
     const backupPath = await createDreamBackup(chatJid, mode, days);
     const dailyNotesRefreshed = refreshDailyNotes(chatJid, days);
-    const out = await options.agentPool.runAgent(buildDreamPrompt({ mode, days }), dreamChatJid);
-    if (out.status === "error") {
-      throw new Error(out.error || "Dream agent run failed.");
-    }
+    const out = await options.agentPool.runAgent(buildDreamPrompt({ mode, days }), dreamChatJid, {
+      timeoutMs: getDreamAgentTimeoutMs(),
+    });
     const refresh = refreshAgentMemoryFromDailyNotes({ recentDays: days });
     const workspaceIndexRefreshed = await refreshWorkspaceSearchIndex();
     const suffix = [
@@ -414,6 +495,24 @@ export async function runDreamAgentTurn(options: { chatJid: string; days?: numbe
       `- Pre-Dream backup: ${backupPath || "(none)"}`,
       `- Workspace index refreshed: ${workspaceIndexRefreshed ? "yes" : "no"}`,
     ].join("\n");
+    if (out.status === "error") {
+      log.warn("Dream agent turn failed; keeping deterministic memory refresh", {
+        operation: "run_dream_agent_turn.fallback_refresh",
+        chatJid,
+        mode,
+        days,
+        error: out.error || "Dream agent run failed.",
+      });
+      return {
+        mode,
+        skipped: false,
+        result: [
+          `${mode === "auto" ? "AutoDream" : "Dream"} model pass failed; deterministic refresh completed.`,
+          `- Model pass error: ${out.error || "Dream agent run failed."}`,
+          suffix,
+        ].join("\n"),
+      };
+    }
     return {
       mode,
       skipped: false,
@@ -421,7 +520,9 @@ export async function runDreamAgentTurn(options: { chatJid: string; days?: numbe
     };
   } finally {
     if (lockFd !== null) releaseDreamLock(lockFd);
-    await cleanupDreamChat(options.agentPool, dreamChatJid);
+    if (shouldCleanupDreamChat) {
+      await cleanupDreamChat(options.agentPool, dreamChatJid);
+    }
   }
 }
 
@@ -466,7 +567,31 @@ export async function runDreamMaintenance(options?: { chatJid?: string; days?: n
 
   let lockFd: number | null = null;
   try {
-    lockFd = acquireDreamLock();
+    const lock = acquireDreamLock();
+    if (lock.busyReason) {
+      return {
+        generated_at: new Date().toISOString(),
+        mode,
+        skipped: true,
+        skip_reason: lock.busyReason,
+        chat_jid: chatJid,
+        days,
+        daily_notes_refreshed: false,
+        workspace_index_refreshed: false,
+        sessions_since_last_consolidation: sessionsSinceLast,
+        last_consolidated_at: lastConsolidatedAt,
+        complete_days: 0,
+        partial_days: 0,
+        unsummarised_days: 0,
+        latest_complete_date: null,
+        current_state_path: DREAM_CURRENT_STATE_PATH,
+        recent_context_path: DREAM_RECENT_CONTEXT_PATH,
+        memory_path: DREAM_MEMORY_PATH,
+        refresh: null,
+        backup_path: null,
+      };
+    }
+    lockFd = lock.fd;
     const backupPath = await createDreamBackup(chatJid, mode, days);
     const dailyNotesRefreshed = refreshDailyNotes(chatJid, days);
     const refresh = refreshAgentMemoryFromDailyNotes({ recentDays: days });

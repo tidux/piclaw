@@ -19,7 +19,7 @@ test("dream token defaults and auto gate follow nightly cadence", async () => {
   expect(dream.shouldRunAutoDream("2026-04-06T23:22:39.203Z", 1)).toEqual({ ok: true, reason: null });
 });
 
-test("runDreamMaintenance does not reap locks for live processes it cannot signal", async () => {
+test("runDreamMaintenance skips when a live Dream lock belongs to an inaccessible process", async () => {
   const workspace = createTempWorkspace("piclaw-dream-lock-");
   try {
     const lockPath = join(workspace.workspace, "notes", "memory", ".dream.lock");
@@ -37,12 +37,11 @@ test("runDreamMaintenance does not reap locks for live processes it cannot signa
         throw error;
       });
 
-      try {
-        await runDreamMaintenance({ chatJid: "web:default", days: 1 });
+      const result = await runDreamMaintenance({ chatJid: "web:default", days: 1 });
+      if (!result.skipped || !String(result.skip_reason || "").includes("Dream already running")) {
         process.exit(1);
-      } catch (error) {
-        process.exit(error && typeof error === "object" && "code" in error && error.code === "EEXIST" ? 0 : 1);
       }
+      process.exit(0);
     `;
 
     const proc = Bun.spawnSync(["bun", "-e", script], {
