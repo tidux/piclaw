@@ -68,7 +68,7 @@ resolve_restic_version() {
   return 1
 }
 
-install_restic_release() {
+install_restic_release() (
   local restic_version="$1"
   local restic_target="$2"
   local install_dir="${RESTIC_INSTALL_DIR:-/usr/local/bin}"
@@ -83,7 +83,7 @@ install_restic_release() {
   local expected_checksum
   local actual_checksum
 
-  trap "rm -rf '$temp_dir'" RETURN
+  trap 'rm -rf "$temp_dir"' EXIT
 
   curl_download "$url" "$bundle"
   curl_download "${base_url}/SHA256SUMS" "$checksums"
@@ -105,7 +105,7 @@ install_restic_release() {
   mkdir -p "$install_dir"
   bunzip2 -c "$bundle" > "$install_dir/restic"
   chmod 0755 "$install_dir/restic"
-}
+)
 
 main() {
   local restic_version restic_target
