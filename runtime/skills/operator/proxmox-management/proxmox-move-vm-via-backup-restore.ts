@@ -117,106 +117,145 @@ async function waitTask(base: string, token: Token, node: string, upid: string, 
   }
 }
 
-const sourceNode = (process.env.PVE_SOURCE_NODE || "").trim();
-const vmid = Number(process.env.PVE_VMID || "0");
-const targetNode = (process.env.PVE_TARGET_NODE || "").trim();
-const targetStorage = (process.env.PVE_TARGET_STORAGE || "").trim();
+type WaitTaskResult = { status?: string; exitstatus?: string };
 
-if (!sourceNode || !vmid || !targetNode || !targetStorage) {
-  console.error("Missing required env vars: PVE_SOURCE_NODE, PVE_VMID, PVE_TARGET_NODE, PVE_TARGET_STORAGE");
-  process.exit(2);
+export interface ProxmoxMoveVmViaBackupRestoreDeps {
+  env?: Record<string, string | undefined>;
+  apiImpl?: typeof api;
+  waitTaskImpl?: typeof waitTask;
+  getTokenImpl?: typeof getToken;
 }
 
-const targetVmid = Number(process.env.PVE_TARGET_VMID || String(vmid));
-const backupStorage = (process.env.PVE_BACKUP_STORAGE || "backup").trim();
-const backupMode = (process.env.PVE_BACKUP_MODE || "stop").trim();
-const deleteSource = process.env.PVE_DELETE_SOURCE === "1";
+function readRequiredMoveEnv(env: Record<string, string | undefined>) {
+  const sourceNode = (env.PVE_SOURCE_NODE || "").trim();
+  const vmid = Number(env.PVE_VMID || "0");
+  const targetNode = (env.PVE_TARGET_NODE || "").trim();
+  const targetStorage = (env.PVE_TARGET_STORAGE || "").trim();
 
-const base = process.env.PVE_BASE || "https://proxmox.example.com:8006/api2/json";
-const token = getToken();
+  if (!sourceNode || !vmid || !targetNode || !targetStorage) {
+    throw new Error("Missing required env vars: PVE_SOURCE_NODE, PVE_VMID, PVE_TARGET_NODE, PVE_TARGET_STORAGE");
+  }
 
-const sourceConfig = await api(base, token, `/nodes/${encodeURIComponent(sourceNode)}/qemu/${vmid}/config`);
-const sourceName = String(sourceConfig.data?.name || `vm-${vmid}`);
-const targetName = (process.env.PVE_TARGET_NAME || sourceName).trim();
+  return {
+    sourceNode,
+    vmid,
+    targetNode,
+    targetStorage,
+    targetVmid: Number(env.PVE_TARGET_VMID || String(vmid)),
+    backupStorage: (env.PVE_BACKUP_STORAGE || "backup").trim(),
+    backupMode: (env.PVE_BACKUP_MODE || "stop").trim(),
+    deleteSource: env.PVE_DELETE_SOURCE === "1",
+    base: env.PVE_BASE || "https://proxmox.example.com:8006/api2/json",
+  };
+}
 
-const backupParams = new URLSearchParams({
-  vmid: String(vmid),
-  storage: backupStorage,
-  mode: backupMode,
-  compress: "zstd",
-  remove: "0",
-});
+export async function runProxmoxMoveVmViaBackupRestore({
+  env = process.env,
+  apiImpl = api,
+  waitTaskImpl = waitTask,
+  getTokenImpl = getToken,
+}: ProxmoxMoveVmViaBackupRestoreDeps = {}) {
+  const {
+    sourceNode,
+    vmid,
+    targetNode,
+    targetStorage,
+    targetVmid,
+    backupStorage,
+    backupMode,
+    deleteSource,
+    base,
+  } = readRequiredMoveEnv(env);
+  const token = getTokenImpl();
 
-const backupTask = await api(base, token, `/nodes/${encodeURIComponent(sourceNode)}/vzdump`, {
-  method: "POST",
-  headers: { "Content-Type": "application/x-www-form-urlencoded" },
-  body: backupParams,
-});
+  const sourceConfig = await apiImpl(base, token, `/nodes/${encodeURIComponent(sourceNode)}/qemu/${vmid}/config`);
+  const sourceName = String(sourceConfig.data?.name || `vm-${vmid}`);
+  const targetName = (env.PVE_TARGET_NAME || sourceName).trim();
 
-const backupUpid = String(backupTask.data || "");
-if (!backupUpid.startsWith("UPID:")) throw new Error(`unexpected backup task response: ${JSON.stringify(backupTask)}`);
+  const backupParams = new URLSearchParams({
+    vmid: String(vmid),
+    storage: backupStorage,
+    mode: backupMode,
+    compress: "zstd",
+    remove: "0",
+  });
 
-const backupResult = await waitTask(base, token, sourceNode, backupUpid, 7200);
-if (backupResult.exitstatus !== "OK") throw new Error(`backup failed: ${backupResult.exitstatus || "unknown"}`);
+  const backupTask = await apiImpl(base, token, `/nodes/${encodeURIComponent(sourceNode)}/vzdump`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: backupParams,
+  });
 
-const content = await api(
-  base,
-  token,
-  `/nodes/${encodeURIComponent(sourceNode)}/storage/${encodeURIComponent(backupStorage)}/content?content=backup`,
-);
+  const backupUpid = String(backupTask.data || "");
+  if (!backupUpid.startsWith("UPID:")) throw new Error(`unexpected backup task response: ${JSON.stringify(backupTask)}`);
 
-const backups = ((content.data || []) as any[])
-  .filter((x) => String(x.volid || "").includes(`vzdump-qemu-${vmid}-`))
-  .sort((a, b) => Number(b.ctime || 0) - Number(a.ctime || 0));
+  const backupResult = await waitTaskImpl(base, token, sourceNode, backupUpid, 7200);
+  if (backupResult.exitstatus !== "OK") throw new Error(`backup failed: ${backupResult.exitstatus || "unknown"}`);
 
-if (!backups.length) throw new Error(`no backup artifact found for qemu/${vmid} in storage '${backupStorage}'`);
-const archive = String(backups[0].volid);
-
-let deleteResult: { status?: string; exitstatus?: string } | null = null;
-if (deleteSource) {
-  const del = await api(
+  const content = await apiImpl(
     base,
     token,
-    `/nodes/${encodeURIComponent(sourceNode)}/qemu/${vmid}?purge=1&destroy-unreferenced-disks=1`,
-    { method: "DELETE" },
+    `/nodes/${encodeURIComponent(sourceNode)}/storage/${encodeURIComponent(backupStorage)}/content?content=backup`,
   );
-  const delUpid = String(del.data || "");
-  if (!delUpid.startsWith("UPID:")) throw new Error(`unexpected delete response: ${JSON.stringify(del)}`);
-  deleteResult = await waitTask(base, token, sourceNode, delUpid, 3600);
-  if (deleteResult.exitstatus !== "OK") throw new Error(`source delete failed: ${deleteResult.exitstatus || "unknown"}`);
+
+  const backups = ((content.data || []) as any[])
+    .filter((x) => String(x.volid || "").includes(`vzdump-qemu-${vmid}-`))
+    .sort((a, b) => Number(b.ctime || 0) - Number(a.ctime || 0));
+
+  if (!backups.length) throw new Error(`no backup artifact found for qemu/${vmid} in storage '${backupStorage}'`);
+  const archive = String(backups[0].volid);
+
+  const restoreParams = new URLSearchParams();
+  restoreParams.set("vmid", String(targetVmid));
+  restoreParams.set("archive", archive);
+  restoreParams.set("storage", targetStorage);
+  restoreParams.set("name", targetName);
+  restoreParams.set("unique", "1");
+
+  const restoreTask = await apiImpl(base, token, `/nodes/${encodeURIComponent(targetNode)}/qemu`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: restoreParams,
+  });
+
+  const restoreUpid = String(restoreTask.data || "");
+  if (!restoreUpid.startsWith("UPID:")) throw new Error(`unexpected restore response: ${JSON.stringify(restoreTask)}`);
+
+  const restoreResult = await waitTaskImpl(base, token, targetNode, restoreUpid, 7200);
+  if (restoreResult.exitstatus !== "OK") throw new Error(`restore failed: ${restoreResult.exitstatus || "unknown"}`);
+
+  let deleteResult: WaitTaskResult | null = null;
+  if (deleteSource) {
+    const del = await apiImpl(
+      base,
+      token,
+      `/nodes/${encodeURIComponent(sourceNode)}/qemu/${vmid}?purge=1&destroy-unreferenced-disks=1`,
+      { method: "DELETE" },
+    );
+    const delUpid = String(del.data || "");
+    if (!delUpid.startsWith("UPID:")) throw new Error(`unexpected delete response: ${JSON.stringify(del)}`);
+    deleteResult = await waitTaskImpl(base, token, sourceNode, delUpid, 3600);
+    if (deleteResult.exitstatus !== "OK") throw new Error(`source delete failed: ${deleteResult.exitstatus || "unknown"}`);
+  }
+
+  const targetConfig = await apiImpl(base, token, `/nodes/${encodeURIComponent(targetNode)}/qemu/${targetVmid}/config`);
+
+  return {
+    source: { node: sourceNode, vmid, name: sourceName },
+    backup: { storage: backupStorage, upid: backupUpid, archive },
+    deleted_source: deleteSource ? deleteResult : null,
+    restored: { node: targetNode, vmid: targetVmid, name: targetName, upid: restoreUpid },
+    target_config: targetConfig.data || {},
+  };
 }
 
-const restoreParams = new URLSearchParams();
-restoreParams.set("vmid", String(targetVmid));
-restoreParams.set("archive", archive);
-restoreParams.set("storage", targetStorage);
-restoreParams.set("name", targetName);
-restoreParams.set("unique", "1");
-
-const restoreTask = await api(base, token, `/nodes/${encodeURIComponent(targetNode)}/qemu`, {
-  method: "POST",
-  headers: { "Content-Type": "application/x-www-form-urlencoded" },
-  body: restoreParams,
-});
-
-const restoreUpid = String(restoreTask.data || "");
-if (!restoreUpid.startsWith("UPID:")) throw new Error(`unexpected restore response: ${JSON.stringify(restoreTask)}`);
-
-const restoreResult = await waitTask(base, token, targetNode, restoreUpid, 7200);
-if (restoreResult.exitstatus !== "OK") throw new Error(`restore failed: ${restoreResult.exitstatus || "unknown"}`);
-
-const targetConfig = await api(base, token, `/nodes/${encodeURIComponent(targetNode)}/qemu/${targetVmid}/config`);
-
-console.log(
-  JSON.stringify(
-    {
-      source: { node: sourceNode, vmid, name: sourceName },
-      backup: { storage: backupStorage, upid: backupUpid, archive },
-      deleted_source: deleteSource ? deleteResult : null,
-      restored: { node: targetNode, vmid: targetVmid, name: targetName, upid: restoreUpid },
-      target_config: targetConfig.data || {},
-    },
-    null,
-    2,
-  ),
-);
+if (import.meta.main) {
+  try {
+    const result = await runProxmoxMoveVmViaBackupRestore();
+    console.log(JSON.stringify(result, null, 2));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exit(message.startsWith("Missing required env vars:") ? 2 : 1);
+  }
+}
