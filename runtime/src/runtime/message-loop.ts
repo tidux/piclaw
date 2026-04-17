@@ -72,8 +72,11 @@ export async function processMessages(chatJid: string, deps: MessageProcessingDe
   if (!hasTrigger) return true;
 
   const channel = detectChannel(chatJid);
-  deps.state.lastAgentTimestamp[chatJid] = messages[messages.length - 1].timestamp;
-  deps.state.saveTimestamps();
+  const nextTimestamp = messages[messages.length - 1].timestamp;
+  const commitLastAgentTimestamp = () => {
+    deps.state.lastAgentTimestamp[chatJid] = nextTimestamp;
+    deps.state.saveTimestamps();
+  };
 
   const stripTrigger = (text: string): string => {
     if (!text) return "";
@@ -106,8 +109,10 @@ export async function processMessages(chatJid: string, deps: MessageProcessingDe
         chatJid,
         errorMessage: result.message,
       });
+      return true;
     }
 
+    commitLastAgentTimestamp();
     return true;
   }
 
@@ -146,6 +151,7 @@ export async function processMessages(chatJid: string, deps: MessageProcessingDe
     if (text) await deps.whatsapp.sendMessage(chatJid, text);
   }
 
+  commitLastAgentTimestamp();
   return true;
 }
 
