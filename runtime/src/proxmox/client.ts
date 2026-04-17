@@ -91,6 +91,7 @@ export interface ProxmoxApiRequest {
   query?: unknown;
   body?: unknown;
   body_mode?: "form" | "json";
+  timeout_ms?: number;
 }
 
 export interface ProxmoxApiResponse {
@@ -226,19 +227,26 @@ type CurlExecutor = (command: string[]) => Promise<CurlExecutionResult>;
 const DEFAULT_STATUS_MARKER = "__PICLAW_PROXMOX_STATUS__:";
 export const DEFAULT_PROXMOX_POLL_MS = 2_000;
 export const DEFAULT_PROXMOX_TIMEOUT_MS = 120_000;
+export const DEFAULT_PROXMOX_REQUEST_TIMEOUT_MS = 15_000;
+export const DEFAULT_PROXMOX_CONNECT_TIMEOUT_MS = 5_000;
 
 async function defaultCurlExecutor(command: string[]): Promise<CurlExecutionResult> {
-  const proc = Bun.spawnSync(command, {
+  const proc = Bun.spawn(command, {
     cwd: process.cwd(),
     stdout: "pipe",
     stderr: "pipe",
     env: process.env,
   });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
 
   return {
-    exitCode: proc.exitCode,
-    stdout: proc.stdout.toString(),
-    stderr: proc.stderr.toString(),
+    exitCode,
+    stdout,
+    stderr,
   };
 }
 
@@ -571,10 +579,17 @@ export async function requestProxmoxApi(
   const query = toSearchParams(request.query);
   const url = `${baseUrl}${path}${query.size ? `?${query.toString()}` : ""}`;
   const token = await resolveProxmoxToken(config.api_token_keychain);
+  const timeoutMs = Math.max(1_000, Math.trunc(request.timeout_ms ?? DEFAULT_PROXMOX_REQUEST_TIMEOUT_MS));
+  const connectTimeoutSec = Math.max(1, Math.ceil(Math.min(timeoutMs, DEFAULT_PROXMOX_CONNECT_TIMEOUT_MS) / 1_000));
+  const maxTimeSec = Math.max(connectTimeoutSec, Math.ceil(timeoutMs / 1_000));
 
   const command = [
     "curl",
     "-sS",
+    "--connect-timeout",
+    String(connectTimeoutSec),
+    "--max-time",
+    String(maxTimeSec),
     ...(config.allow_insecure_tls ? ["-k"] : []),
     "-H",
     `Authorization: PVEAPIToken=${token.username}=${token.secret}`,
@@ -597,27 +612,39 @@ export async function requestProxmoxApi(
   command.push("-w", `\n${DEFAULT_STATUS_MARKER}%{http_code}`);
   command.push(url);
 
-  const result = await curlExecutor(command);
-  if (result.exitCode !== 0) {
-    const stderr = result.stderr.trim() || `curl failed with exit code ${result.exitCode}`;
-    throw new Error(await redactKeychainSecretsInText(stderr));
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      curlExecutor(command),
+      new Promise<CurlExecutionResult>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error(`Proxmox request ${method} ${path} timed out after ${timeoutMs}ms.`));
+        }, timeoutMs);
+      }),
+    ]);
+    if (result.exitCode !== 0) {
+      const stderr = result.stderr.trim() || `curl failed with exit code ${result.exitCode}`;
+      throw new Error(await redactKeychainSecretsInText(stderr));
+    }
+
+    const { bodyText, status } = splitStatusMarker(result.stdout);
+    const body = parseResponseBody(bodyText);
+
+    if (status >= 400) {
+      const redactedBody = await redactKeychainSecretsInText(typeof body === "string" ? body : JSON.stringify(body));
+      throw new Error(`Proxmox API ${method} ${path} failed with HTTP ${status}: ${redactedBody}`);
+    }
+
+    return {
+      status,
+      body,
+      raw_body: bodyText,
+      path,
+      method,
+    };
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
   }
-
-  const { bodyText, status } = splitStatusMarker(result.stdout);
-  const body = parseResponseBody(bodyText);
-
-  if (status >= 400) {
-    const redactedBody = await redactKeychainSecretsInText(typeof body === "string" ? body : JSON.stringify(body));
-    throw new Error(`Proxmox API ${method} ${path} failed with HTTP ${status}: ${redactedBody}`);
-  }
-
-  return {
-    status,
-    body,
-    raw_body: bodyText,
-    path,
-    method,
-  };
 }
 
 export class ProxmoxClient {

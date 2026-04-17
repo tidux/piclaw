@@ -317,6 +317,8 @@ test("requestProxmoxApi builds curl requests for query params and form/json bodi
       path: "/nodes/pve/qemu/117/status/start",
       method: "POST",
     });
+    expect(seen[0]).toContain("--connect-timeout");
+    expect(seen[0]).toContain("--max-time");
     expect(seen[0]).toContain("-k");
     expect(seen[0]).toContain("Authorization: PVEAPIToken=root@pam!piclaw=token-secret");
     expect(seen[0]).toContain("vmid=117&tags=prod&tags=lab");
@@ -340,6 +342,32 @@ test("requestProxmoxApi builds curl requests for query params and form/json bodi
     expect(seen[1]).not.toContain("-k");
     expect(seen[1]).toContain("Content-Type: application/json");
     expect(seen[1]).toContain('{"memory":4096}');
+  });
+});
+
+test("requestProxmoxApi times out hanging curl executions", async () => {
+  await withProxmoxContext(async ({ keychain, proxmox }) => {
+    await keychain.setKeychainEntry({
+      name: "proxmox/direct",
+      type: "secret",
+      secret: "token-secret",
+      username: "root@pam!piclaw",
+    });
+
+    proxmox.setProxmoxCurlExecutorForTests(async () => await new Promise<never>(() => {}));
+
+    await expect(proxmox.requestProxmoxApi(
+      {
+        base_url: "https://proxmox.example.com:8006/api2/json",
+        api_token_keychain: "proxmox/direct",
+        allow_insecure_tls: true,
+      },
+      {
+        method: "GET",
+        path: "/cluster/status",
+        timeout_ms: 25,
+      },
+    )).rejects.toThrow("timed out after 1000ms");
   });
 });
 
