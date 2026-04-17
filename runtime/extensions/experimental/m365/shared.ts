@@ -844,6 +844,30 @@ export function extractConsumerAuthCodeFromRedirect(url: string, expectedRedirec
 	}
 }
 
+function getOAuthRedirectParams(url: string, expectedRedirectUri: string): URLSearchParams | null {
+	try {
+		const expectedRedirect = new URL(expectedRedirectUri);
+		const urlObj = new URL(url);
+		if (urlObj.origin !== expectedRedirect.origin || urlObj.pathname !== expectedRedirect.pathname) return null;
+		const params = new URLSearchParams(urlObj.search);
+		const hashParams = new URLSearchParams(urlObj.hash.replace(/^#/, ""));
+		for (const [key, value] of hashParams.entries()) {
+			params.set(key, value);
+		}
+		return params;
+	} catch {
+		return null;
+	}
+}
+
+export function extractImplicitOAuthTokenFromRedirect(url: string, expectedRedirectUri: string, expectedState: string): string | null {
+	const params = getOAuthRedirectParams(url, expectedRedirectUri);
+	if (!params || params.get("error")) return null;
+	const returnedState = params.get("state");
+	const token = params.get("access_token");
+	return token && returnedState === expectedState ? token : null;
+}
+
 export function resolveGraphAuthMode(options: {
 	tenantId?: string;
 	isConsumer?: boolean;
@@ -1654,15 +1678,17 @@ export async function acquireGraphToken(): Promise<string> {
 
 	// ── Method 1+: OAuth implicit flow redirect (fallback) ──
 	const nonce = Math.random().toString(36).substring(2);
+	const state = base64UrlEncode(randomBytes(16));
 	const authUrl =
 		`https://login.microsoftonline.com/${getTenantId()}/oauth2/authorize` +
 		`?response_type=token` +
 		`&client_id=${TEAMS_CLIENT_ID}` +
 		`&resource=${encodeURIComponent("https://graph.microsoft.com")}` +
 		`&redirect_uri=${encodeURIComponent(TEAMS_REDIRECT_URI)}` +
-		`&nonce=${nonce}`;
+		`&nonce=${nonce}` +
+		`&state=${encodeURIComponent(state)}`;
 
-	const { proc, port, ws: preparedWs } = await prepareFreshAuthBrowserSession(
+	const { proc, port, ws: preparedWs, tabId } = await prepareFreshAuthBrowserSession(
 		authUrl,
 			"The agent will navigate this tab to the sign-in page required to refresh authentication for Graph-backed M365 actions such as mail, calendar, OneDrive, and SharePoint.",
 		);
@@ -1672,106 +1698,84 @@ export async function acquireGraphToken(): Promise<string> {
 		const ws = preparedWs ?? await cdpConnect(port);
 		cdpSend(ws, "Page.enable");
 		cdpSend(ws, "Page.addScriptToEvaluateOnNewDocument", {
-			source: `if (location.hash && location.hash.includes('access_token=')) { window.__oauthToken = location.hash.match(/access_token=([^&]+)/)?.[1] ?? null; }`
+			source: `(() => {
+				const expectedOrigin = ${JSON.stringify(new URL(TEAMS_REDIRECT_URI).origin)};
+				const expectedPath = ${JSON.stringify(new URL(TEAMS_REDIRECT_URI).pathname)};
+				const expectedState = ${JSON.stringify(state)};
+				const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+				const token = params.get('access_token');
+				if (location.origin === expectedOrigin && location.pathname === expectedPath && params.get('state') === expectedState && token) {
+					window.__oauthToken = token;
+				}
+			})();`
 		});
 
-		// Also evaluate current pages immediately in case redirect already happened
 		const deadline = Date.now() + 90000;
 		while (Date.now() < deadline) {
 			await sleep(1000);
 			try {
-				// Method 1: Check all page URLs from /json (works if redirect is slow)
-				const targets: any[] = await httpGet(`http://localhost:${port}/json`, 3000);
-				for (const page of targets.filter((t: any) => t.type === "page" && t.url)) {
-					const match = page.url.match(/access_token=([^&]+)/);
-					if (match) {
-						const token = decodeURIComponent(match[1]);
+				const authTab = tabId ? await findPageTargetById(port, tabId).catch(() => null) : null;
+				if (tabId && !authTab) break;
+
+				const authTabUrl = String(authTab?.url ?? "");
+				const redirectToken = extractImplicitOAuthTokenFromRedirect(authTabUrl, TEAMS_REDIRECT_URI, state);
+				if (redirectToken) {
+					const token = decodeURIComponent(redirectToken);
+					saveToken("graph", token);
+					closeWebSocketBestEffort(ws, "Failed to close the Graph OAuth websocket after detecting a redirect token in the auth tab.", { port, tabId });
+					return token;
+				}
+
+				if (authTabUrl.match(/error=/) && authTabUrl.match(/login\.microsoftonline/)) {
+					const errMatch = authTabUrl.match(/error=([^&]+)/);
+					throw new Error(`OAuth error: ${decodeURIComponent(errMatch?.[1] ?? "unknown")}`);
+				}
+
+				const href = await cdpEval(ws, "location.href", false, 3000);
+				if (typeof href === "string") {
+					const tokenFromHref = extractImplicitOAuthTokenFromRedirect(href, TEAMS_REDIRECT_URI, state);
+					if (tokenFromHref) {
+						const token = decodeURIComponent(tokenFromHref);
 						saveToken("graph", token);
-						closeWebSocketBestEffort(ws, "Failed to close the Graph OAuth websocket after detecting a redirect token in the page list.", { port });
+						closeWebSocketBestEffort(ws, "Failed to close the Graph OAuth websocket after capturing a redirect token from the auth tab.", { port, tabId });
 						return token;
 					}
-					if (page.url.match(/error=/) && page.url.match(/login\.microsoftonline/)) {
-						const errMatch = page.url.match(/error=([^&]+)/);
-						throw new Error(`OAuth error: ${decodeURIComponent(errMatch?.[1] ?? "unknown")}`);
-					}
 				}
 
-				// Method 2: Evaluate location.href on all page targets (catches hash fragments)
-				for (const page of targets.filter((t: any) => t.type === "page" && t.webSocketDebuggerUrl)) {
-					try {
-						const pageWs = await cdpConnect(port, page.url?.includes("teams.microsoft.com") ? "teams.microsoft.com" : page.url?.includes("teams.cloud.microsoft") ? "teams.cloud.microsoft" : undefined);
-						const href = await cdpEval(pageWs, "location.href", false, 3000);
-						closeWebSocketBestEffort(pageWs, "Failed to close a Graph OAuth probe websocket.", {
-							pageUrl: page.url ?? null,
-							port,
-						});
-						if (typeof href === "string") {
-							const hrefMatch = href.match(/access_token=([^&]+)/);
-							if (hrefMatch) {
-								const token = decodeURIComponent(hrefMatch[1]);
-								saveToken("graph", token);
-								closeWebSocketBestEffort(ws, "Failed to close the Graph OAuth websocket after capturing a token.", { port });
-								return token;
-							}
-						}
-					} catch (error) {
-						logSuppressedM365("Failed to inspect a Graph OAuth page while looking for a redirect token.", error, {
-							pageUrl: page.url ?? null,
-							port,
-						});
-					}
-				}
-
-				// Method 3: Check if any page captured the token via addScriptToEvaluateOnNewDocument
+				// Check if the current auth tab captured the token before the page moved on.
 				const captured = await cdpEval(ws, "window.__oauthToken", false, 2000);
 				if (captured && typeof captured === "string" && captured.length > 50) {
 					const token = decodeURIComponent(captured);
 					saveToken("graph", token);
-					closeWebSocketBestEffort(ws, "Failed to close the Graph OAuth websocket after reading the captured token.", { port });
+					closeWebSocketBestEffort(ws, "Failed to close the Graph OAuth websocket after reading the captured token.", { port, tabId });
 					return token;
 				}
 
-				// Method 4: Recovery — check for blocking dialogs (e.g., "Continue", "Accept", consent prompts)
-				// These can appear on login.microsoftonline.com or other intermediate pages and block the redirect.
-				for (const page of targets.filter((t: any) => t.type === "page" && t.webSocketDebuggerUrl)) {
-					try {
-						const pageWs = await cdpConnect(port, page.url?.includes("login.microsoftonline") ? "login.microsoftonline" : (page.url?.includes("teams.microsoft") ? "teams.microsoft" : undefined));
-						const clickResult = await cdpEval(pageWs, `(() => {
-							const visible = (el) => {
-								if (!el) return false;
-								const s = getComputedStyle(el);
-								const r = el.getBoundingClientRect();
-								return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
-							};
-							const candidates = [...document.querySelectorAll('input[type="submit"], input[type="button"], button, [role="button"]')].filter(visible);
-							const patterns = /^(continue|accept|yes|next|sign in|submit|allow|ok|got it)$/i;
-							for (const el of candidates) {
-								const text = (el.value || el.textContent || el.getAttribute('aria-label') || '').trim();
-								if (patterns.test(text)) {
-									el.click();
-									return 'clicked: ' + text;
-								}
-							}
-							const msButton = document.getElementById('idSIButton9') || document.getElementById('idBtn_Accept');
-							if (msButton && visible(msButton)) {
-								msButton.click();
-								return 'clicked-ms-button: ' + (msButton.textContent || msButton.value || msButton.id).trim();
-							}
-							return null;
-						})()`, false, 3000);
-						closeWebSocketBestEffort(pageWs, "Failed to close a Graph OAuth dialog-probe websocket.", {
-							pageUrl: page.url ?? null,
-							port,
-						});
-						if (clickResult) {
-							await sleep(2000);
+				const clickResult = await cdpEval(ws, `(() => {
+					const visible = (el) => {
+						if (!el) return false;
+						const s = getComputedStyle(el);
+						const r = el.getBoundingClientRect();
+						return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+					};
+					const candidates = [...document.querySelectorAll('input[type="submit"], input[type="button"], button, [role="button"]')].filter(visible);
+					const patterns = /^(continue|accept|yes|next|sign in|submit|allow|ok|got it)$/i;
+					for (const el of candidates) {
+						const text = (el.value || el.textContent || el.getAttribute('aria-label') || '').trim();
+						if (patterns.test(text)) {
+							el.click();
+							return 'clicked: ' + text;
 						}
-					} catch (error) {
-						logSuppressedM365("Failed to probe a Graph OAuth dialog page; continuing with other recovery paths.", error, {
-							pageUrl: page.url ?? null,
-							port,
-						});
 					}
+					const msButton = document.getElementById('idSIButton9') || document.getElementById('idBtn_Accept');
+					if (msButton && visible(msButton)) {
+						msButton.click();
+						return 'clicked-ms-button: ' + (msButton.textContent || msButton.value || msButton.id).trim();
+					}
+					return null;
+				})()`, false, 3000);
+				if (clickResult) {
+					await sleep(2000);
 				}
 
 				const refreshed = await redeemTeamsRefreshToken("https://graph.microsoft.com");
@@ -1881,13 +1885,15 @@ export async function acquireChatsvcToken(): Promise<{ token: string; baseUrl: s
 	// fresh token for the Teams resource directly instead of hoping passive network
 	// interception will observe one in time.
 	const nonce = Math.random().toString(36).substring(2);
+	const state = base64UrlEncode(randomBytes(16));
 	const teamsAuthUrl =
 		`https://login.microsoftonline.com/${getTenantId()}/oauth2/authorize` +
 		`?response_type=token` +
 		`&client_id=${TEAMS_CLIENT_ID}` +
 		`&resource=${encodeURIComponent("https://ic3.teams.office.com")}` +
 		`&redirect_uri=${encodeURIComponent(TEAMS_REDIRECT_URI)}` +
-		`&nonce=${nonce}`;
+		`&nonce=${nonce}` +
+		`&state=${encodeURIComponent(state)}`;
 
 	const oauth = await prepareFreshAuthBrowserSession(
 		teamsAuthUrl,
@@ -1897,32 +1903,63 @@ export async function acquireChatsvcToken(): Promise<{ token: string; baseUrl: s
 		const ws = oauth.ws ?? await cdpConnect(oauth.port);
 		cdpSend(ws, "Page.enable");
 		cdpSend(ws, "Page.addScriptToEvaluateOnNewDocument", {
-			source: `if (location.hash && location.hash.includes('access_token=')) { window.__oauthToken = location.hash.match(/access_token=([^&]+)/)?.[1] ?? null; }`,
+			source: `(() => {
+				const expectedOrigin = ${JSON.stringify(new URL(TEAMS_REDIRECT_URI).origin)};
+				const expectedPath = ${JSON.stringify(new URL(TEAMS_REDIRECT_URI).pathname)};
+				const expectedState = ${JSON.stringify(state)};
+				const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+				const token = params.get('access_token');
+				if (location.origin === expectedOrigin && location.pathname === expectedPath && params.get('state') === expectedState && token) {
+					window.__oauthToken = token;
+				}
+			})();`,
 		});
 
 		const deadline = Date.now() + 90000;
 		while (Date.now() < deadline) {
 			await sleep(1000);
 			try {
-				const targets: any[] = await httpGet(`http://localhost:${oauth.port}/json`, 3000);
-				for (const page of targets.filter((t: any) => t.type === "page" && t.url)) {
-					const match = page.url.match(/access_token=([^&]+)/);
-					if (match) {
-						const token = decodeURIComponent(match[1]);
+				const authTab = oauth.tabId ? await findPageTargetById(oauth.port, oauth.tabId).catch(() => null) : null;
+				if (oauth.tabId && !authTab) break;
+
+				const authTabUrl = String(authTab?.url ?? "");
+				const redirectToken = extractImplicitOAuthTokenFromRedirect(authTabUrl, TEAMS_REDIRECT_URI, state);
+				if (redirectToken) {
+					const token = decodeURIComponent(redirectToken);
+					const claims = decodeJwt(token);
+					if ((claims.aud ?? "").includes("ic3.teams.office.com") || (claims.aud ?? "").includes("chatsvcagg") || (claims.scp ?? "").includes("Teams.AccessAsUser.All")) {
+						setChatsvcFromToken(token);
+						const baseUrl = getChatsvcBaseUrl();
+						saveToken("teams_chatsvc", token, baseUrl);
+						closeWebSocketBestEffort(ws, "Failed to close the Teams OAuth websocket after detecting a redirect token in the auth tab.", {
+							oauthPort: oauth.port,
+							oauthTabId: oauth.tabId,
+						});
+						return { token, baseUrl };
+					}
+				}
+
+				if (authTabUrl.match(/error=/) && authTabUrl.match(/login\.microsoftonline/)) {
+					const errMatch = authTabUrl.match(/error=([^&]+)/);
+					throw new Error(`Teams OAuth error: ${decodeURIComponent(errMatch?.[1] ?? "unknown")}`);
+				}
+
+				const href = await cdpEval(ws, "location.href", false, 3000);
+				if (typeof href === "string") {
+					const tokenFromHref = extractImplicitOAuthTokenFromRedirect(href, TEAMS_REDIRECT_URI, state);
+					if (tokenFromHref) {
+						const token = decodeURIComponent(tokenFromHref);
 						const claims = decodeJwt(token);
 						if ((claims.aud ?? "").includes("ic3.teams.office.com") || (claims.aud ?? "").includes("chatsvcagg") || (claims.scp ?? "").includes("Teams.AccessAsUser.All")) {
 							setChatsvcFromToken(token);
 							const baseUrl = getChatsvcBaseUrl();
 							saveToken("teams_chatsvc", token, baseUrl);
-							closeWebSocketBestEffort(ws, "Failed to close the Teams OAuth websocket after detecting a redirect token in the page list.", {
+							closeWebSocketBestEffort(ws, "Failed to close the Teams OAuth websocket after capturing a redirect token from the auth tab.", {
 								oauthPort: oauth.port,
+								oauthTabId: oauth.tabId,
 							});
 							return { token, baseUrl };
 						}
-					}
-					if (page.url.match(/error=/) && page.url.match(/login\.microsoftonline/)) {
-						const errMatch = page.url.match(/error=([^&]+)/);
-						throw new Error(`Teams OAuth error: ${decodeURIComponent(errMatch?.[1] ?? "unknown")}`);
 					}
 				}
 
@@ -1941,30 +1978,16 @@ export async function acquireChatsvcToken(): Promise<{ token: string; baseUrl: s
 					}
 				}
 
-				for (const page of targets.filter((t: any) => t.type === "page" && t.webSocketDebuggerUrl)) {
-					try {
-						const pageWs = await cdpConnect(oauth.port, page.url?.includes("login.microsoftonline") ? "login.microsoftonline" : page.url?.includes("teams.microsoft") ? "teams.microsoft" : page.url?.includes("teams.cloud.microsoft") ? "teams.cloud.microsoft" : undefined);
-						const clickResult = await cdpEval(pageWs, `(() => {
-							const visible = (el) => { if (!el) return false; const s = getComputedStyle(el); const r = el.getBoundingClientRect(); return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0; };
-							const candidates = [...document.querySelectorAll('input[type="submit"], input[type="button"], button, [role="button"]')].filter(visible);
-							const patterns = /^(continue|accept|yes|next|sign in|submit|allow|ok|got it)$/i;
-							for (const el of candidates) { const text = (el.value || el.textContent || el.getAttribute('aria-label') || '').trim(); if (patterns.test(text)) { el.click(); return 'clicked: ' + text; } }
-							const msButton = document.getElementById('idSIButton9') || document.getElementById('idBtn_Accept');
-							if (msButton && visible(msButton)) { msButton.click(); return 'clicked-ms-button: ' + (msButton.textContent || msButton.value || msButton.id).trim(); }
-							return null;
-						})()`, false, 3000);
-						closeWebSocketBestEffort(pageWs, "Failed to close a Teams OAuth dialog-probe websocket.", {
-							pageUrl: page.url ?? null,
-							oauthPort: oauth.port,
-						});
-						if (clickResult) await sleep(2000);
-					} catch (error) {
-						logSuppressedM365("Failed to probe a Teams OAuth dialog page; continuing with other recovery paths.", error, {
-							pageUrl: page.url ?? null,
-							oauthPort: oauth.port,
-						});
-					}
-				}
+				const clickResult = await cdpEval(ws, `(() => {
+					const visible = (el) => { if (!el) return false; const s = getComputedStyle(el); const r = el.getBoundingClientRect(); return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0; };
+					const candidates = [...document.querySelectorAll('input[type="submit"], input[type="button"], button, [role="button"]')].filter(visible);
+					const patterns = /^(continue|accept|yes|next|sign in|submit|allow|ok|got it)$/i;
+					for (const el of candidates) { const text = (el.value || el.textContent || el.getAttribute('aria-label') || '').trim(); if (patterns.test(text)) { el.click(); return 'clicked: ' + text; } }
+					const msButton = document.getElementById('idSIButton9') || document.getElementById('idBtn_Accept');
+					if (msButton && visible(msButton)) { msButton.click(); return 'clicked-ms-button: ' + (msButton.textContent || msButton.value || msButton.id).trim(); }
+					return null;
+				})()`, false, 3000);
+				if (clickResult) await sleep(2000);
 
 				const refreshed = await redeemTeamsRefreshToken("https://ic3.teams.office.com");
 				if (refreshed) {
@@ -2210,14 +2233,33 @@ export async function graphFetch(
 		headers,
 		body: requestBody,
 	}, { "sec-fetch-site": "cross-site" });
+	const discardResponseBody = async (resp: Response) => {
+		try {
+			if (resp.body && !resp.body.locked && typeof resp.body.cancel === "function") {
+				await resp.body.cancel();
+				return;
+			}
+		} catch {
+			// Fall back to draining the body text below.
+		}
+		try {
+			await resp.text();
+		} catch {
+			// Best effort only; retry path should not fail because the error body was unreadable.
+		}
+	};
 	const handle = async (resp: Response) => {
 		if (!resp.ok) throw new Error(`Graph ${resp.status}: ${await resp.text()}`);
 		if (responseType === "response") return resp;
 		if (responseType === "text") return resp.text();
-		return resp.json();
+		if (resp.status === 204) return null;
+		const text = await resp.text();
+		if (!text) return null;
+		return JSON.parse(text);
 	};
 	const resp = await run();
 	if (resp.status === 401) {
+		await discardResponseBody(resp);
 		const freshToken = await auth.getGraphToken(true);
 		headers.Authorization = `Bearer ${freshToken}`;
 		return handle(await run());
