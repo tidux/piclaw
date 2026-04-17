@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { HTML_ATTACHMENT_PREVIEW_SANDBOX } from "../../web/src/components/attachment-preview-modal.ts";
 import { getAttachmentPreviewKind, getAttachmentPreviewLabel } from "../../web/src/ui/attachment-preview.js";
 
 describe("attachment preview kind", () => {
@@ -11,5 +12,10 @@ describe("attachment preview kind", () => {
 
   test("returns the ZIP archive preview label", () => {
     expect(getAttachmentPreviewLabel("archive")).toBe("ZIP archive preview");
+  });
+
+  test("HTML attachment previews do not run with same-origin iframe privileges", () => {
+    expect(HTML_ATTACHMENT_PREVIEW_SANDBOX).toBe("allow-scripts");
+    expect(HTML_ATTACHMENT_PREVIEW_SANDBOX.includes("allow-same-origin")).toBe(false);
   });
 });

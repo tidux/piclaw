@@ -8,6 +8,8 @@ import { highlightCodeToHtml, normalizeCodeLanguageLabel } from '../utils/code-h
 import { getAttachmentPreviewKind, getAttachmentPreviewLabel, isMarkdownAttachmentPreview } from '../ui/attachment-preview.js';
 import { formatCompressionRatio, getCompressionMethodLabel, parseZipPreview } from '../ui/zip-preview.js';
 
+export const HTML_ATTACHMENT_PREVIEW_SANDBOX = 'allow-scripts';
+
 function buildMetadata(info, languageLabel = null, archivePreview = null) {
     const size = info?.metadata?.size;
     const contentType = info?.content_type || 'application/octet-stream';
@@ -248,7 +250,7 @@ export function AttachmentPreviewModal({ mediaId, info, onClose }) {
                             <video class="attachment-preview-video" src=${getMediaUrl(mediaId)} controls autoplay style="max-width:100%;max-height:100%;" />
                         `}
                         ${!loading && !error && previewKind === 'html' && html`
-                            <iframe class="attachment-preview-frame" srcdoc=${textContent || ''} sandbox="allow-scripts allow-same-origin" title=${filename}></iframe>
+                            <iframe class="attachment-preview-frame" srcdoc=${textContent || ''} sandbox=${HTML_ATTACHMENT_PREVIEW_SANDBOX} title=${filename}></iframe>
                         `}
                         ${!loading && !error && (previewKind === 'pdf' || previewKind === 'office' || previewKind === 'drawio') && frameUrl && html`
                             <iframe class="attachment-preview-frame" src=${frameUrl} title=${filename}></iframe>
