@@ -32,7 +32,7 @@
   <rect x="0" y="0" width="1200" height="960" fill="url(#bg)"/>
 
   <text x="40" y="48" class="h1">Piclaw RAM reduction progress</text>
-  <text x="40" y="74" class="body">Generated from docs/performance/memory-footprint-history.md · latest commit 49fae082 · 8 cold experiment steps · 5 live snapshots</text>
+  <text x="40" y="74" class="body">Generated from docs/performance/memory-footprint-history.md · latest commit 0943907f · 8 cold experiment steps · 6 live snapshots</text>
 
   <g filter="url(#shadow)">
     <rect x="40" y="100" width="350" height="112" rx="18" fill="#111827" stroke="#1f2937"/>
@@ -45,12 +45,12 @@
   <text x="62" y="190" class="body">RSS delta 133.3 → 25.3 MB · elapsed 630 → 215 ms</text>
 
   <text x="447" y="132" class="small">Live-service RSS progression (chronological)</text>
-  <text x="447" y="168" class="metric" fill="#a78bfa">-51.7%</text>
-  <text x="447" y="190" class="body">450.8 → 217.7 MB RSS · -54.5% from 478.7 MB peak</text>
+  <text x="447" y="168" class="metric" fill="#a78bfa">-43.6%</text>
+  <text x="447" y="190" class="body">450.8 → 254.1 MB RSS · -46.9% from 478.7 MB peak</text>
 
   <text x="832" y="132" class="small">Current live service snapshot</text>
-  <text x="832" y="168" class="metric">217.7 MB</text>
-  <text x="832" y="190" class="body">PSS 216.2 · heap 44.8 · external 14</text>
+  <text x="832" y="168" class="metric">254.1 MB</text>
+  <text x="832" y="190" class="body">PSS 253.2 · heap 93.1 · external 61.5</text>
 
   <g filter="url(#shadow)">
     <rect x="40" y="240" width="550" height="330" rx="22" fill="#111827" stroke="#1f2937"/>
@@ -178,37 +178,42 @@
 <text x="56" y="687.8" class="axis">450</text>
 <line x1="90" y1="645.0" x2="1110" y2="645.0" stroke="#233045" stroke-width="1"/>
 <text x="56" y="649.0" class="axis">600</text>
-<path d="M 90.0 683.5 C 175.0 683.5, 260.0 676.3, 345.0 676.3 C 430.0 676.3, 515.0 727.5, 600.0 727.5 C 685.0 727.5, 770.0 740.7, 855.0 740.7 C 940.0 740.7, 1025.0 743.8, 1110.0 743.8" fill="none" stroke="#60a5fa" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M 90.0 683.8 C 175.0 683.8, 260.0 676.6, 345.0 676.6 C 430.0 676.6, 515.0 729.6, 600.0 729.6 C 685.0 729.6, 770.0 742.3, 855.0 742.3 C 940.0 742.3, 1025.0 744.1, 1110.0 744.1" fill="none" stroke="#a78bfa" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>
+<path d="M 90.0 683.5 C 158.0 683.5, 226.0 676.3, 294.0 676.3 C 362.0 676.3, 430.0 727.5, 498.0 727.5 C 566.0 727.5, 634.0 740.7, 702.0 740.7 C 770.0 740.7, 838.0 743.8, 906.0 743.8 C 974.0 743.8, 1042.0 734.4, 1110.0 734.4" fill="none" stroke="#60a5fa" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 90.0 683.8 C 158.0 683.8, 226.0 676.6, 294.0 676.6 C 362.0 676.6, 430.0 729.6, 498.0 729.6 C 566.0 729.6, 634.0 742.3, 702.0 742.3 C 770.0 742.3, 838.0 744.1, 906.0 744.1 C 974.0 744.1, 1042.0 734.6, 1110.0 734.6" fill="none" stroke="#a78bfa" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>
 <circle cx="90.0" cy="683.5" r="5.5" fill="#60a5fa"/>
 <circle cx="90.0" cy="683.8" r="4.5" fill="#a78bfa"/>
 <text x="90.0" y="673.5" text-anchor="middle" class="value">450.8</text>
 <text x="90.0" y="824" text-anchor="middle" class="small">18:02Z</text>
 <text x="90.0" y="840" text-anchor="middle" class="tiny">bg index baseline</text>
-<circle cx="345.0" cy="676.3" r="5.5" fill="#60a5fa"/>
-<circle cx="345.0" cy="676.6" r="4.5" fill="#a78bfa"/>
-<text x="345.0" y="666.3" text-anchor="middle" class="value">478.7</text>
-<text x="345.0" y="824" text-anchor="middle" class="small">20:00Z</text>
-<text x="345.0" y="840" text-anchor="middle" class="tiny">interactive probe</text>
-<circle cx="600.0" cy="727.5" r="5.5" fill="#60a5fa"/>
-<circle cx="600.0" cy="729.6" r="4.5" fill="#a78bfa"/>
-<text x="600.0" y="717.5" text-anchor="middle" class="value">280.8</text>
-<text x="600.0" y="824" text-anchor="middle" class="small">20:25Z</text>
-<text x="600.0" y="840" text-anchor="middle" class="tiny">post rotate</text>
-<circle cx="855.0" cy="740.7" r="5.5" fill="#60a5fa"/>
-<circle cx="855.0" cy="742.3" r="4.5" fill="#a78bfa"/>
-<text x="855.0" y="730.7" text-anchor="middle" class="value">229.6</text>
-<text x="855.0" y="824" text-anchor="middle" class="small">20:54Z</text>
-<text x="855.0" y="840" text-anchor="middle" class="tiny">service after installing the</text>
-<circle cx="1110.0" cy="743.8" r="5.5" fill="#60a5fa"/>
-<circle cx="1110.0" cy="744.1" r="4.5" fill="#a78bfa"/>
-<text x="1110.0" y="733.8" text-anchor="middle" class="value">217.7</text>
-<text x="1110.0" y="824" text-anchor="middle" class="small">22:03Z</text>
+<circle cx="294.0" cy="676.3" r="5.5" fill="#60a5fa"/>
+<circle cx="294.0" cy="676.6" r="4.5" fill="#a78bfa"/>
+<text x="294.0" y="666.3" text-anchor="middle" class="value">478.7</text>
+<text x="294.0" y="824" text-anchor="middle" class="small">20:00Z</text>
+<text x="294.0" y="840" text-anchor="middle" class="tiny">interactive probe</text>
+<circle cx="498.0" cy="727.5" r="5.5" fill="#60a5fa"/>
+<circle cx="498.0" cy="729.6" r="4.5" fill="#a78bfa"/>
+<text x="498.0" y="717.5" text-anchor="middle" class="value">280.8</text>
+<text x="498.0" y="824" text-anchor="middle" class="small">20:25Z</text>
+<text x="498.0" y="840" text-anchor="middle" class="tiny">post rotate</text>
+<circle cx="702.0" cy="740.7" r="5.5" fill="#60a5fa"/>
+<circle cx="702.0" cy="742.3" r="4.5" fill="#a78bfa"/>
+<text x="702.0" y="730.7" text-anchor="middle" class="value">229.6</text>
+<text x="702.0" y="824" text-anchor="middle" class="small">20:54Z</text>
+<text x="702.0" y="840" text-anchor="middle" class="tiny">service after installing the</text>
+<circle cx="906.0" cy="743.8" r="5.5" fill="#60a5fa"/>
+<circle cx="906.0" cy="744.1" r="4.5" fill="#a78bfa"/>
+<text x="906.0" y="733.8" text-anchor="middle" class="value">217.7</text>
+<text x="906.0" y="824" text-anchor="middle" class="small">22:03Z</text>
+<text x="906.0" y="840" text-anchor="middle" class="tiny">service after installing the</text>
+<circle cx="1110.0" cy="734.4" r="5.5" fill="#60a5fa"/>
+<circle cx="1110.0" cy="734.6" r="4.5" fill="#a78bfa"/>
+<text x="1110.0" y="724.4" text-anchor="middle" class="value">254.1</text>
+<text x="1110.0" y="824" text-anchor="middle" class="small">22:58Z</text>
 <text x="1110.0" y="840" text-anchor="middle" class="tiny">service after installing the</text>
 
   <g filter="url(#shadow)">
     <rect x="40" y="875" width="1120" height="60" rx="18" fill="#111827" stroke="#1f2937"/>
   </g>
   <text x="60" y="900" class="body">Cold experiments: real-workspace RSS delta 133.3 MB → 25.3 MB (-81.0%); elapsed 630 ms → 215 ms (-65.9%).</text>
-  <text x="60" y="918" class="body">Live service: 450.8 MB RSS at 18:02Z → 217.7 MB at 22:03Z (-51.7%); peak was 478.7 MB at 20:00Z.</text>
+  <text x="60" y="918" class="body">Live service: 450.8 MB RSS at 18:02Z → 254.1 MB at 22:58Z (-43.6%); peak was 478.7 MB at 20:00Z.</text>
 </svg>
