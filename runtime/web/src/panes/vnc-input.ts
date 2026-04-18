@@ -67,6 +67,25 @@ export function shouldReleaseVncPointerContact(event) {
     return false;
 }
 
+export function shouldReleaseVncTouchContact(event) {
+    const type = String(event?.type || '').toLowerCase();
+    if (type === 'touchend' || type === 'touchcancel') {
+        return true;
+    }
+    if (type === 'touchmove') {
+        const activeTouches = Number(event?.touches?.length || 0);
+        return activeTouches <= 0;
+    }
+    return false;
+}
+
+export function shouldArmVncImplicitReleaseTimer(pointerType) {
+    const normalized = String(pointerType || '').toLowerCase();
+    // Safari/iPad can report touch/pen inconsistently; anything that is not an
+    // explicit mouse should get the safety-release timer.
+    return normalized !== 'mouse';
+}
+
 export function mapClientToFramebufferPoint(clientX, clientY, rect, framebufferWidth, framebufferHeight) {
     const width = Math.max(1, Math.floor(Number(framebufferWidth || 0)));
     const height = Math.max(1, Math.floor(Number(framebufferHeight || 0)));

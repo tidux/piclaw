@@ -9,7 +9,9 @@ import {
   normalizeVncPassword,
   resolveVncKeysymFromKeyboardEvent,
   resolveVncPointerPressMask,
+  shouldArmVncImplicitReleaseTimer,
   shouldReleaseVncPointerContact,
+  shouldReleaseVncTouchContact,
   vncButtonMaskForPointerButton,
 } from "../../web/src/panes/vnc-input.js";
 
@@ -44,6 +46,22 @@ test("shouldReleaseVncPointerContact detects implicit touch/pen release states",
   expect(shouldReleaseVncPointerContact({ type: "pointerleave", pointerType: "pen", buttons: 1, pressure: 0 })).toBe(true);
   expect(shouldReleaseVncPointerContact({ type: "pointermove", pointerType: "mouse", buttons: 1, pressure: 0.5 })).toBe(false);
   expect(shouldReleaseVncPointerContact({ type: "pointerdown", pointerType: "touch", buttons: 1, pressure: 0.5 })).toBe(false);
+});
+
+test("shouldReleaseVncTouchContact detects touchend/touchcancel and zero-touch moves", () => {
+  expect(shouldReleaseVncTouchContact({ type: "touchend", changedTouches: [{}] })).toBe(true);
+  expect(shouldReleaseVncTouchContact({ type: "touchcancel", changedTouches: [{}] })).toBe(true);
+  expect(shouldReleaseVncTouchContact({ type: "touchmove", touches: [] })).toBe(true);
+  expect(shouldReleaseVncTouchContact({ type: "touchmove", touches: [{}] })).toBe(false);
+  expect(shouldReleaseVncTouchContact({ type: "touchstart", touches: [{}] })).toBe(false);
+});
+
+test("shouldArmVncImplicitReleaseTimer covers touch, pen, and unknown non-mouse pointers", () => {
+  expect(shouldArmVncImplicitReleaseTimer("touch")).toBe(true);
+  expect(shouldArmVncImplicitReleaseTimer("pen")).toBe(true);
+  expect(shouldArmVncImplicitReleaseTimer("" )).toBe(true);
+  expect(shouldArmVncImplicitReleaseTimer(undefined)).toBe(true);
+  expect(shouldArmVncImplicitReleaseTimer("mouse")).toBe(false);
 });
 
 test("mapClientToFramebufferPoint maps scaled display coordinates into framebuffer space", () => {
