@@ -221,7 +221,10 @@ function showIndicator(
   const target = isNext ? neighbours.next : neighbours.prev;
 
   const chevron = indicator.querySelector('.chat-swipe-chevron') as HTMLElement | null;
-  if (chevron) chevron.textContent = isNext ? '›' : '‹';
+  if (chevron) {
+    chevron.textContent = isNext ? '›' : '‹';
+    chevron.style.order = isNext ? '2' : '0';
+  }
 
   const nameEl = indicator.querySelector('.chat-swipe-name') as HTMLElement | null;
   if (nameEl) nameEl.textContent = target?.name ?? '';

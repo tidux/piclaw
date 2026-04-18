@@ -46,7 +46,7 @@
 }
 
 .chat-swipe-chevron {
-    font-size: 22px;
+    font-size: 28px;
     font-weight: 700;
     line-height: 1;
     flex-shrink: 0;
@@ -54,12 +54,13 @@
 }
 
 .chat-swipe-name {
-    font-size: var(--font-size-sm, 13px);
+    font-size: var(--font-size-lg, 20px);
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     letter-spacing: 0.01em;
+    order: 1;
 }
 
 .timeline.normal {
