@@ -12,6 +12,10 @@ import type { WebChannelLike } from "../core/web-channel-contracts.js";
 import type { AttachmentInfo } from "../../../agent-pool/attachments.js";
 import type { AgentEventEmitter } from "../sse/agent-events.js";
 import { formatOutbound, type ChatChannel } from "../../../router.js";
+import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
+import { sendStoredAgentReplyWebPushNotification } from "../push/web-push-service.js";
+
+const log = createLogger("web.agent-message-store");
 
 function buildAttachmentBlocks(attachments: AttachmentInfo[]): {
   mediaIds: number[];
@@ -26,6 +30,19 @@ function buildAttachmentBlocks(attachments: AttachmentInfo[]): {
     size: a.size,
   }));
   return { mediaIds, contentBlocks };
+}
+
+function dispatchStoredReplyWebPush(
+  interaction: ReturnType<WebChannelLike["storeMessage"]>,
+  dispatchWebPushNotification?: (interaction: ReturnType<WebChannelLike["storeMessage"]>) => Promise<unknown>,
+): void {
+  if (!interaction) return;
+  void (dispatchWebPushNotification || sendStoredAgentReplyWebPushNotification)(interaction).catch((error) => {
+    debugSuppressedError(log, "Failed to dispatch Web Push for stored agent reply.", error, {
+      chatJid: interaction.chat_jid,
+      rowId: interaction.id,
+    });
+  });
 }
 
 /** Persist the accumulated agent turn (text + attachments) to the database. */
@@ -44,6 +61,7 @@ export function storeAgentTurn(
     skipPlaceholder?: boolean;
     /** True only for the terminal persisted assistant message of a run. */
     isTerminalAgentReply?: boolean;
+    dispatchWebPushNotification?: (interaction: ReturnType<WebChannelLike["storeMessage"]>) => Promise<unknown>;
   }
 ): boolean {
   const { mediaIds, contentBlocks } = buildAttachmentBlocks(params.attachments);
@@ -71,6 +89,9 @@ export function storeAgentTurn(
           thread_id: params.threadId ?? null,
           row_id: placeholderId,
         });
+        if (params.isTerminalAgentReply) {
+          dispatchStoredReplyWebPush(updated, params.dispatchWebPushNotification);
+        }
         return true;
       }
     }
@@ -83,6 +104,9 @@ export function storeAgentTurn(
   });
   if (interaction) {
     emitter.response(interaction);
+    if (params.isTerminalAgentReply) {
+      dispatchStoredReplyWebPush(interaction, params.dispatchWebPushNotification);
+    }
     return true;
   }
   return false;
