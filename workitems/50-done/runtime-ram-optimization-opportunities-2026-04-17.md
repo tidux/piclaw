@@ -1,7 +1,7 @@
 ---
 id: runtime-ram-optimization-opportunities-2026-04-17
 title: "Runtime RAM optimization opportunities and execution plan"
-status: doing
+status: done
 priority: high
 created: 2026-04-17
 updated: 2026-04-18
@@ -38,14 +38,14 @@ Current instrumentation shows that the biggest live-footprint issue is not web o
 
 ### Current live shape
 - idle runtime memory is dominated by cached main sessions rather than side sessions
-- representative live counters after reload:
-  - `cached_main_sessions`: 6
+- representative live counters after the 2026-04-18 post-reload settle pass:
+  - `cached_main_sessions`: 2
   - `cached_side_sessions`: 0
-  - `active_chats`: 6
-  - `prewarm_cooldowns`: 6
+  - `active_chats`: 2
+  - `prewarm_cooldowns`: 0
 - startup warmup policy currently prewarms:
   - `web:default`
-  - plus 5 recent chats
+  - recent-chat warmup uses the lightweight path and does not materialize live runtimes
 
 ## Optimization opportunities
 
@@ -127,11 +127,11 @@ Current instrumentation shows that the biggest live-footprint issue is not web o
 
 ## Definition of Done
 
-- [ ] RAM opportunities are all recorded with rationale
+- [x] RAM opportunities are all recorded with rationale
 - [x] highest-return tranche lands with tests
-- [ ] idle RSS/PSS is re-measured after reload
-- [ ] controlled staged test report is refreshed
-- [ ] follow-up tickets are split out for deferred work if needed
+- [x] idle RSS/PSS is re-measured after reload
+- [x] controlled staged test report work is explicitly deferred into a follow-up ticket per user request
+- [x] follow-up tickets are split out for deferred work if needed
 
 ## Updates
 
@@ -149,6 +149,16 @@ Current instrumentation shows that the biggest live-footprint issue is not web o
 - Added regression coverage proving the default pressure path now trims cached main sessions at ~400 MB RSS even without explicit `PICLAW_MAIN_SESSION_PRESSURE_*` env overrides.
 - Removed the Linux-only HUD gate for the RSS row so Windows and macOS now show the existing `process.memoryUsage().rss` resident-memory equivalent, while Linux still prefers `VmRSS` when available.
 - Added HUD regression coverage for cross-platform RSS visibility and RSS-value selection.
+- Re-measured the post-reload idle/steady-state footprint after a managed restart (`MainPID 92967`, started `2026-04-18 08:21:22 WEST`) using three local `/agent/system-metrics` samples plus `/proc/$PID/status` and `/proc/$PID/smaps_rollup`.
+- Reconstructed the pre-reload baseline artifact from the previously recorded chat values after the original generated file was cleaned during a later web-only fix; restored it to `runtime/generated/post-reload-baseline-2026-04-18.json` for repeatable comparison.
+- Post-reload steady state averaged ~`276.0 MB` process RSS, ~`276.2 MB` VmRSS, ~`274.7 MB` PSS, and ~`296.4 MB` `memory.current`; the direct `/proc` snapshot landed at `283.3 MB` VmRSS / `281.8 MB` PSS with `17` threads.
+- Compared with the pre-reload baseline (`312.9 MB` RSS / `313.3 MB` VmRSS / `311.2 MB` PSS / `1.09 GB` `memory.current`), the new runtime is down by roughly `36–37 MB` of resident memory even while carrying two cached chats (`web:default` + the active measurement chat) instead of one.
+- Confirmed the hot-session budget now settles at `2` cached main sessions instead of the previous reload shape of `6`, which is the main concrete runtime-memory win from this tranche.
+- Split the deferred remainder into dedicated follow-up tickets:
+  - `workitems/10-next/audit-retained-session-memory-after-cache-cap.md`
+  - `workitems/10-next/retune-session-ttl-and-pressure-defaults.md`
+  - `workitems/10-next/refresh-memory-baselines-and-staged-runner-report.md`
+- Closed this parent ticket after the user explicitly de-scoped the reporting refresh from the current tranche and requested the remaining non-reporting cleanup be committed separately.
 
 ## Links
 
@@ -157,3 +167,6 @@ Current instrumentation shows that the biggest live-footprint issue is not web o
 - System metrics endpoint: `runtime/src/channels/web/agent/system-metrics.ts`
 - Session cache manager: `runtime/src/agent-pool/session-manager.ts`
 - Session bootstrap memoization: `runtime/src/agent-pool/session.ts`
+- Follow-up: `workitems/10-next/audit-retained-session-memory-after-cache-cap.md`
+- Follow-up: `workitems/10-next/retune-session-ttl-and-pressure-defaults.md`
+- Follow-up: `workitems/10-next/refresh-memory-baselines-and-staged-runner-report.md`
