@@ -6,7 +6,7 @@ import { getAgentAvatarUrl, getAgentName } from '../ui/agent-utils.js';
 /**
  * Timeline component
  */
-export function Timeline({ posts, hasMore, onLoadMore, onPostClick, onHashtagClick, onMessageRef, onScrollToMessage, onFileRef, onOpenWidget, onOpenAttachmentPreview, emptyMessage, timelineRef, agents, user, onDeletePost, reverse = true, removingPostIds, searchQuery }) {
+export function Timeline({ posts, hasMore, onLoadMore, onPostClick, onHashtagClick, onMessageRef, onScrollToMessage, onFileRef, onOpenWidget, onOpenAttachmentPreview, emptyMessage, timelineRef, agents, user, onDeletePost, reverse = true, removingPostIds, searchQuery, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onWheel }) {
     const [loadingMore, setLoadingMore] = useState(false);
     const sentinelRef = useRef(null);
     const hasIntersectionObserver = typeof IntersectionObserver !== 'undefined';
@@ -92,7 +92,7 @@ export function Timeline({ posts, hasMore, onLoadMore, onPostClick, onHashtagCli
 
     if (posts.length === 0) {
         return html`
-            <div class="timeline" ref=${timelineRef}>
+            <div class="timeline" ref=${timelineRef} onTouchStart=${onTouchStart} onTouchMove=${onTouchMove} onTouchEnd=${onTouchEnd} onTouchCancel=${onTouchCancel} onWheel=${onWheel}>
                 <div class="timeline-content">
                     <div style="padding: var(--spacing-xl); text-align: center; color: var(--text-secondary)">
                         ${emptyMessage || 'No messages yet. Start a conversation!'}
@@ -154,7 +154,7 @@ export function Timeline({ posts, hasMore, onLoadMore, onPostClick, onHashtagCli
     const sentinel = html`<div class="timeline-sentinel" ref=${sentinelRef}></div>`;
 
     return html`
-        <div class="timeline ${reverse ? 'reverse' : 'normal'}" ref=${timelineRef} onScroll=${handleScroll}>
+        <div class="timeline ${reverse ? 'reverse' : 'normal'}" ref=${timelineRef} onScroll=${handleScroll} onTouchStart=${onTouchStart} onTouchMove=${onTouchMove} onTouchEnd=${onTouchEnd} onTouchCancel=${onTouchCancel} onWheel=${onWheel}>
             <div class="timeline-content">
                 ${reverse ? sentinel : null}
                 ${displayPosts.map((post, index) => {

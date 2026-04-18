@@ -518,14 +518,7 @@ export function renderMainShell(options: MainShellRenderOptions): any {
         </div>
         <div class="editor-splitter" onMouseDown=${handleEditorSplitterMouseDown} onTouchStart=${handleEditorSplitterTouchStart}></div>
       `}
-      <div
-        class="container"
-        onTouchStart=${handleChatSurfaceTouchStart}
-        onTouchMove=${handleChatSurfaceTouchMove}
-        onTouchEnd=${handleChatSurfaceTouchEnd}
-        onTouchCancel=${handleChatSurfaceTouchCancel}
-        onWheel=${handleChatSurfaceWheel}
-      >
+      <div class="container">
         ${searchQuery && isIOSDevice() && html`<div class="search-results-spacer"></div>`}
         ${chatOnlyMode && html`
           <div class="chat-window-header">
@@ -615,6 +608,11 @@ export function renderMainShell(options: MainShellRenderOptions): any {
           reverse=${isMainTimelineView}
           removingPostIds=${removingPostIds}
           searchQuery=${searchQuery}
+          onTouchStart=${handleChatSurfaceTouchStart}
+          onTouchMove=${handleChatSurfaceTouchMove}
+          onTouchEnd=${handleChatSurfaceTouchEnd}
+          onTouchCancel=${handleChatSurfaceTouchCancel}
+          onWheel=${handleChatSurfaceWheel}
         />
         <${AgentStatus}
           status=${isCompactionStatus(agentStatus) ? null : agentStatus}
