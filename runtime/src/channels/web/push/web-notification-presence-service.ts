@@ -29,6 +29,16 @@ function normalizeTrimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function isLikelyIosWebKitClient(userAgent: string | null | undefined): boolean {
+  const normalized = normalizeTrimmedString(userAgent).toLowerCase();
+  if (!normalized) return false;
+  const isAppleMobileDevice = normalized.includes("iphone")
+    || normalized.includes("ipad")
+    || normalized.includes("ipod")
+    || (normalized.includes("macintosh") && normalized.includes("mobile"));
+  return isAppleMobileDevice && normalized.includes("applewebkit");
+}
+
 export function normalizeWebNotificationPresence(
   value: unknown,
   options: { nowMs?: number; userAgent?: string | null } = {},
@@ -125,7 +135,13 @@ export class WebNotificationPresenceService {
     const normalizedDeviceId = normalizeTrimmedString(deviceId);
     const normalizedChatJid = normalizeTrimmedString(chatJid);
     if (!normalizedDeviceId || !normalizedChatJid) return true;
-    return !this.getDeviceChatState(normalizedDeviceId, normalizedChatJid, nowMs).hasLiveClient;
+    const state = this.getDeviceChatState(normalizedDeviceId, normalizedChatJid, nowMs);
+    if (!state.hasLiveClient) return true;
+    if (state.hasVisibleClient) return false;
+
+    // iPhone/iPad PWAs can be swiped away without delivering a final teardown beacon.
+    // If the only remaining presence records are hidden iOS WebKit clients, prefer Web Push.
+    return state.clients.every((record) => isLikelyIosWebKitClient(record.userAgent));
   }
 
   list(nowMs = this.now()): WebNotificationPresenceRecord[] {

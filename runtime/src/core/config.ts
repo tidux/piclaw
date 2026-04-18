@@ -82,6 +82,7 @@ const envConfig = readEnvFile([
   "PICLAW_WEB_INTERNAL_SECRET",
   "PICLAW_WEB_PASSKEY_MODE",
   "PICLAW_WEB_TERMINAL_ENABLED",
+  "PICLAW_WEB_NOTIFICATION_DEBUG_LABELS",
   "PICLAW_WEB_VNC_ALLOW_DIRECT",
   "PICLAW_VNC_ALLOW_DIRECT",
   "PICLAW_WEB_VNC_TARGETS",
@@ -470,6 +471,7 @@ export interface WebRuntimeConfig {
   internalSecret: string;
   passkeyMode: string;
   terminalEnabled: boolean;
+  notificationDebugLabels: boolean;
   vncAllowDirect: boolean;
   vncTargetsRaw: string;
   debugCardSubmissions: boolean;
@@ -487,6 +489,9 @@ export function isDefaultWebVncDirectEnabled(platform = process.platform): boole
 const nestedWebTerminalEnabled = pickBoolean(webConfig, ["terminalEnabled", "webTerminalEnabled", "PICLAW_WEB_TERMINAL_ENABLED"]);
 const legacyWebTerminalEnabled = pickBoolean(piclawConfig, ["webTerminalEnabled"]);
 const envWebTerminalEnabled = pickBoolean({ PICLAW_WEB_TERMINAL_ENABLED: process.env.PICLAW_WEB_TERMINAL_ENABLED ?? envConfig.PICLAW_WEB_TERMINAL_ENABLED }, ["PICLAW_WEB_TERMINAL_ENABLED"]);
+const nestedWebNotificationDebugLabels = pickBoolean(webConfig, ["notificationDebugLabels", "notification_debug_labels", "webNotificationDebugLabels", "PICLAW_WEB_NOTIFICATION_DEBUG_LABELS"]);
+const legacyWebNotificationDebugLabels = pickBoolean(piclawConfig, ["webNotificationDebugLabels"]);
+const envWebNotificationDebugLabels = pickBoolean({ PICLAW_WEB_NOTIFICATION_DEBUG_LABELS: process.env.PICLAW_WEB_NOTIFICATION_DEBUG_LABELS ?? envConfig.PICLAW_WEB_NOTIFICATION_DEBUG_LABELS }, ["PICLAW_WEB_NOTIFICATION_DEBUG_LABELS"]);
 const nestedWebVncAllowDirect = pickBoolean(webConfig, ["vncAllowDirect", "vnc_allow_direct", "webVncAllowDirect", "PICLAW_WEB_VNC_ALLOW_DIRECT", "PICLAW_VNC_ALLOW_DIRECT"]);
 const legacyWebVncAllowDirect = pickBoolean(piclawConfig, ["webVncAllowDirect"]);
 const envWebVncAllowDirect = pickBoolean({ PICLAW_WEB_VNC_ALLOW_DIRECT: process.env.PICLAW_WEB_VNC_ALLOW_DIRECT ?? envConfig.PICLAW_WEB_VNC_ALLOW_DIRECT ?? process.env.PICLAW_VNC_ALLOW_DIRECT ?? envConfig.PICLAW_VNC_ALLOW_DIRECT }, ["PICLAW_WEB_VNC_ALLOW_DIRECT"]);
@@ -530,6 +535,7 @@ export const WEB_RUNTIME_CONFIG: WebRuntimeConfig = Object.seal({
     "totp-fallback"
   ).toLowerCase(),
   terminalEnabled: envWebTerminalEnabled ?? nestedWebTerminalEnabled ?? legacyWebTerminalEnabled ?? isDefaultWebTerminalEnabled(),
+  notificationDebugLabels: envWebNotificationDebugLabels ?? nestedWebNotificationDebugLabels ?? legacyWebNotificationDebugLabels ?? false,
   vncAllowDirect: envWebVncAllowDirect ?? nestedWebVncAllowDirect ?? legacyWebVncAllowDirect ?? isDefaultWebVncDirectEnabled(),
   vncTargetsRaw:
     process.env.PICLAW_WEB_VNC_TARGETS ||

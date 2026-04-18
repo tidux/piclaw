@@ -192,7 +192,10 @@ describe("web push service", () => {
       chat_jid: "web:default",
       visibility_state: "hidden",
       has_focus: false,
-    }, { nowMs: 1000 });
+    }, {
+      nowMs: 1000,
+      userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/135.0.0.0 Safari/537.36",
+    });
 
     const deliveries: Array<Record<string, unknown>> = [];
     const result = await sendStoredAgentReplyWebPushNotification({
@@ -210,6 +213,46 @@ describe("web push service", () => {
 
     expect(result).toEqual({ attempted: 0, sent: 0, removed: 0, failed: 0 });
     expect(deliveries).toEqual([]);
+  });
+
+  test("allows Web Push when the only live client is a hidden iPhone PWA", async () => {
+    const baseDir = createTempPushDir();
+    upsertStoredWebPushSubscription(createSubscription(14, "device-14"), { baseDir, deviceId: "device-14" });
+
+    const presenceService = new WebNotificationPresenceService({ now: () => 1000 });
+    presenceService.upsert({
+      device_id: "device-14",
+      client_id: "client-1",
+      chat_jid: "web:default",
+      visibility_state: "hidden",
+      has_focus: false,
+    }, {
+      nowMs: 1000,
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Mobile/15E148 Safari/604.1",
+    });
+
+    const deliveries: Array<Record<string, unknown>> = [];
+    const result = await sendStoredAgentReplyWebPushNotification({
+      id: 89,
+      chat_jid: "web:default",
+      timestamp: "2026-04-16T22:02:00.000Z",
+      data: { content: "Delivered" },
+    } as any, {
+      baseDir,
+      presenceService,
+      sendNotification: async (_subscription, payload) => {
+        deliveries.push(JSON.parse(payload));
+      },
+    });
+
+    expect(result).toEqual({ attempted: 1, sent: 1, removed: 0, failed: 0 });
+    expect(deliveries).toEqual([{
+      title: "PiClaw reply",
+      body: "Delivered",
+      url: "/?chat_jid=web%3Adefault#msg-89",
+      tag: "piclaw:reply:web%3Adefault",
+      sourceLabel: "Web Push",
+    }]);
   });
 
   test("builds a reply notification payload from a stored interaction", () => {

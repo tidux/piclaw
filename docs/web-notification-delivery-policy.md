@@ -7,7 +7,8 @@ PiClaw uses a per-**device**, per-**chat** delivery coordinator to decide whethe
 For a given **device + chat_jid** pair:
 
 - **Visible live client** → **no notification** on that device for that chat
-- **Hidden-but-live client(s)** → **local notification only** on that device for that chat
+- **Hidden non-iPhone/iPad live client(s)** → **local notification only** on that device for that chat
+- **Hidden iPhone/iPad PWA live client(s) only** → **Web Push allowed** on that device for that chat
 - **No live client** → **Web Push only** on that device for that chat
 
 ## Why this is chat-scoped instead of device-scoped
@@ -31,10 +32,12 @@ If any tab/window for that same chat is visible, hidden tabs stay silent.
 
 Each Web Push subscription is associated with a stable device id. Before sending a reply notification, the server checks whether that device has a recent live client for the same `chat_jid`.
 
-- live same-chat client present → suppress Web Push for that device
+- visible same-chat client present → suppress Web Push for that device
+- only hidden iPhone/iPad WebKit same-chat clients remain → allow Web Push for that device
+- hidden non-iPhone/iPad same-chat client present → suppress Web Push for that device
 - no live same-chat client → allow Web Push for that device
 
-This avoids `[Local]` + `[Web Push]` duplicates for the same chat on the same device while still allowing other chats to notify.
+This avoids local/push duplicates on the same device while still letting a swiped-away iPhone PWA fall back to Web Push.
 
 ## Presence model
 
@@ -48,6 +51,16 @@ The client publishes lightweight presence updates containing:
 
 Presence is refreshed periodically and expires quickly if the page disappears without clean shutdown.
 
+## Notification title debug labels
+
+By default, PiClaw does **not** append source markers like `[Local]` or `[Web Push]` to notification titles.
+
+If you want those markers while debugging delivery behavior, set:
+
+- `PICLAW_WEB_NOTIFICATION_DEBUG_LABELS=1`
+
+When enabled, local browser notifications and service-worker Web Push notifications both append the source label to the notification title.
+
 ## Practical examples
 
 ### Phone visible on chat A, chat B finishes
@@ -59,10 +72,15 @@ Presence is refreshed periodically and expires quickly if the page disappears wi
 ### Hidden laptop tab on chat A, phone swiped away, chat A finishes
 
 - laptop has a hidden live client for chat A
-- phone has no live client for chat A
+- phone may still have a hidden iPhone PWA presence record for chat A
 - result:
   - **laptop:** local notification only
   - **phone:** Web Push only
+
+### Hidden iPhone PWA on chat A, no other live clients, chat A finishes
+
+- the only recent same-chat presence is an iPhone/iPad WebKit client
+- result: **Web Push only**
 
 ### Two hidden tabs for chat A on the same laptop
 

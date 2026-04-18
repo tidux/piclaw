@@ -1,21 +1,26 @@
 import { expect, test } from 'bun:test';
 
-import { shouldResetSteerQueue } from '../../web/src/ui/app-chat-pane-runtime-orchestration.js';
+import { formatAgentReplyNotificationBody } from '../../web/src/ui/app-chat-pane-runtime-orchestration.js';
 
-test('shouldResetSteerQueue returns true when queue drains and no active turn remains', () => {
-  expect(shouldResetSteerQueue({
-    remainingQueueCount: 0,
-    isAgentTurnActive: false,
-    steerQueuedTurnId: 'turn-1',
-    currentTurnId: null,
-  })).toBe(true);
+test('formatAgentReplyNotificationBody truncates text replies for local notifications', () => {
+  expect(formatAgentReplyNotificationBody({
+    data: {
+      content: '  hello   from   PiClaw  ',
+    },
+  })).toBe('hello from PiClaw');
 });
 
-test('shouldResetSteerQueue keeps steer queue when active turn still matches', () => {
-  expect(shouldResetSteerQueue({
-    remainingQueueCount: 1,
-    isAgentTurnActive: true,
-    steerQueuedTurnId: 'turn-1',
-    currentTurnId: 'turn-1',
-  })).toBe(false);
+test('formatAgentReplyNotificationBody falls back for attachment-only replies', () => {
+  expect(formatAgentReplyNotificationBody({
+    data: {
+      content: '',
+      content_blocks: [{ type: 'file', media_id: 42 }],
+    },
+  })).toBe('Sent an attachment.');
+});
+
+test('formatAgentReplyNotificationBody returns an empty string when nothing is present', () => {
+  expect(formatAgentReplyNotificationBody({
+    data: {},
+  })).toBe('');
 });

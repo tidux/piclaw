@@ -1,7 +1,29 @@
+const NOTIFICATION_SOURCE_LABELS_ENABLED = "__PICLAW_NOTIFICATION_SOURCE_LABELS_FLAG__" === "1";
+
 function formatNotificationTitle(title, sourceLabel) {
   const normalizedTitle = String(title || '').trim() || 'PiClaw';
-  const normalizedSource = String(sourceLabel || '').trim();
+  const normalizedSource = NOTIFICATION_SOURCE_LABELS_ENABLED ? String(sourceLabel || '').trim() : '';
   return normalizedSource ? `${normalizedTitle} [${normalizedSource}]` : normalizedTitle;
+}
+
+function resolveAbsoluteNotificationUrl(value) {
+  try {
+    return new URL(String(value || '/'), self.location.origin);
+  } catch {
+    return new URL('/', self.location.origin);
+  }
+}
+
+function shouldReuseClientForNotification(clientUrl, targetUrl) {
+  const client = resolveAbsoluteNotificationUrl(clientUrl);
+  const target = resolveAbsoluteNotificationUrl(targetUrl);
+  if (client.origin !== target.origin) {
+    return false;
+  }
+  if (client.href === target.href) {
+    return true;
+  }
+  return client.pathname === target.pathname;
 }
 
 self.addEventListener('install', (event) => {
@@ -53,13 +75,13 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = event.notification?.data?.url || '/';
+  const targetUrl = resolveAbsoluteNotificationUrl(event.notification?.data?.url || '/').href;
 
   event.waitUntil((async () => {
     const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of clientList) {
       const clientUrl = client.url || '';
-      if (clientUrl === targetUrl || clientUrl.startsWith(targetUrl) || targetUrl === '/') {
+      if (shouldReuseClientForNotification(clientUrl, targetUrl)) {
         if ('focus' in client) {
           await client.focus();
         }

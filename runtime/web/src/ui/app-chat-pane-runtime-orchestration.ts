@@ -75,6 +75,20 @@ interface UseChatPaneRuntimeOrchestrationOptions {
   shouldNotifyLocallyForChat: (chatJid: string) => boolean;
 }
 
+export function formatAgentReplyNotificationBody(post: any): string {
+  const content = String(post?.data?.content || '').trim();
+  if (content) {
+    return content.replace(/\s+/g, ' ').slice(0, 200);
+  }
+  const contentBlocks = Array.isArray(post?.data?.content_blocks)
+    ? post.data.content_blocks
+    : [];
+  if (contentBlocks.length > 0) {
+    return 'Sent an attachment.';
+  }
+  return '';
+}
+
 export function useChatPaneRuntimeOrchestration(options: UseChatPaneRuntimeOrchestrationOptions) {
   const {
     isAgentTurnActive,
@@ -294,11 +308,10 @@ export function useChatPaneRuntimeOrchestration(options: UseChatPaneRuntimeOrche
     const chatJid = typeof post?.chat_jid === 'string' && post.chat_jid.trim() ? post.chat_jid.trim() : '';
     if (!chatJid || !shouldNotifyLocallyForChat(chatJid)) return;
     if (post.id && lastNotifiedIdRef.current === post.id) return;
-    const content = String(post?.data?.content || '').trim();
-    if (!content) return;
+    const body = formatAgentReplyNotificationBody(post);
+    if (!body) return;
     lastNotifiedIdRef.current = post.id || lastNotifiedIdRef.current;
     lastAgentResponseRef.current = null;
-    const body = content.replace(/\s+/g, ' ').slice(0, 200);
     const agentsMap = agentsRef.current || {};
     const agent = post?.data?.agent_id ? agentsMap[post.data.agent_id] : null;
     const title = agent?.name || 'Pi';
