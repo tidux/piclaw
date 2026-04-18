@@ -1,5 +1,6 @@
 export interface ChatSwipeCandidate {
   chat_jid?: unknown;
+  agent_name?: unknown;
   archived_at?: unknown;
   is_active?: unknown;
 }
@@ -110,7 +111,6 @@ export function resolveSwipeableChatAgents(candidates: unknown, currentChatJid: 
       const chatJid = typeof candidate.chat_jid === 'string' ? candidate.chat_jid.trim() : '';
       if (!chatJid || seen.has(chatJid)) return false;
       if (candidate.archived_at) return false;
-      if (chatJid !== currentChatJid && !candidate.is_active) return false;
       seen.add(chatJid);
       return true;
     })
@@ -137,6 +137,34 @@ export function resolveAdjacentSwipeChatJid(options: {
   return rows[nextIndex] ?? null;
 }
 
+export interface SwipeNeighbours {
+  prev: { chatJid: string; name: string } | null;
+  next: { chatJid: string; name: string } | null;
+}
+
+function candidateName(candidates: ChatSwipeCandidate[], chatJid: string): string {
+  const c = candidates.find((x) => x.chat_jid === chatJid);
+  if (!c) return chatJid.replace(/^[^:]+:/, '');
+  const raw = typeof c.agent_name === 'string' ? c.agent_name.trim() : '';
+  return raw || chatJid.replace(/^[^:]+:/, '');
+}
+
+export function resolveSwipeNeighbours(options: {
+  candidates: ChatSwipeCandidate[];
+  currentChatJid: string;
+}): SwipeNeighbours {
+  const rows = resolveSwipeableChatAgents(options.candidates, options.currentChatJid);
+  if (rows.length <= 1) return { prev: null, next: null };
+  const idx = rows.indexOf(options.currentChatJid);
+  if (idx < 0) return { prev: null, next: null };
+  const prevJid = rows[(idx - 1 + rows.length) % rows.length]!;
+  const nextJid = rows[(idx + 1) % rows.length]!;
+  return {
+    prev: { chatJid: prevJid, name: candidateName(options.candidates, prevJid) },
+    next: { chatJid: nextJid, name: candidateName(options.candidates, nextJid) },
+  };
+}
+
 export function shouldTriggerTouchChatSwipe(options: {
   dx: number;
   dy: number;
@@ -157,32 +185,43 @@ export function shouldTriggerTouchChatSwipe(options: {
  * Visual swipe indicator
  * ──────────────────────────────────────────────────────────────────────────── */
 
-function ensureIndicatorElement(container: HTMLElement): HTMLElement {
-  let indicator = container.querySelector('.chat-swipe-indicator') as HTMLElement | null;
+function ensureIndicatorElement(_container: HTMLElement): HTMLElement {
+  let indicator = document.querySelector('.chat-swipe-indicator') as HTMLElement | null;
   if (!indicator) {
     indicator = document.createElement('div');
     indicator.className = 'chat-swipe-indicator';
-    indicator.innerHTML = '<span class="chat-swipe-chevron"></span><span class="chat-swipe-label"></span>';
-    // Attach to document.body so it's above everything
+    indicator.innerHTML =
+      '<div class="chat-swipe-pill chat-swipe-pill-left"><span class="chat-swipe-pill-chevron">‹</span><span class="chat-swipe-pill-name"></span></div>' +
+      '<div class="chat-swipe-pill chat-swipe-pill-right"><span class="chat-swipe-pill-name"></span><span class="chat-swipe-pill-chevron">›</span></div>';
     document.body.appendChild(indicator);
   }
   return indicator;
 }
 
-function showIndicator(indicator: HTMLElement, dx: number, _containerWidth: number): void {
-  const progress = Math.min(Math.abs(dx) / 120, 1);
+function showIndicator(
+  indicator: HTMLElement,
+  dx: number,
+  _containerWidth: number,
+  neighbours: SwipeNeighbours,
+): void {
+  const progress = Math.min(Math.abs(dx) / 100, 1);
   indicator.style.display = 'flex';
-  indicator.style.opacity = String(Math.min(progress * 1.5, 1));
-  const chevron = indicator.querySelector('.chat-swipe-chevron') as HTMLElement | null;
-  if (chevron) {
-    chevron.textContent = dx < 0 ? '›' : '‹';
-    chevron.style.transform = `scale(${0.8 + progress * 0.4})`;
+  indicator.style.opacity = String(Math.min(progress * 2, 1));
+
+  const leftPill = indicator.querySelector('.chat-swipe-pill-left') as HTMLElement | null;
+  const rightPill = indicator.querySelector('.chat-swipe-pill-right') as HTMLElement | null;
+
+  if (leftPill) {
+    const nameEl = leftPill.querySelector('.chat-swipe-pill-name') as HTMLElement | null;
+    if (nameEl) nameEl.textContent = neighbours.prev?.name ?? '';
+    leftPill.classList.toggle('chat-swipe-pill-active', dx > 0);
+    leftPill.style.display = neighbours.prev ? 'flex' : 'none';
   }
-  const label = indicator.querySelector('.chat-swipe-label') as HTMLElement | null;
-  if (label) {
-    const ready = progress >= 0.85;
-    label.textContent = dx < 0 ? (ready ? 'Next' : '') : (ready ? 'Previous' : '');
-    label.style.opacity = ready ? '1' : '0';
+  if (rightPill) {
+    const nameEl = rightPill.querySelector('.chat-swipe-pill-name') as HTMLElement | null;
+    if (nameEl) nameEl.textContent = neighbours.next?.name ?? '';
+    rightPill.classList.toggle('chat-swipe-pill-active', dx < 0);
+    rightPill.style.display = neighbours.next ? 'flex' : 'none';
   }
 }
 
@@ -239,6 +278,16 @@ export function attachChatSwipeNavigation(options: UseChatSwipeNavigationOptions
   const state = createChatSwipeTouchState();
   const wheelState = createChatSwipeWheelState();
   let indicator: HTMLElement | null = null;
+  let neighbours: SwipeNeighbours = { prev: null, next: null };
+
+  function refreshNeighbours() {
+    neighbours = resolveSwipeNeighbours({
+      candidates: activeChatAgents,
+      currentChatJid,
+    });
+  }
+
+  refreshNeighbours();
 
   function getIndicator(): HTMLElement {
     if (!indicator) {
@@ -248,18 +297,15 @@ export function attachChatSwipeNavigation(options: UseChatSwipeNavigationOptions
   }
 
   function doSwitch(direction: 'next' | 'prev') {
-    const nextChatJid = resolveAdjacentSwipeChatJid({
-      candidates: activeChatAgents,
-      currentChatJid,
-      direction,
-    });
-    if (nextChatJid) onSwitch(nextChatJid);
+    const target = direction === 'next' ? neighbours.next : neighbours.prev;
+    if (target) onSwitch(target.chatJid);
   }
 
   /* ── touch handlers (iOS) ── */
 
   function onTouchStart(event: TouchEvent) {
     resetChatSwipeTouchState(state);
+    refreshNeighbours();
     if (!isIOS) return;
     if (event.touches.length !== 1) return;
     if (!isEligibleChatSwipeTarget(event.target)) return;
@@ -297,7 +343,7 @@ export function attachChatSwipeNavigation(options: UseChatSwipeNavigationOptions
     if (state.horizontalLocked) {
       // Prevent vertical scroll while swiping horizontally
       if (event.cancelable) event.preventDefault();
-      showIndicator(getIndicator(), dx, el!.clientWidth);
+      showIndicator(getIndicator(), dx, el!.clientWidth, neighbours);
     }
   }
 

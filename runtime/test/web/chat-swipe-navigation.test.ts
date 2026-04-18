@@ -4,16 +4,30 @@ import {
   isEligibleChatSwipeTarget,
   resolveAdjacentSwipeChatJid,
   resolveSwipeableChatAgents,
+  resolveSwipeNeighbours,
   shouldTriggerTouchChatSwipe,
 } from '../../web/src/ui/chat-swipe-navigation.js';
 
-test('resolveSwipeableChatAgents keeps current + active non-archived chats', () => {
+test('resolveSwipeableChatAgents includes all non-archived agents regardless of is_active', () => {
   expect(resolveSwipeableChatAgents([
     { chat_jid: 'web:current', is_active: false },
     { chat_jid: 'web:a', is_active: true },
-    { chat_jid: 'web:b', is_active: true, archived_at: '2026-01-01' },
-    { chat_jid: 'web:c', is_active: false },
-  ], 'web:current')).toEqual(['web:current', 'web:a']);
+    { chat_jid: 'web:b', is_active: false },
+    { chat_jid: 'web:c', archived_at: '2026-01-01' },
+  ], 'web:current')).toEqual(['web:current', 'web:a', 'web:b']);
+});
+
+test('resolveSwipeNeighbours returns agent names for prev and next', () => {
+  const candidates = [
+    { chat_jid: 'web:a', agent_name: 'Alpha', is_active: true },
+    { chat_jid: 'web:b', agent_name: 'Beta', is_active: true },
+    { chat_jid: 'web:c', agent_name: 'Gamma', is_active: false },
+  ];
+  const result = resolveSwipeNeighbours({ candidates, currentChatJid: 'web:b' });
+  expect(result.prev?.chatJid).toBe('web:a');
+  expect(result.prev?.name).toBe('Alpha');
+  expect(result.next?.chatJid).toBe('web:c');
+  expect(result.next?.name).toBe('Gamma');
 });
 
 test('resolveAdjacentSwipeChatJid cycles through active chats', () => {
