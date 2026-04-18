@@ -530,5 +530,44 @@ export function createStreamingEventHandler(options: StreamingEventHandlerOption
         });
       }
     }
+
+    const customEventType = (event as { type?: string }).type;
+
+    if (customEventType === "recovery_start") {
+      const e = event as { strategy?: string; attempt?: number; maxAttempts?: number; reason?: string };
+      const strategy = e.strategy === "compact_then_retry"
+        ? "Compacting context and continuing"
+        : "Recovering interrupted response";
+      const detail = `Attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}${e.reason ? ` — ${e.reason}` : ""}`;
+      options.emitter.status({
+        ...base,
+        type: "intent",
+        title: strategy,
+        detail,
+        intent_key: "recovery",
+        started_at: new Date().toISOString(),
+      });
+    }
+
+    if (customEventType === "recovery_end") {
+      const e = event as { outcome?: string; attemptsUsed?: number; classifier?: string | null; errorMessage?: string };
+      if (e.outcome === "recovered") {
+        options.emitter.status({
+          ...base,
+          type: "intent",
+          title: "Recovered after automatic continuation",
+          detail: `Attempts: ${e.attemptsUsed ?? 0}${e.classifier ? ` · ${e.classifier}` : ""}`,
+          intent_key: "recovery",
+        });
+      } else if (e.outcome === "exhausted") {
+        options.emitter.status({
+          ...base,
+          type: "error",
+          title: "Automatic recovery exhausted",
+          detail: e.errorMessage || undefined,
+          intent_key: "recovery",
+        });
+      }
+    }
   };
 }

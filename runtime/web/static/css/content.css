@@ -280,6 +280,19 @@
     border: 1px solid color-mix(in srgb, var(--accent-color) 32%, transparent);
 }
 
+.post-recovery-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--success-color, #34d399);
+    background: color-mix(in srgb, var(--success-color, #34d399) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success-color, #34d399) 32%, transparent);
+}
+
 .post-time {
     color: var(--text-secondary);
     font-size: var(--font-size-sm);

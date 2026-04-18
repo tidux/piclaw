@@ -1,0 +1,448 @@
+---
+id: automatic-recovery-after-mid-turn-failures-and-context-pressure
+title: Automatic recovery after mid-turn failures and context pressure
+status: doing
+priority: high
+created: 2026-04-18
+updated: 2026-04-18
+target_release: next
+tags:
+  - work-item
+  - kanban
+  - reliability
+  - recovery
+  - compaction
+  - context
+  - web
+  - agent
+  - ux
+owner: pi
+---
+
+# Automatic recovery after mid-turn failures and context pressure
+
+## Summary
+
+Piclaw still ends too many turns with user-visible fallback text like:
+
+- `⚠️ Response ended with an error before finalization.`
+
+This is especially bad when the model hit context pressure, auto-compaction was
+in flight, or the answer had already partially streamed and the user expected the
+turn to continue automatically.
+
+The next step is to add a shared automatic recovery engine that can detect
+recoverable mid-turn failures, decide whether to retry directly or compact first,
+carry on automatically where safe, and surface low-noise recovery UX so the user
+gets continuity instead of a dead-end warning.
+
+The feature should be **on by default**, should cover **all agent turn paths**,
+and should keep the visible success path as a **single clean final assistant
+turn** while still retaining internal recovery metadata and low-noise web
+observability.
+
+## Problem Statement
+
+Current behavior is too fragile in the face of mid-turn provider/runtime
+failures:
+
+- a turn can stream useful partial text, then collapse into a terminal warning
+  instead of finishing automatically
+- auto-compaction status exists, but it is not yet tied to a full “recover and
+  continue the same turn” path
+- context-window exhaustion and other mid-turn failures still force users to
+  manually resume too often
+- when recovery does happen indirectly, it is not consistently observable enough
+  for operators or low-noise enough for users
+
+We already have recovery/finalization hardening and compaction status plumbing,
+but we do **not** yet have a cohesive turn-recovery policy that answers:
+
+- which failures should retry automatically
+- when to compact first vs retry first
+- how many times to retry
+- what to do with partial text already shown to the user
+- how to avoid replaying side-effecting tools
+- how to offer a clean manual resume path when automatic recovery is exhausted
+
+## Refined v1 direction
+
+### User outcome
+
+When a turn fails mid-stream or mid-finalization, Piclaw should usually continue
+automatically instead of dumping the user into a dead-end warning. The final
+visible result should still look like one coherent assistant answer.
+
+### Core product stance
+
+- **On by default globally**
+- **All agent turn paths are in scope**
+  - chat turns
+  - scheduled agent prompts
+  - autoresearch / autonomous loops
+  - dream / background agent flows
+- **Any mid-turn failure is a recovery candidate**, except configurable
+  non-recoverables
+- **No automatic replay of side-effecting tools**
+- **Recovery state is runtime/session only** for v1
+- **If restart happens mid-recovery, fail cleanly** rather than attempting
+  cross-restart continuation
+
+## Acceptance Criteria
+
+- [ ] Recoverable mid-turn failures no longer commonly end as
+      `⚠️ Response ended with an error before finalization.` when the turn can be
+      continued safely.
+- [ ] A shared recovery engine exists for all agent turn paths, not just web
+      chat turns.
+- [ ] Automatic recovery is enabled by default.
+- [ ] Recovery attempts are bounded by:
+  - [ ] configurable max attempts (default `2`)
+  - [ ] configurable total recovery budget (default `30s`)
+- [ ] Recovery classification distinguishes at least:
+  - [ ] recoverable failures
+  - [ ] non-recoverable failures
+  - [ ] compaction-failure cases
+- [ ] The retry ladder is classifier-driven:
+  - [ ] context/overflow-like failures compact first
+  - [ ] transient/finalization-like failures retry first and compact later
+- [ ] Side-effecting tools are not automatically replayed during recovery.
+- [ ] On successful recovery, the user-visible result is a **single final
+      assistant turn**, not multiple visible failed/retry fragments.
+- [ ] On web, partial draft text remains visible during recovery, then collapses
+      into the final cleaned answer on success.
+- [ ] On web, successful recovery leaves a subtle persistent marker:
+  - [ ] message-level chip
+  - [ ] turn/status metadata for inspection
+- [ ] On non-web channels, in-progress recovery uses best-effort existing status
+      affordances only.
+- [ ] When automatic recovery is exhausted:
+  - [ ] web exposes an explicit resume affordance
+  - [ ] web offers both:
+    - [ ] Continue
+    - [ ] Retry cleanly
+  - [ ] `Retry cleanly` starts a new isolated recovery-specific run
+- [ ] If the process restarts during recovery, the system fails cleanly and does
+      not attempt cross-restart automatic continuation in v1.
+- [ ] Observability includes:
+  - [ ] structured logs
+  - [ ] counters/status
+  - [ ] per-turn diagnostic recovery metadata
+- [ ] The feature materially improves all three minimum success goals:
+  - [ ] stop the bad UX
+  - [ ] preserve continuity
+  - [ ] make recovery observable
+
+## Non-recoverable classifier
+
+v1 should ship with a sensible default classifier, but keep it overrideable in
+code/config later.
+
+Default non-recoverable class should include at least:
+
+- auth / credential failures
+- model not found / missing deployment
+- policy / safety refusal
+- invalid request / malformed prompt/tool schema
+- explicit capability mismatch / unsupported model path
+- clearly permanent local permission or missing-required-resource failures
+
+This classifier should remain a **configurable policy surface**, but v1 operator
+configuration should stay minimal.
+
+## Operator configuration surface
+
+Keep v1 configuration intentionally small:
+
+- enable / disable auto-recovery
+- max recovery attempts
+- total recovery budget
+
+Do **not** make the first version depend on a broad operator policy matrix for:
+
+- per-provider tuning
+- per-channel tuning
+- per-turn-type tuning
+
+Those can remain internal defaults or later follow-up work.
+
+## Implementation Paths
+
+### Path A — Shared recovery orchestrator inside the existing run lifecycle (recommended)
+
+Add a shared recovery layer around the turn/run lifecycle so all agent turn
+paths benefit from the same classification + retry policy.
+
+1. Identify the common turn boundary where mid-turn failure can be intercepted
+   before terminal fallback publication.
+2. Introduce a recovery attempt state machine that can:
+   - classify the failure
+   - decide retry-first vs compact-first
+   - enforce max-attempt and total-time budgets
+   - preserve partial/draft state while recovery is in progress
+3. Prevent unsafe tool replay by reusing already persisted tool outputs and
+   session state instead of re-invoking side-effecting tools.
+4. On success, collapse the recovered output into one final visible assistant
+   turn while attaching hidden/internal recovery metadata.
+5. On exhaustion, route to:
+   - web resume/retry-cleanly affordance
+   - best-effort non-web status fallback
+
+**Why recommended:** this matches the refined direction: one shared engine for
+all turn paths immediately, not a web-only patch.
+
+### Path B — Web-first recovery wrapper plus later generalization
+
+Not the preferred direction, but useful as a fallback if the shared engine turns
+out too invasive.
+
+1. Wrap the web chat path first.
+2. Validate retry and compaction policy there.
+3. Extract the generic state machine later for scheduled/background turns.
+
+**Trade-off:** lower immediate risk, but violates the chosen direction that all
+turn paths should use the shared engine from the start.
+
+## Likely implementation surfaces
+
+### Runtime / orchestration
+
+- `runtime/src/agent-pool/run-agent-orchestrator.ts`
+- `runtime/src/channels/web/handlers/agent.ts`
+- `runtime/src/channels/web/sse/agent-events.ts`
+- `runtime/src/agent-pool/runtime-facade.ts`
+- any queue/finalization/run-control helpers that decide terminal fallback
+
+### Recovery / compaction behavior
+
+- `runtime/src/extensions/smart-compaction.ts`
+- any session compaction helpers / session manager hooks used before retry
+- any run-control state used to distinguish active response / compaction / retry
+
+### Web UX
+
+- web status / turn metadata surfaces
+- assistant-message rendering path for subtle recovery chip
+- exhausted-recovery affordance surface (card/action/button/pill)
+
+### Other channels / autonomous paths
+
+- scheduled task / background agent turn entrypoints
+- autoresearch / dream loop execution paths
+- any unified turn runner used by those flows
+
+## Test Plan
+
+- Applicable regression classes from `workitems/regression-test-planning-reference.md`:
+  - [x] Bug replay / known-regression test
+  - [x] State-machine / invariant test
+  - [x] Interaction scenario test
+  - [x] Restore / reconnect matrix test
+  - [x] Pane / viewer contract test
+  - [ ] Real-browser smoke test
+- [x] Existing tests to rerun are listed
+- [x] New regression coverage to add is listed
+- [ ] Real-browser smoke pass required? If yes, record the surface
+
+### Existing tests to rerun
+
+- `runtime/test/channels/web/web-channel.test.ts`
+- `runtime/test/channels/web/web-agent-streaming.test.ts`
+- `runtime/test/channels/web/web-channel-recovery-state.test.ts`
+- `runtime/test/agent-pool/run-agent-orchestrator.test.ts`
+- `runtime/test/extensions/smart-compaction.test.ts`
+- any tests covering scheduled/background agent turn execution once the shared
+  engine touches them
+
+### New regression coverage to add
+
+- [ ] failure-classification tests: recoverable vs non-recoverable vs
+      compaction-failure
+- [ ] retry-ladder tests: retry-first vs compact-first behavior
+- [ ] budget tests: max attempts and total recovery timeout enforcement
+- [ ] side-effect guard tests proving unsafe tools are not auto-replayed
+- [ ] success-collapse tests proving multiple recovery attempts still produce
+      one visible final assistant turn
+- [ ] web draft-preservation tests during recovery
+- [ ] web success-marker tests for message chip + status metadata
+- [ ] exhausted web affordance tests for Continue + Retry cleanly
+- [ ] restart-during-recovery tests proving the system fails cleanly and does
+      not attempt automatic cross-restart continuation in v1
+- [ ] autonomous-path tests proving the shared engine also covers scheduled /
+      background turn paths without web-only assumptions
+- [ ] counters/logging/diagnostic metadata tests for observability
+
+### Manual / smoke validation
+
+- [ ] Force an answer to fail after partial streaming and confirm automatic
+      continuation finishes the turn.
+- [ ] Force a context-limit-like failure and confirm compact-first recovery.
+- [ ] Force a transient/finalization-like failure and confirm retry-first
+      behavior before compaction.
+- [ ] Confirm a side-effecting tool turn does not auto-replay unsafe effects.
+- [ ] Confirm exhausted recovery on web exposes Continue + Retry cleanly.
+- [ ] Confirm successful recovery leaves a subtle web marker but still presents
+      one clean final assistant answer.
+
+## Definition of Done
+
+- [ ] All acceptance criteria satisfied and verified
+- [ ] Tests added or updated — passing locally
+- [ ] Type check clean
+- [ ] Docs and notes updated with links to ticket
+- [ ] Operational impact assessed
+- [ ] Follow-up tickets created for deferred scope
+- [ ] Update history complete with evidence
+- [ ] Ticket front matter updated
+
+## Refinement notes
+
+### Problem statement / urgency
+- Users are seeing too many turns terminate with `⚠️ Response ended with an
+  error before finalization.` during auto-compaction / context-pressure windows.
+
+### Primary user / workflow
+- All Piclaw users and operators across chat, scheduled, and autonomous turn
+  paths.
+
+### Success criteria
+- Bad UX largely disappears.
+- Interrupted turns usually continue automatically.
+- Recovery is observable enough for operators without becoming noisy for users.
+
+### MVP behavior
+- Shared automatic recovery engine across all turn paths.
+- Bounded configurable retries, default `2`.
+- Configurable total budget, default `30s`.
+- Classifier-driven retry/compaction policy.
+- Single final visible assistant turn on success.
+- Web-only explicit resume affordance on exhaustion.
+
+### Out of scope / constraints chosen so far
+- Automatic replay of side-effecting tools is explicitly disallowed.
+- Cross-restart automatic continuation is not required in v1.
+- Operator config remains minimal even though the classifier should be designed
+  to be overrideable later.
+
+### Error policy
+- Recover any failed turn except configurable non-recoverables.
+- Compaction failure handling is classifier-driven.
+
+### Persistence / state policy
+- Runtime/session only for v1.
+- Hidden/internal recovery metadata retained for diagnostics.
+
+### UX policy
+- Silent continuation by default.
+- Web keeps draft visible during recovery and collapses to final answer on
+  success.
+- Web success leaves subtle marker chip + status metadata.
+- Non-web channels use best-effort existing status affordances only.
+- Exhausted web recovery offers:
+  - Continue
+  - Retry cleanly → new isolated recovery-specific run
+
+### Performance / safety
+- Recovery budget bounded by attempts and total time.
+- Avoid duplicate side effects by refusing unsafe tool replay.
+
+## Updates
+
+### 2026-04-18
+- Created from structured refinement after repeated user reports that auto
+  compaction/context pressure still too often ends in terminal fallback warnings
+  instead of automatic continuation.
+- Refined directly in the web UI using one-question-at-a-time answers and
+  Adaptive Cards for structured choices.
+- Promoted to `20-doing` and started implementation.
+- Landed the first shared runtime slice:
+  - added a shared recovery classifier / policy helper at
+    `runtime/src/agent-pool/automatic-recovery.ts`
+  - added bounded recovery config via env-backed defaults:
+    - `PICLAW_TURN_AUTO_RECOVERY_ENABLED`
+    - `PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS`
+    - `PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS`
+  - updated `run-agent-orchestrator.ts` so recoverable mid-turn failures can
+    retry automatically through a shared loop instead of immediately surfacing a
+    terminal error
+  - recovery is currently conservative about unsafe replay:
+    - if tool execution happened during the failed run, automatic retry is
+      skipped for now
+    - if a completed assistant turn was already emitted during the failed run,
+      automatic retry is skipped for now
+  - added web recovery status events (`recovery_start` / `recovery_end`) so the
+    web status surface can reflect that recovery is in progress or exhausted
+  - attached recovery metadata to successful/error run outputs so downstream
+    handlers can start surfacing recovery context without changing all turn
+    paths at once
+- Verification for this first slice:
+  - `runtime/test/agent-pool/automatic-recovery.test.ts`
+  - `runtime/test/agent-pool/run-agent-orchestrator.test.ts`
+  - `bunx tsc --noEmit -p runtime/tsconfig.json`
+- Landed the next web-facing slice:
+  - successful recovered final messages now persist a subtle recovery marker via
+    `content_blocks` so the web post surface can show a chip without polluting
+    the answer body
+  - exhausted recovery now emits a web Adaptive Card with:
+    - `Continue`
+    - `Retry cleanly`
+  - the card actions are live:
+    - `Continue` forwards a built-in continuation prompt on the same thread
+    - `Retry cleanly` starts a new isolated run with a clean-retry prompt
+  - fixed web user-message threading so forwarded/internal card actions can
+    preserve explicit `thread_id` instead of always self-rooting
+- Additional verification for this slice:
+  - `runtime/test/channels/web/web-channel.test.ts`
+  - `runtime/test/channels/web/web-agent-streaming.test.ts`
+  - `bunx tsc --noEmit -p runtime/tsconfig.json`
+- Landed shared operator-visible recovery counters:
+  - `AgentPool` now tracks cumulative in-process recovery stats:
+    - total recovery attempts
+    - recovered runs
+    - exhausted runs
+  - those counters now flow through `getMemoryInstrumentationSnapshot()` into
+    `/agent/system-metrics`
+  - this gives the web/runtime status surface a real shared telemetry source
+    instead of only per-turn metadata
+- Additional verification for the counters slice:
+  - `runtime/test/agent-pool/agent-pool.test.ts`
+  - `runtime/test/channels/web/system-metrics.test.ts`
+  - combined focused rerun:
+    - `runtime/test/agent-pool/automatic-recovery.test.ts`
+    - `runtime/test/agent-pool/run-agent-orchestrator.test.ts`
+    - `runtime/test/agent-pool/agent-pool.test.ts`
+    - `runtime/test/channels/web/web-channel.test.ts`
+    - `runtime/test/channels/web/web-agent-streaming.test.ts`
+    - `runtime/test/channels/web/system-metrics.test.ts`
+  - `bunx tsc --noEmit -p runtime/tsconfig.json`
+- Added an explicit regression slice for the exact web fallback pair:
+  - `⚠️ Response timed out before finalization.`
+  - `ℹ️ Context compaction was in progress`
+- Coverage now includes:
+  - classifier test proving `timeout before finalization` + active compaction intent
+    becomes `context_pressure` → `compact_then_retry`
+  - shared orchestrator test proving a timed-out turn during compaction can
+    recover automatically and finish as one final success
+  - web integration test proving successful recovery does **not** publish the
+    timeout/compaction warning pair and instead stores the clean final answer
+    plus recovery marker
+
+## Notes
+
+- This ticket builds on existing restart/finalization hardening and compaction
+  status work, but is intentionally a new scope: automatic continuation after
+  recoverable mid-turn failures.
+- Existing compaction UX/status plumbing is useful but not sufficient by itself;
+  the missing piece is the actual shared recovery policy/state machine.
+- The implementation should prefer deterministic state-machine rules over adding
+  ad hoc retries in multiple call sites.
+
+## Links
+
+- `runtime/src/channels/web/handlers/agent.ts`
+- `runtime/src/agent-pool/run-agent-orchestrator.ts`
+- `runtime/src/channels/web/sse/agent-events.ts`
+- `runtime/src/extensions/smart-compaction.ts`
+- `workitems/50-done/restart-recovery-and-terminal-publication-hardening.md`
+- `workitems/50-done/model-switch-hang-during-compaction.md`
+- `workitems/50-done/incorporate-pi-agentic-compaction.md`

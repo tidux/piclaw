@@ -99,6 +99,61 @@ test("agent pool aggregates streamed text and writes logs", async () => {
   expect(content).toContain("Hello world");
 });
 
+test("agent pool aggregates recovery counters into memory instrumentation", async () => {
+  const ws = getTestWorkspace();
+  restoreEnv = setEnv({
+    PICLAW_WORKSPACE: ws.workspace,
+    PICLAW_STORE: ws.store,
+    PICLAW_DATA: ws.data,
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
+    PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS: "2",
+    PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS: "30000",
+  });
+
+  const { AgentPool } = await importFresh<typeof import("../src/agent-pool.js")>("../src/agent-pool.js");
+
+  class RecoveringSession {
+    private listeners: Array<(event: any) => void> = [];
+    promptCalls = 0;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async prompt() {
+      this.promptCalls += 1;
+      if (this.promptCalls === 1) {
+        for (const listener of this.listeners) {
+          listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "partial" } });
+          listener({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "Response ended with an error before finalization", content: [] } });
+        }
+        return;
+      }
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done" } });
+      }
+    }
+    async abort() {}
+    dispose() {}
+  }
+
+  const pool = new AgentPool({
+    createSession: async () => createRuntime(new RecoveringSession()) as any,
+  });
+
+  const result = await pool.runAgent("test", "web:default", { timeoutMs: 0 });
+  expect(result.status).toBe("success");
+  const snapshot = pool.getMemoryInstrumentationSnapshot();
+  expect(snapshot.recovery).toEqual({
+    attemptsTotal: 1,
+    recoveredRuns: 1,
+    exhaustedRuns: 0,
+  });
+
+  await pool.shutdown();
+});
+
 test("agent pool raises provider retry defaults for shared session settings", async () => {
   const ws = getTestWorkspace();
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });

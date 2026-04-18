@@ -96,10 +96,12 @@ export function storeAgentUserMessage(
     mediaIds: number[];
     contentBlocks?: unknown[];
     linkPreviews?: unknown[];
+    threadId?: number | null;
   }
 ): InteractionRow | null {
   return channel.storeMessage(chatJid, payload.content, false, payload.mediaIds, {
     contentBlocks: payload.contentBlocks,
     linkPreviews: payload.linkPreviews,
+    threadId: payload.threadId ?? undefined,
   });
 }

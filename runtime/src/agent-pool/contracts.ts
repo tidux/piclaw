@@ -14,12 +14,22 @@ import type {
 
 import type { AttachmentInfo } from "./attachments.js";
 
+export interface AgentRecoveryMetadata {
+  attemptsUsed: number;
+  totalElapsedMs: number;
+  recovered: boolean;
+  exhausted: boolean;
+  lastClassifier: string | null;
+  strategyHistory: string[];
+}
+
 /** Output from an agent run: response text, status, and token usage. */
 export interface AgentOutput {
   status: "success" | "error";
   result: string | null;
   error?: string;
   attachments?: AttachmentInfo[];
+  recovery?: AgentRecoveryMetadata;
 }
 
 /** A single turn's output within a multi-turn agent run. */

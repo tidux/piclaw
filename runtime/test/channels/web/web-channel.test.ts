@@ -2312,6 +2312,187 @@ test("processChat treats a persisted timeout fallback as a terminal completion",
   expect(last.data.content).toContain("timed out before finalization");
 });
 
+test("processChat stores a recovery marker on a successfully recovered final turn", async () => {
+  const ws = createTempWorkspace("piclaw-web-channel-");
+  cleanupWorkspace = ws.cleanup;
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../../src/db.js");
+  db.initDatabase();
+  db.getDb().exec("DELETE FROM message_media; DELETE FROM messages; DELETE FROM chats; DELETE FROM chat_cursors; DELETE FROM chat_cursors;");
+  db.storeChatMetadata("web:default", new Date().toISOString(), "Web");
+
+  db.storeMessage({
+    id: `msg-${Math.random()}`,
+    chat_jid: "web:default",
+    sender: "user",
+    sender_name: "User",
+    content: "hello",
+    timestamp: new Date().toISOString(),
+    is_from_me: false,
+    is_bot_message: false,
+  });
+
+  const webMod = await import("../../../src/channels/web.js");
+  const web = new (webMod.WebChannel as any)({
+    queue: { enqueue: () => {} },
+    agentPool: {
+      setSessionBinder: () => {},
+      runAgent: async () => ({
+        status: "success",
+        result: "recovered final answer",
+        recovery: {
+          attemptsUsed: 1,
+          totalElapsedMs: 1200,
+          recovered: true,
+          exhausted: false,
+          lastClassifier: "transient",
+          strategyHistory: ["retry"],
+        },
+      }),
+      getContextUsageForChat: async () => null,
+    },
+  });
+
+  await web.processChat("web:default", "default");
+
+  const timeline = db.getTimeline("web:default", 10);
+  const last = timeline[timeline.length - 1];
+  expect(last.data.content).toContain("recovered final answer");
+  expect(Array.isArray(last.data.content_blocks)).toBe(true);
+  expect(last.data.content_blocks).toContainEqual(expect.objectContaining({
+    type: "recovery_marker",
+    recovered: true,
+    attempts_used: 1,
+    classifier: "transient",
+  }));
+});
+
+test("processChat emits an exhausted-recovery card when automatic recovery gives up", async () => {
+  const ws = createTempWorkspace("piclaw-web-channel-");
+  cleanupWorkspace = ws.cleanup;
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../../src/db.js");
+  db.initDatabase();
+  db.getDb().exec("DELETE FROM message_media; DELETE FROM messages; DELETE FROM chats; DELETE FROM chat_cursors; DELETE FROM chat_cursors;");
+  db.storeChatMetadata("web:default", new Date().toISOString(), "Web");
+
+  db.storeMessage({
+    id: `msg-${Math.random()}`,
+    chat_jid: "web:default",
+    sender: "user",
+    sender_name: "User",
+    content: "hello",
+    timestamp: new Date().toISOString(),
+    is_from_me: false,
+    is_bot_message: false,
+  });
+
+  const webMod = await import("../../../src/channels/web.js");
+  const web = new (webMod.WebChannel as any)({
+    queue: { enqueue: () => {} },
+    agentPool: {
+      setSessionBinder: () => {},
+      runAgent: async (_prompt: string, _chatJid: string, options: any) => {
+        options.onEvent?.({ type: "message_update", assistantMessageEvent: { type: "text_start" } });
+        options.onEvent?.({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "partial draft" } });
+        return {
+          status: "error",
+          result: null,
+          error: "Timed out after 1s",
+          recovery: {
+            attemptsUsed: 2,
+            totalElapsedMs: 30000,
+            recovered: false,
+            exhausted: true,
+            lastClassifier: "budget_exhausted",
+            strategyHistory: ["retry", "compact_then_retry"],
+          },
+        };
+      },
+      getContextUsageForChat: async () => null,
+    },
+  });
+
+  await web.processChat("web:default", "default");
+
+  const timeline = db.getTimeline("web:default", 20);
+  const cardMessage = timeline.find((entry: any) => Array.isArray(entry.data?.content_blocks)
+    && entry.data.content_blocks.some((block: any) => block?.type === "adaptive_card" && String(block.card_id || "").startsWith("recovery-exhausted-")));
+  expect(cardMessage).toBeDefined();
+  expect(cardMessage?.data?.content).toContain("Automatic recovery exhausted");
+});
+
+test("processChat keeps a recovered compaction timeout as one clean final answer", async () => {
+  const ws = createTempWorkspace("piclaw-web-channel-");
+  cleanupWorkspace = ws.cleanup;
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../../src/db.js");
+  db.initDatabase();
+  db.getDb().exec("DELETE FROM message_media; DELETE FROM messages; DELETE FROM chats; DELETE FROM chat_cursors; DELETE FROM chat_cursors;");
+  db.storeChatMetadata("web:default", new Date().toISOString(), "Web");
+
+  db.storeMessage({
+    id: `msg-${Math.random()}`,
+    chat_jid: "web:default",
+    sender: "user",
+    sender_name: "User",
+    content: "hello",
+    timestamp: new Date().toISOString(),
+    is_from_me: false,
+    is_bot_message: false,
+  });
+
+  const webMod = await import("../../../src/channels/web.js");
+  const web = new (webMod.WebChannel as any)({
+    queue: { enqueue: () => {} },
+    agentPool: {
+      setSessionBinder: () => {},
+      runAgent: async (_prompt: string, _chatJid: string, options: any) => {
+        options.onEvent?.({ type: "compaction_start", reason: "overflow" });
+        options.onEvent?.({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_start" },
+        });
+        options.onEvent?.({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "draft during compaction" },
+        });
+        return {
+          status: "success",
+          result: "recovered final answer",
+          recovery: {
+            attemptsUsed: 1,
+            totalElapsedMs: 1200,
+            recovered: true,
+            exhausted: false,
+            lastClassifier: "context_pressure",
+            strategyHistory: ["compact_then_retry"],
+          },
+        };
+      },
+      getContextUsageForChat: async () => null,
+    },
+  });
+
+  await web.processChat("web:default", "default");
+
+  const timeline = db.getTimeline("web:default", 10);
+  const last = timeline[timeline.length - 1];
+  expect(last.data.content).toContain("recovered final answer");
+  expect(last.data.content).not.toContain("Response timed out before finalization");
+  expect(last.data.content).not.toContain("Context compaction was in progress");
+  expect(Array.isArray(last.data.content_blocks)).toBe(true);
+  expect(last.data.content_blocks).toContainEqual(expect.objectContaining({
+    type: "recovery_marker",
+    recovered: true,
+    attempts_used: 1,
+    classifier: "context_pressure",
+  }));
+});
+
 test("processChat annotates draft fallback when compaction intent is active", async () => {
   const ws = createTempWorkspace("piclaw-web-channel-");
   cleanupWorkspace = ws.cleanup;
@@ -3047,6 +3228,127 @@ test("web channel handles adaptive card submit actions", async () => {
   const submission = timeline.find((entry: any) => entry.id !== sourceRowId && entry.data?.content?.includes("Card submission: Approve"));
   expect(submission).toBeDefined();
   expect(submission?.data?.content_blocks?.[0]?.type).toBe("adaptive_card_submission");
+});
+
+test("web channel handles recovery-continue adaptive card actions on the same thread", async () => {
+  const db = await import("../../../src/db.js");
+  db.initDatabase();
+  db.getDb().exec("DELETE FROM message_media; DELETE FROM messages; DELETE FROM chats; DELETE FROM chat_cursors;");
+  db.storeChatMetadata("web:default", new Date().toISOString(), "Web");
+
+  const sourceRowId = db.storeMessage({
+    id: `msg-${Math.random()}`,
+    chat_jid: "web:default",
+    sender: "web-agent",
+    sender_name: "Pi",
+    content: "Recovery exhausted. Choose how to continue.",
+    timestamp: new Date().toISOString(),
+    is_from_me: false,
+    is_bot_message: true,
+    content_blocks: [{
+      type: "adaptive_card",
+      card_id: "recovery-card-1",
+      schema_version: "1.5",
+      state: "active",
+      payload: { type: "AdaptiveCard", version: "1.5", body: [] },
+      fallback_text: "Recovery exhausted. Choose how to continue.",
+    }],
+    thread_id: null,
+  });
+  db.getDb().prepare("UPDATE messages SET thread_id = ? WHERE rowid = ?").run(sourceRowId, sourceRowId);
+
+  const webMod = await import("../../../src/channels/web.js");
+  const web = new (webMod.WebChannel as any)({
+    queue: { enqueue: () => {} },
+    agentPool: {
+      isStreaming: () => false,
+      runAgent: async () => ({ status: "success", result: "ok" }),
+      getContextUsageForChat: async () => null,
+    },
+  });
+
+  const req = new Request("http://test/agent/card-action", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      post_id: sourceRowId,
+      thread_id: sourceRowId,
+      card_id: "recovery-card-1",
+      action: {
+        type: "Action.Submit",
+        title: "Continue",
+        data: { intent: "recovery-continue" },
+      },
+    }),
+  });
+
+  const res = await (web as any).handleRequest(req);
+  expect(res.status).toBe(201);
+
+  const timeline = db.getTimeline("web:default", 10);
+  const submission = timeline.find((entry: any) => entry.id !== sourceRowId && entry.data?.content?.includes("Continue the previous answer from the last partial output"));
+  expect(submission).toBeDefined();
+  expect(submission?.data?.thread_id).toBe(sourceRowId);
+});
+
+test("web channel handles recovery-retry-clean adaptive card actions as isolated runs", async () => {
+  const db = await import("../../../src/db.js");
+  db.initDatabase();
+  db.getDb().exec("DELETE FROM message_media; DELETE FROM messages; DELETE FROM chats; DELETE FROM chat_cursors;");
+  db.storeChatMetadata("web:default", new Date().toISOString(), "Web");
+
+  const sourceRowId = db.storeMessage({
+    id: `msg-${Math.random()}`,
+    chat_jid: "web:default",
+    sender: "web-agent",
+    sender_name: "Pi",
+    content: "Recovery exhausted. Choose how to continue.",
+    timestamp: new Date().toISOString(),
+    is_from_me: false,
+    is_bot_message: true,
+    content_blocks: [{
+      type: "adaptive_card",
+      card_id: "recovery-card-2",
+      schema_version: "1.5",
+      state: "active",
+      payload: { type: "AdaptiveCard", version: "1.5", body: [] },
+      fallback_text: "Recovery exhausted. Choose how to continue.",
+    }],
+    thread_id: 11,
+  });
+
+  const webMod = await import("../../../src/channels/web.js");
+  const web = new (webMod.WebChannel as any)({
+    queue: { enqueue: () => {} },
+    agentPool: {
+      isStreaming: () => false,
+      runAgent: async () => ({ status: "success", result: "ok" }),
+      getContextUsageForChat: async () => null,
+    },
+  });
+
+  const req = new Request("http://test/agent/card-action", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      post_id: sourceRowId,
+      thread_id: 11,
+      card_id: "recovery-card-2",
+      action: {
+        type: "Action.Submit",
+        title: "Retry cleanly",
+        data: { intent: "recovery-retry-clean" },
+      },
+    }),
+  });
+
+  const res = await (web as any).handleRequest(req);
+  expect(res.status).toBe(201);
+
+  const timeline = db.getTimeline("web:default", 10);
+  const submission = timeline.find((entry: any) => entry.id !== sourceRowId && entry.data?.content?.includes("Retry the previous request cleanly as a new isolated run"));
+  expect(submission).toBeDefined();
+  expect(submission?.data?.thread_id == null || submission?.data?.thread_id === submission?.id).toBe(true);
 });
 
 test("web channel strips internal submit metadata before persisting completion state", async () => {

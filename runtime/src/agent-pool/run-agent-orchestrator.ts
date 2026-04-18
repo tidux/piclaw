@@ -6,6 +6,13 @@ import { shouldCompact, type AgentSession, type AgentSessionEvent, type AgentSes
 
 import type { AttachmentInfo } from "./attachments.js";
 
+import {
+  decideAutomaticRecovery,
+  getAutomaticRecoveryConfig,
+  type RecoveryAttemptSnapshot,
+  type RecoveryClassifier,
+  type RecoveryStrategy,
+} from "./automatic-recovery.js";
 import { getAgentRuntimeConfig, getSessionStorageConfig } from "../core/config.js";
 import { detectChannel } from "../router.js";
 import { pruneOrphanToolResults } from "./orphan-tool-results.js";
@@ -205,6 +212,174 @@ async function maybeAutoCompactSessionBeforePrompt(
   }
 }
 
+interface PromptAttemptResult {
+  output: AgentOutput;
+  snapshot: RecoveryAttemptSnapshot;
+}
+
+function emitAgentSessionEvent(onEvent: RunAgentOptions["onEvent"], event: Record<string, unknown>): void {
+  onEvent?.(event as AgentSessionEvent);
+}
+
+async function runRecoveryCompaction(
+  session: AgentSession,
+  chatJid: string,
+  runOptions: RunAgentOptions,
+  options: Pick<RunAgentOrchestratorOptions, "onInfo" | "onWarn">,
+): Promise<{ ok: true } | { ok: false; errorMessage: string }> {
+  options.onInfo?.("Compacting before automatic recovery retry", {
+    operation: "run_agent.recovery_compact",
+    chatJid,
+  });
+  emitAgentSessionEvent(runOptions.onEvent, { type: "compaction_start", reason: "overflow" });
+  try {
+    await session.compact();
+    emitAgentSessionEvent(runOptions.onEvent, {
+      type: "compaction_end",
+      reason: "overflow",
+      result: undefined,
+      aborted: false,
+      willRetry: true,
+    });
+    return { ok: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const aborted = error instanceof Error && (error.name === "AbortError" || error.message === "Compaction cancelled");
+    emitAgentSessionEvent(runOptions.onEvent, {
+      type: "compaction_end",
+      reason: "overflow",
+      result: undefined,
+      aborted,
+      willRetry: false,
+      errorMessage: aborted ? undefined : `Recovery compaction failed: ${errorMessage}`,
+    });
+    return { ok: false, errorMessage };
+  }
+}
+
+async function runPromptAttempt(
+  prompt: string,
+  chatJid: string,
+  session: AgentSession,
+  timeoutMs: number,
+  runOptions: RunAgentOptions,
+  options: RunAgentOrchestratorOptions,
+  totalRunStartedAt: number,
+): Promise<PromptAttemptResult> {
+  let hadToolActivity = false;
+  let hadPartialOutput = false;
+  let hadCompletedTurnOutput = false;
+  let compactionErrorMessage: string | null = null;
+  let sawCompactionIntent = false;
+
+  const originalOnTurnComplete = runOptions.onTurnComplete;
+  const onTurnComplete = originalOnTurnComplete
+    ? ((turn: { text: string; attachments: AttachmentInfo[] }) => {
+        hadCompletedTurnOutput = hadCompletedTurnOutput || !!(turn.text || turn.attachments.length > 0);
+        originalOnTurnComplete(turn);
+      })
+    : undefined;
+
+  const tracker = options.turnCoordinator.createTracker(chatJid, onTurnComplete);
+  const wrappedOnEvent = (event: AgentSessionEvent) => {
+    if (event.type === "message_update") {
+      const messageEvent = (event as { assistantMessageEvent?: { type?: string; delta?: string } }).assistantMessageEvent;
+      if (messageEvent?.type === "text_delta" && typeof messageEvent.delta === "string" && messageEvent.delta.length > 0) {
+        hadPartialOutput = true;
+      }
+    }
+    if (
+      event.type === "tool_execution_start"
+      || event.type === "tool_execution_update"
+      || event.type === "tool_execution_end"
+    ) {
+      hadToolActivity = true;
+    }
+    if (event.type === "compaction_start") {
+      sawCompactionIntent = true;
+    }
+    if (event.type === "compaction_end") {
+      const errorMessage = (event as { errorMessage?: unknown }).errorMessage;
+      if (typeof errorMessage === "string" && errorMessage.trim()) {
+        compactionErrorMessage = errorMessage.trim();
+      }
+    }
+    runOptions.onEvent?.(event);
+  };
+
+  const unsub = options.turnCoordinator.subscribe(session, chatJid, tracker, wrappedOnEvent);
+  const { timeoutId, timedOutRef, completedRef } = options.turnCoordinator.startPromptTimeout(session, chatJid, timeoutMs);
+  const finishPromptTimeout = () => {
+    if (!completedRef.value) completedRef.value = true;
+    if (timeoutId) clearTimeout(timeoutId);
+  };
+
+  let promptThrownError: string | null = null;
+  try {
+    await session.prompt(prompt);
+    finishPromptTimeout();
+    options.onInfo?.("session.prompt() resolved", {
+      operation: "run_agent.prompt_resolved",
+      chatJid,
+      promptDurationMs: Date.now() - totalRunStartedAt,
+      sessionIsStreaming: Boolean(session.isStreaming),
+      sessionIsCompacting: Boolean(session.isCompacting),
+      sessionIsRetrying: Boolean(session.isRetrying),
+    });
+    const idleMaxWaitMs = resolveSessionIdleMaxWaitMs(session);
+    await waitForSessionIdle(session, 10, (result) => {
+      options.onInfo?.("Session settled after prompt", {
+        operation: "run_agent.wait_for_session_idle",
+        chatJid,
+        maxWaitMs: idleMaxWaitMs,
+        ...result,
+      });
+    }, idleMaxWaitMs);
+  } catch (error) {
+    promptThrownError = error instanceof Error ? error.message : String(error);
+  } finally {
+    finishPromptTimeout();
+    unsub();
+  }
+
+  const finalText = tracker.getFinalText();
+  hadPartialOutput = hadPartialOutput || !!finalText;
+  const finalAttachments = options.takeAttachments(chatJid);
+  const timedOut = timedOutRef.value;
+  const latentStateError = !finalText ? getSessionStateErrorMessage(session) : null;
+
+  let output: AgentOutput;
+  if (timedOut) {
+    output = { status: "error", result: null, error: `Timed out after ${formatTimeoutDuration(timeoutMs)}` };
+  } else if (promptThrownError) {
+    output = { status: "error", result: null, error: promptThrownError };
+  } else {
+    const turnError = tracker.getError();
+    if (turnError) {
+      output = { status: "error", result: null, error: turnError.errorMessage };
+    } else if (latentStateError) {
+      output = { status: "error", result: null, error: latentStateError };
+    } else {
+      output = {
+        status: "success",
+        result: finalText || null,
+        attachments: finalAttachments.length ? finalAttachments : undefined,
+      };
+    }
+  }
+
+  return {
+    output,
+    snapshot: {
+      hadToolActivity,
+      hadPartialOutput,
+      hadCompletedTurnOutput,
+      compactionErrorMessage,
+      sawCompactionIntent,
+    },
+  };
+}
+
 /** Run a prompt against the persistent session for one chat. */
 export async function runAgentPrompt(
   prompt: string,
@@ -231,76 +406,157 @@ export async function runAgentPrompt(
       promptLength: prompt.length,
     });
 
-    const tracker = options.turnCoordinator.createTracker(chatJid, runOptions.onTurnComplete);
-    const unsub = options.turnCoordinator.subscribe(session, chatJid, tracker, runOptions.onEvent);
     const timeoutMs = typeof runOptions.timeoutMs === "number" ? runOptions.timeoutMs : getAgentRuntimeConfig().timeoutMs;
-    const { timeoutId, timedOutRef, completedRef } = options.turnCoordinator.startPromptTimeout(session, chatJid, timeoutMs);
-    const finishPromptTimeout = () => {
-      if (!completedRef.value) {
-        completedRef.value = true;
-      }
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-
     const channel = detectChannel(chatJid);
+    const recoveryConfig = getAutomaticRecoveryConfig();
+    let recoveryAttemptsUsed = 0;
+    let lastClassifier: RecoveryClassifier | null = null;
+    const strategyHistory: RecoveryStrategy[] = [];
+
     return await withChatContext(chatJid, channel, async () => {
-      try {
-        await session.prompt(prompt);
-        finishPromptTimeout();
-        options.onInfo?.("session.prompt() resolved", {
-          operation: "run_agent.prompt_resolved",
+      while (true) {
+        const attempt = await runPromptAttempt(
+          prompt,
           chatJid,
-          promptDurationMs: Date.now() - startTime,
-          sessionIsStreaming: Boolean(session.isStreaming),
-          sessionIsCompacting: Boolean(session.isCompacting),
-          sessionIsRetrying: Boolean(session.isRetrying),
-        });
-        const idleMaxWaitMs = resolveSessionIdleMaxWaitMs(session);
-        await waitForSessionIdle(session, 10, (result) => {
-          options.onInfo?.("Session settled after prompt", {
-            operation: "run_agent.wait_for_session_idle",
+          session,
+          timeoutMs,
+          runOptions,
+          options,
+          startTime,
+        );
+
+        if (attempt.output.status === "success") {
+          const duration = Date.now() - startTime;
+          const finalText = typeof attempt.output.result === "string" ? attempt.output.result : null;
+          writeAgentLog(options.logsDir, chatJid, duration, false, finalText, null);
+          options.onInfo?.("Agent run completed", {
+            operation: "run_agent.complete",
             chatJid,
-            maxWaitMs: idleMaxWaitMs,
-            ...result,
+            durationMs: duration,
+            outputChars: finalText?.length ?? 0,
+            recoveryAttemptsUsed,
+            recovered: recoveryAttemptsUsed > 0,
           });
-        }, idleMaxWaitMs);
-      } finally {
-        finishPromptTimeout();
-        unsub();
+          if (recoveryAttemptsUsed > 0) {
+            emitAgentSessionEvent(runOptions.onEvent, {
+              type: "recovery_end",
+              outcome: "recovered",
+              attemptsUsed: recoveryAttemptsUsed,
+              classifier: lastClassifier,
+            });
+            attempt.output.recovery = {
+              attemptsUsed: recoveryAttemptsUsed,
+              totalElapsedMs: duration,
+              recovered: true,
+              exhausted: false,
+              lastClassifier,
+              strategyHistory,
+            };
+          }
+          return attempt.output;
+        }
+
+        const errorText = attempt.output.error || "Agent error";
+        const decision = decideAutomaticRecovery({
+          config: recoveryConfig,
+          errorText,
+          recoveryAttemptsUsed,
+          elapsedMs: Date.now() - startTime,
+          snapshot: attempt.snapshot,
+        });
+        lastClassifier = decision.classifier;
+
+        options.onWarn?.("Agent attempt failed", {
+          operation: "run_agent.attempt_failed",
+          chatJid,
+          errorText,
+          classifier: decision.classifier,
+          recoveryAttemptsUsed,
+          recoveryStrategy: decision.strategy,
+          reason: decision.reason,
+        });
+
+        if (!decision.recover || !decision.strategy) {
+          const duration = Date.now() - startTime;
+          writeAgentLog(options.logsDir, chatJid, duration, false, null, errorText);
+          if (recoveryAttemptsUsed > 0) {
+            emitAgentSessionEvent(runOptions.onEvent, {
+              type: "recovery_end",
+              outcome: "exhausted",
+              attemptsUsed: recoveryAttemptsUsed,
+              classifier: decision.classifier,
+              errorMessage: errorText,
+            });
+            attempt.output.recovery = {
+              attemptsUsed: recoveryAttemptsUsed,
+              totalElapsedMs: duration,
+              recovered: false,
+              exhausted: true,
+              lastClassifier,
+              strategyHistory,
+            };
+          }
+          return attempt.output;
+        }
+
+        recoveryAttemptsUsed += 1;
+        strategyHistory.push(decision.strategy);
+        emitAgentSessionEvent(runOptions.onEvent, {
+          type: "recovery_start",
+          classifier: decision.classifier,
+          strategy: decision.strategy,
+          attempt: recoveryAttemptsUsed,
+          maxAttempts: recoveryConfig.maxAttempts,
+          totalBudgetMs: recoveryConfig.totalBudgetMs,
+          reason: decision.reason,
+        });
+
+        if (decision.strategy === "compact_then_retry") {
+          const compactionResult = await runRecoveryCompaction(session, chatJid, runOptions, options);
+          if (!compactionResult.ok) {
+            const compactDecision = decideAutomaticRecovery({
+              config: recoveryConfig,
+              errorText: compactionResult.errorMessage,
+              recoveryAttemptsUsed,
+              elapsedMs: Date.now() - startTime,
+              snapshot: {
+                hadToolActivity: false,
+                hadPartialOutput: attempt.snapshot.hadPartialOutput,
+                hadCompletedTurnOutput: attempt.snapshot.hadCompletedTurnOutput,
+                compactionErrorMessage: compactionResult.errorMessage,
+                sawCompactionIntent: true,
+              },
+            });
+            lastClassifier = compactDecision.classifier;
+            if (!compactDecision.recover || compactDecision.strategy !== "retry") {
+              const duration = Date.now() - startTime;
+              writeAgentLog(options.logsDir, chatJid, duration, false, null, compactionResult.errorMessage);
+              emitAgentSessionEvent(runOptions.onEvent, {
+                type: "recovery_end",
+                outcome: "exhausted",
+                attemptsUsed: recoveryAttemptsUsed,
+                classifier: compactDecision.classifier,
+                errorMessage: compactionResult.errorMessage,
+              });
+              return {
+                status: "error",
+                result: null,
+                error: compactionResult.errorMessage,
+                recovery: {
+                  attemptsUsed: recoveryAttemptsUsed,
+                  totalElapsedMs: duration,
+                  recovered: false,
+                  exhausted: true,
+                  lastClassifier,
+                  strategyHistory,
+                },
+              };
+            }
+          }
+        }
+
+        options.clearAttachments(chatJid);
       }
-
-      const duration = Date.now() - startTime;
-      const finalText = tracker.getFinalText();
-      const finalAttachments = options.takeAttachments(chatJid);
-      const timedOut = timedOutRef.value;
-      const latentStateError = !finalText ? getSessionStateErrorMessage(session) : null;
-      writeAgentLog(options.logsDir, chatJid, duration, timedOut, finalText, latentStateError);
-
-      if (timedOut) {
-        return { status: "error", result: null, error: `Timed out after ${formatTimeoutDuration(timeoutMs)}` };
-      }
-
-      const turnError = tracker.getError();
-      if (turnError) {
-        return { status: "error", result: null, error: turnError.errorMessage };
-      }
-
-      if (latentStateError) {
-        return { status: "error", result: null, error: latentStateError };
-      }
-
-      options.onInfo?.("Agent run completed", {
-        operation: "run_agent.complete",
-        chatJid,
-        durationMs: duration,
-        outputChars: finalText.length,
-        turns: tracker.getTurnCount() + 1,
-      });
-      return {
-        status: "success",
-        result: finalText || null,
-        attachments: finalAttachments.length ? finalAttachments : undefined,
-      };
     });
   } catch (err) {
     options.clearAttachments(chatJid);

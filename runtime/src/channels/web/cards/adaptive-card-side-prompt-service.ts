@@ -125,6 +125,14 @@ function parseSidePromptPayload(payload: { prompt?: string; system_prompt?: stri
   };
 }
 
+function buildRecoveryResumePrompt(): string {
+  return "Continue the previous answer from the last partial output, without repeating completed parts. Use the current session state, recover continuity cleanly, and do not rerun side-effecting tools.";
+}
+
+function buildRecoveryRetryCleanPrompt(): string {
+  return "Retry the previous request cleanly as a new isolated run. Do not continue the partial answer inline. Re-answer from the current session state as a fresh attempt, and do not rerun side-effecting tools automatically.";
+}
+
 export function createWebAdaptiveCardSidePromptService(
   channel: WebAdaptiveCardSidePromptChannelLike,
   options: {
@@ -315,6 +323,63 @@ export class WebAdaptiveCardSidePromptService {
         submitted_at: submittedAt,
         auth_result: authResult.status,
       }, 200);
+    }
+
+    const isRecoveryContinue = rawSubmissionData && rawSubmissionData.intent === "recovery-continue";
+    if (isRecoveryContinue) {
+      updateSourceCard(
+        markAdaptiveCardState(
+          sourceInteraction.data?.content_blocks,
+          normalized.cardId,
+          "completed",
+          submittedAt,
+          { action_type: normalized.actionType, title: normalized.actionTitle || "Continue", data: { intent: "recovery-continue" }, submitted_at: submittedAt },
+        ),
+      );
+
+      const continueReq = new Request(`http://internal/agent/${this.options.defaultAgentId}/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: buildRecoveryResumePrompt(),
+          thread_id: threadId,
+          content_blocks: [submissionBlock],
+        }),
+      });
+      return await this.options.forwardAgentMessage(
+        continueReq,
+        `/agent/${this.options.defaultAgentId}/message`,
+        chatJid,
+        this.options.defaultAgentId,
+      );
+    }
+
+    const isRecoveryRetryClean = rawSubmissionData && rawSubmissionData.intent === "recovery-retry-clean";
+    if (isRecoveryRetryClean) {
+      updateSourceCard(
+        markAdaptiveCardState(
+          sourceInteraction.data?.content_blocks,
+          normalized.cardId,
+          "completed",
+          submittedAt,
+          { action_type: normalized.actionType, title: normalized.actionTitle || "Retry cleanly", data: { intent: "recovery-retry-clean" }, submitted_at: submittedAt },
+        ),
+      );
+
+      const retryReq = new Request(`http://internal/agent/${this.options.defaultAgentId}/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: buildRecoveryRetryCleanPrompt(),
+          content_blocks: [submissionBlock],
+        }),
+      });
+      return await this.options.forwardAgentMessage(
+        retryReq,
+        `/agent/${this.options.defaultAgentId}/message`,
+        chatJid,
+        this.options.defaultAgentId,
+      );
     }
 
     const isTotpFlow = rawSubmissionData && rawSubmissionData.intent === "totp-confirm";

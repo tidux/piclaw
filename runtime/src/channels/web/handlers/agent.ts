@@ -151,7 +151,58 @@ export function stripMarkdownCodeFenceMarkers(value: string): string {
     .trim();
 }
 
-export function summarizeCommandStatusTitle(message: unknown, fallback = "Command failed"): string {
+export function buildRecoveryMarkerBlocks(recovery: { attemptsUsed?: number; lastClassifier?: string | null } | null | undefined): Array<Record<string, unknown>> | undefined {
+  if (!recovery?.attemptsUsed) return undefined;
+  return [{
+    type: "recovery_marker",
+    recovered: true,
+    attempts_used: recovery.attemptsUsed,
+    classifier: recovery.lastClassifier ?? null,
+    label: recovery.attemptsUsed === 1
+      ? "Recovered automatically"
+      : `Recovered after ${recovery.attemptsUsed} attempts`,
+  }];
+}
+
+function buildRecoveryExhaustedCard(turnId: string, threadId: number | null | undefined, attemptsUsed: number, classifier?: string | null): Record<string, unknown> {
+  const detail = classifier ? `Automatic recovery stopped after ${attemptsUsed} attempt(s) (${classifier}).` : `Automatic recovery stopped after ${attemptsUsed} attempt(s).`;
+  return {
+    type: "adaptive_card",
+    card_id: `recovery-exhausted-${turnId}`,
+    schema_version: "1.5",
+    state: "active",
+    fallback_text: "Automatic recovery exhausted. Choose Continue or Retry cleanly.",
+    payload: {
+      type: "AdaptiveCard",
+      version: "1.5",
+      body: [
+        { type: "TextBlock", text: "Automatic recovery exhausted", weight: "Bolder", size: "Medium" },
+        { type: "TextBlock", text: detail, wrap: true, spacing: "Small" },
+        { type: "TextBlock", text: "Choose how to proceed.", wrap: true, spacing: "Small" },
+      ],
+      actions: [
+        {
+          type: "Action.Submit",
+          title: "Continue",
+          data: {
+            intent: "recovery-continue",
+            thread_id: threadId ?? null,
+          },
+        },
+        {
+          type: "Action.Submit",
+          title: "Retry cleanly",
+          data: {
+            intent: "recovery-retry-clean",
+            __card_state: "completed",
+          },
+        },
+      ],
+    },
+  };
+}
+
+function summarizeCommandStatusTitle(message: unknown, fallback = "Command failed"): string {
   const raw = typeof message === "string" ? message.trim() : "";
   if (!raw) return fallback;
   const unfenced = stripMarkdownCodeFenceMarkers(raw);
@@ -501,6 +552,7 @@ export async function handleAgentMessage(
     mediaIds: normalized.mediaIds,
     contentBlocks: normalized.contentBlocks,
     linkPreviews: normalized.linkPreviews,
+    threadId: normalized.threadId,
   });
 
   if (!interaction) return channel.json({ error: "Failed to store message" }, 500);
@@ -1015,6 +1067,7 @@ export async function processChat(
   let hadIntermediateOutput = false;
   let persistedIntermediateOutput = false;
   let intermediatePersistFailed = false;
+  let lastRecoveryMeta: { attemptsUsed?: number; recovered?: boolean; exhausted?: boolean; lastClassifier?: string | null } | null = null;
   const isCompactionIntentActive = (): boolean => {
     const status = channel.getAgentStatus(chatJid);
     if (!status || typeof status !== "object") return false;
@@ -1034,13 +1087,16 @@ export async function processChat(
     const compactionNote = isCompactionIntentActive()
       ? "\n\nℹ️ Context compaction was in progress."
       : "";
+    const recoveryNote = lastRecoveryMeta?.exhausted
+      ? `\n\nℹ️ Piclaw attempted automatic recovery ${Math.max(0, lastRecoveryMeta.attemptsUsed || 0)} time(s) before giving up${lastRecoveryMeta.lastClassifier ? ` (${lastRecoveryMeta.lastClassifier})` : ""}.`
+      : "";
     const suffix =
       reason === "timeout"
-        ? `\n\n⚠️ Response timed out before finalization.${compactionNote}`
+        ? `\n\n⚠️ Response timed out before finalization.${compactionNote}${recoveryNote}`
         : reason === "rate-limit"
-          ? `\n\n⚠️ AI provider rate limit after automatic retries.\n\n\`${String(detail || "rate limit").slice(0, 500)}\`\n\nPiclaw retried the request, but the provider still exhausted its rate-limit budget before finalization.${compactionNote}`
+          ? `\n\n⚠️ AI provider rate limit after automatic retries.\n\n\`${String(detail || "rate limit").slice(0, 500)}\`\n\nPiclaw retried the request, but the provider still exhausted its rate-limit budget before finalization.${compactionNote}${recoveryNote}`
           : reason === "error"
-            ? `\n\n⚠️ Response ended with an error before finalization.${compactionNote}`
+            ? `\n\n⚠️ Response ended with an error before finalization.${compactionNote}${recoveryNote}`
             : compactionNote;
 
     return storeAgentTurn(channel, emitter, {
@@ -1077,6 +1133,7 @@ export async function processChat(
       context_usage: contextUsage
         ? { tokens: contextUsage.tokens, contextWindow: contextUsage.contextWindow, percent: contextUsage.percent }
         : null,
+      recovery: lastRecoveryMeta,
     });
 
     // If more persisted user messages already exist after the cursor, process
@@ -1148,6 +1205,8 @@ export async function processChat(
     },
   });
 
+  lastRecoveryMeta = output.recovery || null;
+
   if (output.status === "error") {
     if (output.error && output.error.includes("already processing")) {
       // A concurrent run is already handling this chat. Roll back the cursor
@@ -1191,6 +1250,12 @@ export async function processChat(
       // turn can drain pending work and the client receives a normal done
       // transition plus the already-persisted fallback post.
       await finalizeSuccessfulRun();
+      if (output.recovery?.exhausted) {
+        await channel.sendMessage(chatJid, "Automatic recovery exhausted. Choose how to continue.", {
+          threadId: resolvedThreadRootId,
+          contentBlocks: [buildRecoveryExhaustedCard(turnId, resolvedThreadRootId, output.recovery.attemptsUsed, output.recovery.lastClassifier)],
+        });
+      }
       return;
     }
 
@@ -1224,6 +1289,12 @@ export async function processChat(
       detail: rateLimited ? errorText : undefined,
       turn_id: turnId,
     });
+    if (output.recovery?.exhausted) {
+      await channel.sendMessage(chatJid, "Automatic recovery exhausted. Choose how to continue.", {
+        threadId: resolvedThreadRootId,
+        contentBlocks: [buildRecoveryExhaustedCard(turnId, resolvedThreadRootId, output.recovery.attemptsUsed, output.recovery.lastClassifier)],
+      });
+    }
     return;
   }
 
@@ -1244,6 +1315,7 @@ export async function processChat(
         threadId: resolvedThreadRootId,
         skipPlaceholder: turnCount === 0,
         isTerminalAgentReply: true,
+        extraContentBlocks: buildRecoveryMarkerBlocks(output.recovery),
       })
     : publishDraftFallback("empty-final");
 

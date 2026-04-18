@@ -72,6 +72,11 @@ function FileAttachment({ mediaId, onPreview }) {
     `;
 }
 
+function extractRecoveryMarkerBlocks(contentBlocks) {
+    if (!Array.isArray(contentBlocks)) return [];
+    return contentBlocks.filter((block) => block && typeof block === 'object' && block.type === 'recovery_marker' && block.recovered);
+}
+
 function AttachmentPill({ attachment, onPreview }) {
     const mediaId = Number(attachment?.id);
     const [info, setInfo] = useState(null);
@@ -736,6 +741,8 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
     displayContent = cleanedWithAttachments;
     const directCardBlocks = extractCardBlocks(blocks);
     const submissionBlocks = extractAdaptiveCardSubmissionBlocks(blocks);
+    const recoveryMarkerBlocks = extractRecoveryMarkerBlocks(blocks);
+    const recoveryMarker = recoveryMarkerBlocks[0] || null;
     const singleCardFallback = directCardBlocks.length === 1 && typeof directCardBlocks[0]?.fallback_text === 'string'
         ? directCardBlocks[0].fallback_text.trim()
         : '';
@@ -986,6 +993,16 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                 <div class="post-meta">
                     <span class="post-author">${displayName}</span>
                     ${showSearchChatAgentTag && html`<span class="post-chat-agent-tag" title=${`Chat: ${searchChatAgentName}`}>@${searchChatAgentName}</span>`}
+                    ${recoveryMarker && html`
+                        <span
+                            class="post-recovery-chip"
+                            title=${recoveryMarker.classifier
+                                ? `${recoveryMarker.label || 'Recovered automatically'} · ${recoveryMarker.classifier}`
+                                : (recoveryMarker.label || 'Recovered automatically')}
+                        >
+                            ${recoveryMarker.label || 'Recovered automatically'}
+                        </span>
+                    `}
                     <a class="post-time" href=${`#msg-${post.id}`} onClick=${(e) => {
                         e.preventDefault();
                         e.stopPropagation();

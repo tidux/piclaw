@@ -61,10 +61,15 @@ export function storeAgentTurn(
     skipPlaceholder?: boolean;
     /** True only for the terminal persisted assistant message of a run. */
     isTerminalAgentReply?: boolean;
+    extraContentBlocks?: Array<Record<string, unknown>>;
     dispatchWebPushNotification?: (interaction: ReturnType<WebChannelLike["storeMessage"]>) => Promise<unknown>;
   }
 ): boolean {
   const { mediaIds, contentBlocks } = buildAttachmentBlocks(params.attachments);
+  const mergedContentBlocks = [
+    ...contentBlocks,
+    ...(Array.isArray(params.extraContentBlocks) ? params.extraContentBlocks.filter((block) => block && typeof block === "object") : []),
+  ];
   const formatted = formatOutbound(params.text, params.channelName);
   const resolvedThreadId = params.threadId ?? undefined;
 
@@ -79,7 +84,7 @@ export function storeAgentTurn(
         placeholderId,
         formatted,
         mediaIds,
-        contentBlocks.length > 0 ? contentBlocks : undefined,
+        mergedContentBlocks.length > 0 ? mergedContentBlocks : undefined,
         undefined,
         params.isTerminalAgentReply
       );
@@ -98,7 +103,7 @@ export function storeAgentTurn(
   }
 
   const interaction = channel.storeMessage(params.chatJid, formatted, true, mediaIds, {
-    contentBlocks: contentBlocks.length > 0 ? contentBlocks : undefined,
+    contentBlocks: mergedContentBlocks.length > 0 ? mergedContentBlocks : undefined,
     threadId: resolvedThreadId,
     isTerminalAgentReply: params.isTerminalAgentReply,
   });
