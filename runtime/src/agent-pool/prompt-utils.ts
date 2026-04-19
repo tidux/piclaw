@@ -62,10 +62,17 @@ export const DEFAULT_SESSION_IDLE_SETTLE_TICKS = 20;
 export const DEFAULT_SESSION_IDLE_MAX_WAIT_MS = 10_000;
 export const DEFAULT_SESSION_IDLE_COMPACTION_MAX_WAIT_MS = 30_000;
 
+function parseEnvPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = parseInt(raw.trim(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export function resolveSessionIdleMaxWaitMs(
   session: { isCompacting?: boolean },
-  defaultMaxWaitMs = DEFAULT_SESSION_IDLE_MAX_WAIT_MS,
-  compactionMaxWaitMs = DEFAULT_SESSION_IDLE_COMPACTION_MAX_WAIT_MS,
+  defaultMaxWaitMs = parseEnvPositiveInt("PICLAW_SESSION_IDLE_MAX_WAIT_MS", DEFAULT_SESSION_IDLE_MAX_WAIT_MS),
+  compactionMaxWaitMs = parseEnvPositiveInt("PICLAW_SESSION_IDLE_COMPACTION_MAX_WAIT_MS", DEFAULT_SESSION_IDLE_COMPACTION_MAX_WAIT_MS),
 ): number {
   if (!session.isCompacting) return defaultMaxWaitMs;
   return Math.max(defaultMaxWaitMs, compactionMaxWaitMs);
