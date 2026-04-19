@@ -222,11 +222,15 @@ export function useAppShellEnvironmentEffects(options: UseAppShellEnvironmentEff
     if (!favicon) return;
 
     const defaultHref = favicon.getAttribute('data-default') || favicon.getAttribute('href') || '/favicon.ico';
-    const baseHref = avatarUrl || defaultHref;
-    const avatarKey = avatarUrl ? `${baseHref}|${avatarVersion || ''}` : baseHref;
+    // Request PNG format for favicons — Safari cannot render WebP in the
+    // tab icon context even though it supports WebP for regular images.
+    const baseHref = avatarUrl
+      ? `${avatarUrl}${avatarUrl.includes('?') ? '&' : '?'}format=png`
+      : defaultHref;
+    const avatarKey = avatarUrl ? `${avatarUrl}|${avatarVersion || ''}` : defaultHref;
     if (brandingRef.current.avatarBase !== avatarKey) {
       const cacheBust = avatarUrl
-        ? `${baseHref}${baseHref.includes('?') ? '&' : '?'}v=${avatarVersion || Date.now()}`
+        ? `${baseHref}&v=${avatarVersion || Date.now()}`
         : baseHref;
       // Update the existing node first (works in Chrome/Edge/Firefox).
       favicon.href = cacheBust;
