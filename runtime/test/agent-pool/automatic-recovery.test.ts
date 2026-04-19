@@ -82,6 +82,41 @@ test("skips automatic recovery when tool activity already happened", () => {
   expect(decision.classifier).toBe("tool_activity");
 });
 
+test("allows compaction recovery despite tool activity when compaction was in progress", () => {
+  const decision = decideAutomaticRecovery({
+    config: DEFAULT_AUTOMATIC_RECOVERY_CONFIG,
+    errorText: "Timed out waiting for session idle after 30s (streaming=false, compacting=true, retrying=false)",
+    recoveryAttemptsUsed: 0,
+    elapsedMs: 1000,
+    snapshot: {
+      hadToolActivity: true,
+      hadPartialOutput: true,
+      sawCompactionIntent: true,
+    },
+  });
+
+  expect(decision.recover).toBe(true);
+  expect(decision.classifier).toBe("context_pressure");
+  expect(decision.strategy).toBe("compact_then_retry");
+});
+
+test("allows compaction recovery despite tool activity when error is context-pressure", () => {
+  const decision = decideAutomaticRecovery({
+    config: DEFAULT_AUTOMATIC_RECOVERY_CONFIG,
+    errorText: "maximum context length exceeded",
+    recoveryAttemptsUsed: 0,
+    elapsedMs: 1000,
+    snapshot: {
+      hadToolActivity: true,
+      hadPartialOutput: true,
+    },
+  });
+
+  expect(decision.recover).toBe(true);
+  expect(decision.classifier).toBe("context_pressure");
+  expect(decision.strategy).toBe("compact_then_retry");
+});
+
 test("stops recovery after the configured attempt budget", () => {
   const decision = decideAutomaticRecovery({
     config: { ...DEFAULT_AUTOMATIC_RECOVERY_CONFIG, maxAttempts: 2, totalBudgetMs: 30_000, enabled: true },

@@ -133,6 +133,20 @@ export function decideAutomaticRecovery(input: RecoveryDecisionInput): RecoveryD
   }
 
   if (input.snapshot.hadToolActivity) {
+    // Tool activity normally prevents automatic retry because replaying
+    // side-effecting tools is unsafe. However, when the failure is clearly
+    // context-pressure related (compaction was in progress or the error text
+    // indicates context limits), compaction-then-retry is still safe because
+    // the retry will compact first and the tools already executed are part of
+    // the persisted session history.
+    if (isContextPressureFailure(errorText) || input.snapshot.sawCompactionIntent) {
+      return {
+        recover: true,
+        classifier: "context_pressure",
+        strategy: "compact_then_retry",
+        reason: "Failure looks context-related despite tool activity; compacting before retrying.",
+      };
+    }
     return {
       recover: false,
       classifier: "tool_activity",
