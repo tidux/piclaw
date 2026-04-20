@@ -341,6 +341,14 @@ In the container image that Pi home is typically bind-mounted under:
 /config/.pi/agent/mcp.json
 ```
 
+With the stock `docker-compose.yml` in this repo, that container path is persisted on the host under:
+
+```text
+./home/.pi/agent/mcp.json
+```
+
+The same `/config/.pi/agent/` path also holds Pi-managed provider auth/model metadata in the container image, so users should not need to re-run `/login` after every recreate as long as the `./home:/config` bind mount is preserved.
+
 Notes:
 
 - prefer the project-local file when MCP servers are part of the current workspace

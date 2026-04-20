@@ -45,6 +45,16 @@ Open `http://localhost:8080` and type `/login` to configure your LLM provider, i
 | Home | `/config` | Agent home (`.pi/`, `.gitconfig`, `.bashrc`) |
 | Workspace | `/workspace` | Projects, notes, and piclaw state |
 
+> [!NOTE]
+> In the container image, `/home/agent/.pi` is backed by `/config/.pi`. With the stock `docker run` / `docker-compose.yml` examples above, Pi home state therefore persists on the host under `./home/.pi/agent/`.
+>
+> That means provider login state and model metadata should survive rebuilds/recreates when stored under files such as:
+>
+> - `./home/.pi/agent/auth.json`
+> - `./home/.pi/agent/models.json`
+>
+> Mounting directly to `/home/agent` or `/home/agent/.pi/agent` can also work, but `/config` is the canonical documented persistence path for the container image.
+
 > [!WARNING]
 > Never delete `/workspace/.piclaw/store/messages.db`. It contains chat history, media, and task state.
 

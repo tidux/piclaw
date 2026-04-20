@@ -20,7 +20,7 @@ services:
           cpus: '${CPU_LIMITS:-2}'
           memory: '${MEMORY_LIMITS:-4G}'
     volumes:
-      - ./home:/config          # agent home dir persistence (.pi, .gitconfig)
+      - ./home:/config          # canonical persisted agent-home backing store; /home/agent/.pi maps here via the entrypoint symlink setup
       - workspace:/workspace    # workspace + piclaw state (SQLite, sessions, IPC)
     networks:
       - pibox
