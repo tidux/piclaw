@@ -1514,14 +1514,12 @@ export async function processChat(
       return;
     }
 
-    // A turn that finishes successfully with no persisted output is not a
-    // benign success — it leaves the chat in a consumed-but-blocked state.
-    // Treat the first occurrence as a failed run immediately so the user gets
-    // a recovery card and the cursor does not silently advance past the prompt.
+    // A turn that finishes with no persisted output after automatic recovery
+    // has been attempted.  Show a concise notice; the user can /compact or
+    // switch models without a separate recovery card.
     const title = "Agent produced no response";
     const detail =
-      "The model returned an empty reply. This can happen when the context is too large for the current model. " +
-      "Try `/compact` to shrink the session, switch to a model with a larger context window, or `/new-session` to start fresh.";
+      "The model returned an empty reply. Try `/compact` to shrink the session, or switch to a model with a larger context window.";
     const previewBlock = preview ? `\n\n> ${preview}` : "";
     const noticeText = `⚠️ ${title}.\n\n${detail}${previewBlock}`;
 
@@ -1558,10 +1556,6 @@ export async function processChat(
       turn_id: turnId,
     });
 
-    await channel.sendMessage(chatJid, `${title}. Choose how to continue.`, {
-      threadId: resolvedThreadRootId,
-      contentBlocks: [buildRecoveryStalledCard(turnId, resolvedThreadRootId, detail)],
-    });
     return;
   }
 

@@ -2215,11 +2215,9 @@ test("processChat records a failed run when the agent returns empty successful o
   const timeline = db.getTimeline("web:default", 10);
   const botMessages = timeline.filter((item: any) => item.data.type === "agent_response");
   expect(botMessages.some((item: any) => String(item.data.content || "").includes("⚠️ Agent produced no response."))).toBe(true);
-  expect(botMessages.some((item: any) => String(item.data.content || "").includes("Choose how to continue."))).toBe(true);
-
-  const cardMessage = timeline.find((entry: any) => Array.isArray(entry.data?.content_blocks)
-    && entry.data.content_blocks.some((block: any) => block?.type === "adaptive_card" && String(block.card_id || "").startsWith("recovery-stalled-")));
-  expect(cardMessage).toBeDefined();
+  // No recovery card — blank turns are handled by automatic recovery
+  // (compact_then_retry). Only a concise notice is shown.
+  expect(botMessages.some((item: any) => String(item.data.content || "").includes("Choose how to continue."))).toBe(false);
 });
 
 test("processChat does not emit no-response notice when an earlier turn was already persisted", async () => {

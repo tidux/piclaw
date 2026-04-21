@@ -479,22 +479,22 @@ async function runPromptAttempt(
           detail,
           blankTurnDelta,
         });
-        // When context usage is above 60% of the model's window, include a
-        // pressure hint so the recovery classifier tries compact_then_retry
-        // instead of a bare retry that would hit the same wall.
-        const contextHint = (() => {
-          try {
-            const tokens = estimateContextTokensFromSession(session);
-            const cw = getModelContextWindow(session) ?? DEFAULT_FALLBACK_CONTEXT_WINDOW;
-            if (cw > 0 && tokens > cw * 0.6) return ` Context at ${Math.round(tokens / cw * 100)}% of window — likely too large.`;
-          } catch { /* best-effort */ }
-          return "";
-        })();
         output = {
           status: "error",
           result: null,
-          error: `Prompt completed without emitting an assistant reply before finalization (${detail}).${contextHint}`,
+          error: `Prompt completed without emitting an assistant reply before finalization (${detail}).`,
         };
+
+        // When context usage is above 60% of the model's window, flag
+        // context pressure on the snapshot so recovery compacts first
+        // instead of retrying into the same wall.
+        try {
+          const tokens = estimateContextTokensFromSession(session);
+          const cw = getModelContextWindow(session) ?? DEFAULT_FALLBACK_CONTEXT_WINDOW;
+          if (cw > 0 && tokens > cw * 0.6) {
+            sawCompactionIntent = true;
+          }
+        } catch { /* best-effort */ }
       } else {
         output = {
           status: "success",
