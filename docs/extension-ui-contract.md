@@ -78,7 +78,8 @@ Extension authors should treat the bridge as a **transport + lightweight afforda
 | `extension_ui_request` | Supported public bridge event | No built-in generic renderer today | Use only when your browser-side integration is prepared to render/respond |
 | `extension_ui_timeout` | Supported public bridge event | No shell UI guarantee | Treat as lifecycle signal for request UIs |
 | `extension_ui_status` | Supported public bridge event | No built-in shell panel today | Suitable for lightweight status syncing to extension-owned browser UI |
-| `extension_ui_working` | Supported public bridge event | No built-in shell panel today | Same as above; use for transient progress text |
+| `extension_ui_working` | Supported public bridge event | Working message shown in compose strip | Use for transient progress text; cleared automatically on turn end |
+| `extension_ui_working_indicator` | Supported public bridge event **plus** shell-owned affordance | Yes — animated spinner/glyph in compose strip | Use `ctx.ui.setWorkingIndicator()` from extension API; supports default/hidden/custom-frame modes; cleared on turn done, error, and chat switch |
 | `extension_ui_widget` | Supported public bridge event | No built-in shell slot today | Suitable only for extension-owned browser listeners/widgets |
 | `extension_ui_title` | Supported public bridge event | No shell title integration today | Use only for extension-owned browser UI |
 | `extension_ui_editor_text` | Supported public bridge event | No shell-owned editor contract yet | Do not assume a generic editor/compose insertion target exists |

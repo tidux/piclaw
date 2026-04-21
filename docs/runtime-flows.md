@@ -339,7 +339,17 @@ Only fall back to raw `request` when the curated workflow surface is not the rig
 
 - Messages for a chat JID share a warm `AgentSession`.
 - Auto‑compaction runs when the context window is tight.
-- Idle sessions are evicted after a short TTL.
-- When the agent produces multiple turns in a single response (e.g. tool calls followed by a final answer), each turn's text and attachments are stored as separate messages. The first becomes the thread root; subsequent turns carry a `thread_id` pointing back to the root. The UI renders these as indented threaded replies.
+- Idle sessions are evicted after a short TTL (default: 3 min main, 1 min side).
+- Memory pressure mode activates above 512 MB RSS (default), shrinking the main-session pool to 1 and dropping the main idle TTL to 60 s.
+- When the agent produces multiple turns in a single response (e.g. tool calls followed by a final answer), each turn’s text and attachments are stored as separate messages. The first becomes the thread root; subsequent turns carry a `thread_id` pointing back to the root. The UI renders these as indented threaded replies.
+
+### Stuck-session escalation
+
+When a session produces **two consecutive empty responses** (0 output chars, `stopReason: stop`) for real user messages, the runtime escalates from a silent no-op cursor advance to a **recovery-stalled card**:
+
+- The first empty response: logged as `process_chat.no_output_noop`, a warning message is stored, and the cursor advances (handles benign restart-replay edge cases).
+- The second consecutive empty response for the same chat: escalates to `process_chat.no_output_escalated`. `endChatRunWithError` is called (cursor does **not** advance), and the recovery card is posted offering `/compact` and `/new-session` options.
+
+This prevents the infinite loop seen with oversized session files (≥10 MB JSONL) on the Azure Responses API, where the model returns empty responses after context overflow.
 
 See [architecture.md](architecture.md) for component layout and [tools-and-skills.md](tools-and-skills.md) for tool/skill details.

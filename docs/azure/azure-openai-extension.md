@@ -277,13 +277,15 @@ The extension:
 
 ### Image generation
 
-- `/image <prompt> [--size ...] [--count ...] [--quality ...] [--style ...] [--transparent]`
-- `/flux <prompt> [--size ...] [--count ...] [--quality ...]`
+- `/image <prompt> [--size ...] [--count ...] [--quality low|medium|high] [--style natural|vivid] [--transparent]`
+- `/flux <prompt> [--size ...] [--count ...] [--quality low|medium|high]`
 
 Notes:
 
-- `/image --transparent` requests transparent PNG output on the Azure OpenAI image path
-- `/flux` does not support transparent background requests
+- Default quality is **`medium`** (changed from `high` on 2026-04-20 to avoid Azure S0 tier rate limits).
+- `/image --transparent` requests transparent PNG output on the Azure OpenAI image path.
+- `/flux` does not support transparent background requests.
+- Error messages and generation status are delivered via `pi.sendMessage()` directly so they appear in the correct chat branch. Earlier versions used an HTTP internal-post endpoint that defaulted to the root chat JID and silently dropped messages in branch sessions.
 
 ---
 
