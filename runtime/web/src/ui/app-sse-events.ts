@@ -13,6 +13,7 @@ import {
   shouldIgnoreMismatchedTurn,
 } from './app-agent-turn-events.js';
 import { readAgentTurnId, resolveAgentPreviewRestoreState } from './app-agent-status-refresh.js';
+import { parseStatusLastEventAt } from './status-duration.js';
 import { resolveLiveGeneratedWidgetEvent } from './app-generated-widget-events.js';
 import {
   appendUniqueTimelinePost,
@@ -254,7 +255,10 @@ export function handleAppSseEvent(
         const activeTurn = readAgentTurnId(payload);
         if (activeTurn) setActiveTurn(activeTurn);
         setAgentStatus(payload);
-        noteAgentActivity({ clearSilence: true });
+        noteAgentActivity({
+          clearSilence: true,
+          atMs: parseStatusLastEventAt(payload) ?? Date.now(),
+        });
         showLastActivity(payload);
 
         const thoughtRestore = resolveAgentPreviewRestoreState(response.thought);
@@ -326,7 +330,11 @@ export function handleAppSseEvent(
       }
     } else {
       if (turnId) setActiveTurn(turnId);
-      noteAgentActivity({ running: true, clearSilence: true });
+      noteAgentActivity({
+        running: true,
+        clearSilence: true,
+        atMs: parseStatusLastEventAt(data) ?? Date.now(),
+      });
       if (data.type === 'thinking') {
         draftBufferRef.current = '';
         thoughtBufferRef.current = '';

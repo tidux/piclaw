@@ -14,6 +14,14 @@ export function parseStatusRetryAt(status: Record<string, unknown> | null | unde
   return Number.isFinite(value) ? value : null;
 }
 
+export function parseStatusLastEventAt(status: Record<string, unknown> | null | undefined): number | null {
+  if (!status || typeof status !== "object") return null;
+  const raw = status.last_event_at ?? status.lastEventAt ?? status.started_at ?? status.startedAt;
+  if (typeof raw !== "string" || !raw) return null;
+  const value = Date.parse(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
 export function isCompactionStatus(status: Record<string, unknown> | null | undefined): boolean {
   if (!status || typeof status !== "object") return false;
   const intentKey = status.intent_key ?? status.intentKey;

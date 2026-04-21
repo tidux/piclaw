@@ -74,7 +74,8 @@ export function useAgentActivityOrchestration(options: UseAgentActivityOrchestra
   } = options;
 
   const noteAgentActivity = useCallback((activityOptions: Record<string, unknown> = {}) => {
-    const now = Date.now();
+    const activityAtRaw = Number(activityOptions.atMs);
+    const now = Number.isFinite(activityAtRaw) && activityAtRaw > 0 ? activityAtRaw : Date.now();
     lastAgentEventRef.current = now;
     if (activityOptions.running) {
       isAgentRunningRef.current = true;

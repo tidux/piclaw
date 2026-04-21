@@ -187,6 +187,88 @@ function getSessionStateErrorMessage(session: AgentSession): string | null {
   return typeof errorMessage === "string" && errorMessage.trim() ? errorMessage.trim() : null;
 }
 
+const DEFAULT_COMPACTION_TIMEOUT_MS = 90_000;
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(String(value || "").trim(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getCompactionTimeoutMs(): number {
+  return parsePositiveInt(process.env.PICLAW_COMPACTION_TIMEOUT_MS, DEFAULT_COMPACTION_TIMEOUT_MS);
+}
+
+async function abortCompactionBestEffort(
+  session: AgentSession,
+  chatJid: string,
+  options: Pick<RunAgentOrchestratorOptions, "onWarn">,
+): Promise<void> {
+  try {
+    const compactingSession = session as AgentSession & {
+      abortCompaction?: () => void;
+      abort?: () => Promise<void>;
+    };
+    if (typeof compactingSession.abortCompaction === "function" && session.isCompacting) {
+      compactingSession.abortCompaction();
+      return;
+    }
+    if (typeof compactingSession.abort === "function") {
+      await compactingSession.abort();
+    }
+  } catch (error) {
+    options.onWarn?.("Failed to abort stuck compaction", {
+      operation: "run_agent.abort_stuck_compaction",
+      chatJid,
+      err: error,
+    });
+  }
+}
+
+async function runCompactionWithTimeout(
+  session: AgentSession,
+  chatJid: string,
+  options: Pick<RunAgentOrchestratorOptions, "onWarn">,
+  runCompact: () => Promise<unknown>,
+): Promise<{ ok: true } | { ok: false; errorMessage: string }> {
+  const timeoutMs = getCompactionTimeoutMs();
+  if (timeoutMs <= 0) {
+    try {
+      await runCompact();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, errorMessage: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  const compactionOutcome = new Promise<{ ok: true } | { ok: false; errorMessage: string }>((resolve) => {
+    void Promise.resolve()
+      .then(() => runCompact())
+      .then(() => resolve({ ok: true }))
+      .catch((error) => resolve({
+        ok: false,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      }));
+  });
+
+  const timedOut = Symbol("compaction-timeout");
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutOutcome = new Promise<typeof timedOut>((resolve) => {
+    timeoutId = setTimeout(() => resolve(timedOut), timeoutMs);
+  });
+
+  const outcome = await Promise.race([compactionOutcome, timeoutOutcome]);
+  if (timeoutId) clearTimeout(timeoutId);
+  if (outcome !== timedOut) {
+    return outcome;
+  }
+
+  await abortCompactionBestEffort(session, chatJid, options);
+  return {
+    ok: false,
+    errorMessage: `Compaction timed out after ${formatTimeoutDuration(timeoutMs)}`,
+  };
+}
+
 async function maybeAutoCompactSessionBeforePrompt(
   session: AgentSession,
   chatJid: string,
@@ -236,28 +318,31 @@ async function maybeAutoCompactSessionBeforePrompt(
     // compact() path. Emit them locally so the web UI still shows the
     // "Compacting context" status pill during what can be a 30-60s operation.
     onEvent?.({ type: "compaction_start", reason: "threshold" } as AgentSessionEvent);
-    try {
-      await session.compact();
-      onEvent?.({
-        type: "compaction_end",
-        reason: "threshold",
-        result: undefined,
-        aborted: false,
-        willRetry: false,
-      } as AgentSessionEvent);
-    } catch (compactError) {
-      const aborted = compactError instanceof Error &&
-        (compactError.message === "Compaction cancelled" || compactError.name === "AbortError");
+    const compactionResult = await runCompactionWithTimeout(
+      session,
+      chatJid,
+      options,
+      async () => await session.compact(),
+    );
+    if (!compactionResult.ok) {
+      const aborted = /compaction cancelled|aborterror/i.test(compactionResult.errorMessage);
       onEvent?.({
         type: "compaction_end",
         reason: "threshold",
         result: undefined,
         aborted,
         willRetry: false,
-        errorMessage: aborted ? undefined : `Pre-prompt compaction failed: ${compactError instanceof Error ? compactError.message : String(compactError)}`,
+        errorMessage: aborted ? undefined : `Pre-prompt compaction failed: ${compactionResult.errorMessage}`,
       } as AgentSessionEvent);
-      throw compactError;
+      throw new Error(compactionResult.errorMessage);
     }
+    onEvent?.({
+      type: "compaction_end",
+      reason: "threshold",
+      result: undefined,
+      aborted: false,
+      willRetry: false,
+    } as AgentSessionEvent);
   } catch (error) {
     options.onWarn?.("Pre-prompt auto-compaction skipped", {
       operation: "maybe_auto_compact_session_before_prompt",
@@ -333,29 +418,32 @@ async function runRecoveryCompaction(
     chatJid,
   });
   emitAgentSessionEvent(runOptions.onEvent, { type: "compaction_start", reason: "overflow" });
-  try {
-    await session.compact();
-    emitAgentSessionEvent(runOptions.onEvent, {
-      type: "compaction_end",
-      reason: "overflow",
-      result: undefined,
-      aborted: false,
-      willRetry: true,
-    });
-    return { ok: true };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const aborted = error instanceof Error && (error.name === "AbortError" || error.message === "Compaction cancelled");
+  const compactionResult = await runCompactionWithTimeout(
+    session,
+    chatJid,
+    options,
+    async () => await session.compact(),
+  );
+  if (!compactionResult.ok) {
+    const aborted = /compaction cancelled|aborterror/i.test(compactionResult.errorMessage);
     emitAgentSessionEvent(runOptions.onEvent, {
       type: "compaction_end",
       reason: "overflow",
       result: undefined,
       aborted,
       willRetry: false,
-      errorMessage: aborted ? undefined : `Recovery compaction failed: ${errorMessage}`,
+      errorMessage: aborted ? undefined : `Recovery compaction failed: ${compactionResult.errorMessage}`,
     });
-    return { ok: false, errorMessage };
+    return { ok: false, errorMessage: compactionResult.errorMessage };
   }
+  emitAgentSessionEvent(runOptions.onEvent, {
+    type: "compaction_end",
+    reason: "overflow",
+    result: undefined,
+    aborted: false,
+    willRetry: true,
+  });
+  return { ok: true };
 }
 
 async function runPromptAttempt(

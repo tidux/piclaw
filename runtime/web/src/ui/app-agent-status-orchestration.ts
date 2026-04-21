@@ -4,6 +4,7 @@ import {
   shouldKeepExistingPreview,
 } from './app-agent-status-refresh.js';
 import { isMainTimelineView } from './app-realtime-timeline.js';
+import { parseStatusLastEventAt } from './status-duration.js';
 
 interface RefBox<T> {
   current: T;
@@ -89,7 +90,11 @@ export async function refreshAgentStatusForChat(options: RefreshAgentStatusForCh
     const activeTurn = readAgentTurnId(payload);
     if (activeTurn) setActiveTurn(activeTurn);
 
-    noteAgentActivity({ running: true, clearSilence: true });
+    noteAgentActivity({
+      running: true,
+      clearSilence: true,
+      atMs: parseStatusLastEventAt(payload) ?? Date.now(),
+    });
     clearLastActivityFlag();
     setAgentStatus(payload);
 

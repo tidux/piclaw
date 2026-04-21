@@ -29,13 +29,19 @@ describe("web agent status store", () => {
     expect(store.get("web:1")).toBeNull();
   });
 
-  test("load preserves restart-restorable compaction status", () => {
+  test("load preserves restart-restorable compaction and recovery intents", () => {
     const calls: string[] = [];
     const compactionStatus = {
       type: "intent",
       intent_key: "compaction",
       title: "Compacting context",
       started_at: "2026-03-14T14:00:00.000Z",
+    };
+    const recoveryStatus = {
+      type: "intent",
+      intent_key: "recovery",
+      title: "Recovering interrupted response",
+      started_at: "2026-03-14T14:01:00.000Z",
     };
     const state = {
       load: () => {
@@ -47,7 +53,7 @@ describe("web agent status store", () => {
       setAgentStatus: (chatJid: string, status: Record<string, unknown> | null) => {
         calls.push(`set:${chatJid}:${status ? "status" : "null"}`);
       },
-      getAgentStatuses: () => ({ "web:1": compactionStatus }),
+      getAgentStatuses: () => ({ "web:1": compactionStatus, "web:2": recoveryStatus }),
     };
 
     const store = new AgentStatusStore(state);
@@ -55,6 +61,7 @@ describe("web agent status store", () => {
 
     expect(calls).toEqual(["load"]);
     expect(store.get("web:1")).toEqual(compactionStatus);
+    expect(store.get("web:2")).toEqual(recoveryStatus);
   });
 
   test("update stores active statuses and clears done/error statuses", () => {
