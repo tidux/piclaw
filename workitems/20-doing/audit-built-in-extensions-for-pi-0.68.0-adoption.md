@@ -1,7 +1,7 @@
 ---
 id: audit-built-in-extensions-for-pi-0.68.0-adoption
 title: Audit built-in extensions for Pi 0.68.0 adoption
-status: doing
+status: done
 priority: high
 created: 2026-04-21
 updated: 2026-04-21
@@ -55,15 +55,15 @@ Piclaw’s built-in extensions are where most of the product value from upstream
 
 ## Acceptance Criteria
 
-- [ ] Every built-in extension is classified as:
-  - [ ] upgrade now
-  - [ ] audit only
-  - [ ] no action
-- [ ] `smart-compaction` adopts structured progress indication.
-- [ ] `ssh-core` adopts improved shutdown metadata handling and progress/status behavior.
-- [ ] `autoresearch-supervisor` and `image-processing` are explicitly evaluated for progress/status adoption.
-- [ ] Hook-driven extensions are checked against upstream built-in tool context-path fixes.
-- [ ] Tests are added or updated for each extension changed in code.
+- [x] Every built-in extension is classified as:
+  - [x] upgrade now
+  - [x] audit only
+  - [x] no action
+- [x] `smart-compaction` adopts structured progress indication.
+- [x] `ssh-core` adopts improved shutdown metadata handling and progress/status behavior.
+- [x] `autoresearch-supervisor` and `image-processing` are explicitly evaluated for progress/status adoption.
+- [x] Hook-driven extensions are checked against upstream built-in tool context-path fixes.
+- [x] Tests are added or updated for each extension changed in code.
 
 ## Detailed changes to make
 
@@ -145,14 +145,29 @@ For each extension, record:
 
 ## Definition of Done
 
-- [ ] All acceptance criteria satisfied and verified
-- [ ] Tests added or updated — passing locally
-- [ ] Type check clean
-- [ ] Docs and notes updated with links to ticket
-- [ ] Operational impact assessed
-- [ ] Follow-up tickets created for deferred scope
-- [ ] Update history complete with evidence
-- [ ] Ticket front matter updated
+- [x] All acceptance criteria satisfied and verified
+- [x] Tests added or updated — passing locally
+- [x] Type check clean
+- [x] Docs and notes updated with links to ticket
+- [x] Operational impact assessed
+- [x] Follow-up tickets created for deferred scope
+- [x] Update history complete with evidence
+- [x] Ticket front matter updated
+
+## Update history
+
+- 2026-04-21: Confirmed `smart-compaction` and `ssh-core` upstream adoptions were already landed.
+- 2026-04-21: Added bounded working-indicator adoption for `image-processing` and `autoresearch-supervisor`.
+- 2026-04-21: Revalidated hook-driven built-ins against the 0.68.0 context-path/tool-context changes; no extra runtime changes required.
+- 2026-04-21: Added/ran focused regression coverage in `runtime/test/extensions/upstream-068-builtins-and-integrations.test.ts` plus existing built-in extension suites.
+
+## Evidence
+
+- `runtime/test/workitems/upstream-068-audit-summary.md`
+- `runtime/test/extensions/upstream-068-builtins-and-integrations.test.ts`
+- `runtime/test/extensions/image-processing.test.ts`
+- `runtime/test/extensions/ssh-core.test.ts`
+- `runtime/test/extensions/smart-compaction.test.ts`
 
 ## Links
 

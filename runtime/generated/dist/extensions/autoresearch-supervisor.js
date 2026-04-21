@@ -588,218 +588,244 @@ function buildResult(text, details = {}) {
         details: { tool: "autoresearch", ...details },
     };
 }
-async function startAutoresearch(params, broadcastEvent, chatJid) {
+const AUTORESEARCH_WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+function startAutoresearchUiProgress(ctx, message) {
+    if (!ctx?.hasUI || !ctx.ui)
+        return;
+    ctx.ui.setWorkingIndicator({ frames: AUTORESEARCH_WORKING_FRAMES, intervalMs: 90 });
+    ctx.ui.setWorkingMessage(message);
+}
+function updateAutoresearchUiProgress(ctx, message) {
+    if (!ctx?.hasUI || !ctx.ui)
+        return;
+    ctx.ui.setWorkingMessage(message);
+}
+function finishAutoresearchUiProgress(ctx) {
+    if (!ctx?.hasUI || !ctx.ui)
+        return;
+    ctx.ui.setWorkingMessage(undefined);
+    ctx.ui.setWorkingIndicator({ frames: [] });
+}
+async function startAutoresearch(params, broadcastEvent, chatJid, uiCtx) {
     const resolvedChatJid = chatJid || resolveStatusChatJid();
     const failStart = (message, details = {}) => {
         clearAutoresearchStatusPanel(broadcastEvent, resolvedChatJid);
         return buildResult(message, details);
     };
-    // Prerequisites
-    const piPath = spawnSync("which", ["pi"], { encoding: "utf8" }).stdout.trim();
-    if (!piPath)
-        return buildResult("❌ pi CLI not found. Install pi first.");
-    const tmuxPath = spawnSync("which", ["tmux"], { encoding: "utf8" }).stdout.trim();
-    if (!tmuxPath)
-        return buildResult("❌ tmux not found.");
-    if (activeExperiment) {
-        return buildResult(`❌ An experiment is already running: ${activeExperiment.id} in ${activeExperiment.projectDir}. Stop it first.`, { active_experiment: activeExperiment.id });
-    }
-    const projectDir = resolve(params.project_dir);
-    if (!existsSync(projectDir))
-        return buildResult(`❌ Project directory does not exist: ${projectDir}`);
-    emitAutoresearchLaunchPlaceholder(broadcastEvent, params, resolvedChatJid);
-    const useSandbox = params.sandbox !== false;
-    // Generate a short unique experiment ID
-    const id = `exp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    const sessionDir = join(SESSIONS_DIR, id);
-    let workDir;
-    let branchName = null;
-    let worktreeRoot = null;
-    if (useSandbox) {
-        const sandboxDir = join(sessionDir, "sandbox");
-        const jsonlPath = join(sandboxDir, "autoresearch.jsonl");
-        const hasExistingData = existsSync(jsonlPath);
-        if (hasExistingData) {
-            log.info("Resuming existing sandboxed autoresearch experiment", {
-                id,
-                entryCount: parseJsonlFile(jsonlPath).length,
-            });
+    startAutoresearchUiProgress(uiCtx, "Autoresearch: validating launch prerequisites…");
+    try {
+        // Prerequisites
+        const piPath = spawnSync("which", ["pi"], { encoding: "utf8" }).stdout.trim();
+        if (!piPath)
+            return buildResult("❌ pi CLI not found. Install pi first.");
+        const tmuxPath = spawnSync("which", ["tmux"], { encoding: "utf8" }).stdout.trim();
+        if (!tmuxPath)
+            return buildResult("❌ tmux not found.");
+        if (activeExperiment) {
+            return buildResult(`❌ An experiment is already running: ${activeExperiment.id} in ${activeExperiment.projectDir}. Stop it first.`, { active_experiment: activeExperiment.id });
+        }
+        const projectDir = resolve(params.project_dir);
+        if (!existsSync(projectDir))
+            return buildResult(`❌ Project directory does not exist: ${projectDir}`);
+        updateAutoresearchUiProgress(uiCtx, `Autoresearch: preparing ${basename(projectDir) || projectDir}…`);
+        emitAutoresearchLaunchPlaceholder(broadcastEvent, params, resolvedChatJid);
+        const useSandbox = params.sandbox !== false;
+        // Generate a short unique experiment ID
+        const id = `exp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+        const sessionDir = join(SESSIONS_DIR, id);
+        let workDir;
+        let branchName = null;
+        let worktreeRoot = null;
+        if (useSandbox) {
+            const sandboxDir = join(sessionDir, "sandbox");
+            const jsonlPath = join(sandboxDir, "autoresearch.jsonl");
+            const hasExistingData = existsSync(jsonlPath);
+            if (hasExistingData) {
+                log.info("Resuming existing sandboxed autoresearch experiment", {
+                    id,
+                    entryCount: parseJsonlFile(jsonlPath).length,
+                });
+            }
+            else {
+                mkdirSync(sessionDir, { recursive: true });
+                try {
+                    execSync(`cp -a ${JSON.stringify(projectDir + "/")} ${JSON.stringify(sandboxDir)}`, { stdio: "ignore" });
+                }
+                catch (err) {
+                    return failStart(`❌ Failed to copy project to sandbox: ${err instanceof Error ? err.message : String(err)}`);
+                }
+                clearAutoresearchSessionFiles(sandboxDir);
+            }
+            workDir = sandboxDir;
         }
         else {
-            mkdirSync(sessionDir, { recursive: true });
+            // Direct mode — run on a fresh branch + git worktree so repo-root autoresearch
+            // files from unrelated historical experiments cannot be resumed accidentally.
+            branchName = `autoresearch/${id}`;
             try {
-                execSync(`cp -a ${JSON.stringify(projectDir + "/")} ${JSON.stringify(sandboxDir)}`, { stdio: "ignore" });
+                const prepared = prepareDirectAutoresearchWorktree(projectDir, sessionDir, branchName);
+                worktreeRoot = prepared.worktreeRoot;
+                workDir = prepared.workDir;
             }
             catch (err) {
-                return failStart(`❌ Failed to copy project to sandbox: ${err instanceof Error ? err.message : String(err)}`);
+                return failStart(`❌ Failed to prepare direct autoresearch worktree ${branchName}: ${err instanceof Error ? err.message : String(err)}`);
             }
-            clearAutoresearchSessionFiles(sandboxDir);
         }
-        workDir = sandboxDir;
-    }
-    else {
-        // Direct mode — run on a fresh branch + git worktree so repo-root autoresearch
-        // files from unrelated historical experiments cannot be resumed accidentally.
-        branchName = `autoresearch/${id}`;
-        try {
-            const prepared = prepareDirectAutoresearchWorktree(projectDir, sessionDir, branchName);
-            worktreeRoot = prepared.worktreeRoot;
-            workDir = prepared.workDir;
+        // Git safety — init if needed (sandbox mode)
+        if (useSandbox) {
+            ensureGitRepo(workDir);
         }
-        catch (err) {
-            return failStart(`❌ Failed to prepare direct autoresearch worktree ${branchName}: ${err instanceof Error ? err.message : String(err)}`);
+        const jsonlPath = join(workDir, "autoresearch.jsonl");
+        const hasExistingData = existsSync(jsonlPath) && parseJsonlFile(jsonlPath).length > 0;
+        // Install vendored extension + skill into the sub-agent's pi config
+        const piAgentDir = join(sessionDir, ".pi", "agent");
+        mkdirSync(piAgentDir, { recursive: true });
+        installVendoredExtension(piAgentDir);
+        // Write autoresearch config if max_iterations specified
+        if (params.max_iterations) {
+            writeFileSync(join(workDir, "autoresearch.config.json"), JSON.stringify({ maxIterations: params.max_iterations }, null, 2) + "\n");
         }
-    }
-    // Git safety — init if needed (sandbox mode)
-    if (useSandbox) {
-        ensureGitRepo(workDir);
-    }
-    const jsonlPath = join(workDir, "autoresearch.jsonl");
-    const hasExistingData = existsSync(jsonlPath) && parseJsonlFile(jsonlPath).length > 0;
-    // Install vendored extension + skill into the sub-agent's pi config
-    const piAgentDir = join(sessionDir, ".pi", "agent");
-    mkdirSync(piAgentDir, { recursive: true });
-    installVendoredExtension(piAgentDir);
-    // Write autoresearch config if max_iterations specified
-    if (params.max_iterations) {
-        writeFileSync(join(workDir, "autoresearch.config.json"), JSON.stringify({ maxIterations: params.max_iterations }, null, 2) + "\n");
-    }
-    const displayName = params.prompt.slice(0, 80) || basename(workDir) || "Experiment";
-    writeSessionMetadata(workDir, {
-        chat_jid: resolvedChatJid,
-        display_name: displayName,
-        model: params.model || null,
-        max_iterations: params.max_iterations ?? null,
-        variables: Array.isArray(params.variables) ? params.variables : undefined,
-    });
-    // Build tmux command
-    const tmuxSession = `${TMUX_SESSION_PREFIX}${id}`;
-    const model = params.model || "";
-    if (model) {
-        const availablePiModels = listPiCliModels();
-        if (availablePiModels.length === 0) {
-            return failStart("❌ Could not read the autoresearch sub-agent model list. Check `pi --list-models`.");
-        }
-        if (!hasPiCliModel(model, availablePiModels)) {
-            return failStart(`❌ Model ${JSON.stringify(model)} is not available to the autoresearch sub-agent. Pick one from the autoresearch model picker or check \
+        const displayName = params.prompt.slice(0, 80) || basename(workDir) || "Experiment";
+        writeSessionMetadata(workDir, {
+            chat_jid: resolvedChatJid,
+            display_name: displayName,
+            model: params.model || null,
+            max_iterations: params.max_iterations ?? null,
+            variables: Array.isArray(params.variables) ? params.variables : undefined,
+        });
+        // Build tmux command
+        const tmuxSession = `${TMUX_SESSION_PREFIX}${id}`;
+        const model = params.model || "";
+        updateAutoresearchUiProgress(uiCtx, `Autoresearch: launching experiment ${id}…`);
+        if (model) {
+            const availablePiModels = listPiCliModels();
+            if (availablePiModels.length === 0) {
+                return failStart("❌ Could not read the autoresearch sub-agent model list. Check `pi --list-models`.");
+            }
+            if (!hasPiCliModel(model, availablePiModels)) {
+                return failStart(`❌ Model ${JSON.stringify(model)} is not available to the autoresearch sub-agent. Pick one from the autoresearch model picker or check \
 \`pi --list-models\`.`);
+            }
         }
-    }
-    const extPath = join(VENDOR_DIR, "extensions", "pi-autoresearch", "index.ts");
-    const skillPath = join(VENDOR_DIR, "skills", "autoresearch-create");
-    const piCommand = buildAutoresearchSubagentCommand({
-        workDir,
-        model,
-        extPath,
-        skillPath,
-        sessionDir: join(sessionDir, "sessions"),
-        prompt: params.prompt,
-        hasExistingData,
-    });
-    const tmuxResult = spawnSync("tmux", [
-        "new-session", "-d",
-        "-s", tmuxSession,
-        "-x", "200", "-y", "50",
-        "bash", "-lc", piCommand,
-    ], { stdio: "ignore" });
-    if (tmuxResult.status !== 0) {
-        return failStart(`❌ Failed to create tmux session (exit ${tmuxResult.status}).`);
-    }
-    // Set up active experiment tracking
-    activeExperiment = {
-        id,
-        tmuxSession,
-        projectDir: workDir,
-        jsonlPath,
-        model: model || null,
-        maxIterations: params.max_iterations ?? null,
-        startedAt: new Date().toISOString(),
-        pollInterval: null,
-        lastJsonlOffset: existsSync(jsonlPath) ? readFileSync(jsonlPath, "utf-8").length : 0,
-        lastActivityAt: Date.now(),
-        chatJid: resolvedChatJid,
-        displayName,
-    };
-    // Start JSONL polling
-    activeExperiment.pollInterval = setInterval(() => {
-        if (!activeExperiment)
-            return;
-        // Check if tmux session is still alive
-        if (!tmuxSessionExists(activeExperiment.tmuxSession)) {
-            const jsonlP = activeExperiment.jsonlPath;
-            stopPolling();
-            const summary = existsSync(jsonlP) ? buildExperimentSummary(parseJsonlFile(jsonlP)) : buildExperimentSummary([]);
-            const finalState = resolveAutoresearchProcessExitState(summary, activeExperiment.maxIterations);
-            finalizeAutoresearchRun(activeExperiment, finalState, { reason: "process_exited", generateReport: true });
-            activeExperiment = null;
-            return;
+        const extPath = join(VENDOR_DIR, "extensions", "pi-autoresearch", "index.ts");
+        const skillPath = join(VENDOR_DIR, "skills", "autoresearch-create");
+        const piCommand = buildAutoresearchSubagentCommand({
+            workDir,
+            model,
+            extPath,
+            skillPath,
+            sessionDir: join(sessionDir, "sessions"),
+            prompt: params.prompt,
+            hasExistingData,
+        });
+        const tmuxResult = spawnSync("tmux", [
+            "new-session", "-d",
+            "-s", tmuxSession,
+            "-x", "200", "-y", "50",
+            "bash", "-lc", piCommand,
+        ], { stdio: "ignore" });
+        if (tmuxResult.status !== 0) {
+            return failStart(`❌ Failed to create tmux session (exit ${tmuxResult.status}).`);
         }
-        // Read new JSONL lines
-        const { entries, newOffset } = readNewJsonlLines(activeExperiment.jsonlPath, activeExperiment.lastJsonlOffset);
-        if (entries.length === 0) {
-            const idleMs = Date.now() - activeExperiment.lastActivityAt;
-            // Idle detection: two tiers
-            // 1) max_iterations reached + 2 min idle → completed
-            // 2) general idle for 30 minutes without max_iterations reached → failed/stalled
-            //    30 min allows for long-running experiments (ML training, large builds)
-            const MAX_ITER_IDLE_MS = 2 * 60_000;
-            const GENERAL_IDLE_MS = 30 * 60_000;
-            const allEntries = parseJsonlFile(activeExperiment.jsonlPath);
-            const runCount = allEntries.filter((e) => e.type !== "config").length;
-            const maxReached = activeExperiment.maxIterations !== null && runCount >= activeExperiment.maxIterations;
-            const shouldStop = (maxReached && idleMs > MAX_ITER_IDLE_MS) || (idleMs > GENERAL_IDLE_MS);
-            if (shouldStop) {
-                const expId = activeExperiment.id;
-                const tmux = activeExperiment.tmuxSession;
-                const outcome = resolveAutoresearchIdleOutcome(maxReached);
+        // Set up active experiment tracking
+        activeExperiment = {
+            id,
+            tmuxSession,
+            projectDir: workDir,
+            jsonlPath,
+            model: model || null,
+            maxIterations: params.max_iterations ?? null,
+            startedAt: new Date().toISOString(),
+            pollInterval: null,
+            lastJsonlOffset: existsSync(jsonlPath) ? readFileSync(jsonlPath, "utf-8").length : 0,
+            lastActivityAt: Date.now(),
+            chatJid: resolvedChatJid,
+            displayName,
+        };
+        // Start JSONL polling
+        activeExperiment.pollInterval = setInterval(() => {
+            if (!activeExperiment)
+                return;
+            // Check if tmux session is still alive
+            if (!tmuxSessionExists(activeExperiment.tmuxSession)) {
+                const jsonlP = activeExperiment.jsonlPath;
                 stopPolling();
-                finalizeAutoresearchRun(activeExperiment, outcome.state, { reason: outcome.reason, generateReport: true });
-                spawnSync("tmux", ["send-keys", "-t", tmux, "C-c", ""], { stdio: "ignore" });
-                setTimeout(() => spawnSync("tmux", ["kill-session", "-t", tmux], { stdio: "ignore" }), 2000);
-                log.info("Autoresearch experiment finished after idle detection", {
-                    experimentId: expId,
-                    runCount,
-                    idleSeconds: Math.round(idleMs / 1000),
-                    state: outcome.state,
-                    reason: outcome.reason,
-                });
+                const summary = existsSync(jsonlP) ? buildExperimentSummary(parseJsonlFile(jsonlP)) : buildExperimentSummary([]);
+                const finalState = resolveAutoresearchProcessExitState(summary, activeExperiment.maxIterations);
+                finalizeAutoresearchRun(activeExperiment, finalState, { reason: "process_exited", generateReport: true });
                 activeExperiment = null;
                 return;
             }
-            return;
-        }
-        activeExperiment.lastJsonlOffset = newOffset;
-        activeExperiment.lastActivityAt = Date.now();
-        // Refresh the live status snapshot for each new JSONL entry.
-        for (const _entry of entries) {
-            emitAutoresearchStatus(broadcastEvent, activeExperiment, "running", buildActiveExperimentSummary(activeExperiment));
-        }
-    }, 2000);
-    const parts = [
-        hasExistingData ? `✅ Autoresearch resumed.` : `✅ Autoresearch launched.`,
-        `Experiment: ${id}`,
-        `tmux session: ${tmuxSession}`,
-        `Project: ${workDir}`,
-        worktreeRoot ? `Worktree: ${worktreeRoot}` : "",
-        branchName ? `Branch: ${branchName} (git worktree mode)` : "Mode: sandboxed copy",
-        model ? `Model: ${model}` : "Model: (pi default)",
-        params.max_iterations ? `Max iterations: ${params.max_iterations}` : "",
-        hasExistingData ? `Resuming with existing JSONL data.` : "",
-        "",
-        useSandbox ? `Experiment runs in a copied sandbox — the original repo is not modified by this run.` : `⚠️ Git worktree mode — changes are made in a fresh git worktree on branch ${branchName} within the same repo. Existing repo-root autoresearch files are cleared in that worktree before launch to avoid stale experiment state reuse.`,
-        `Use stop_autoresearch to stop and clean up.`,
-    ].filter(Boolean);
-    // Publish the live status pane snapshot immediately.
-    const initialSummary = buildExperimentSummary([]);
-    initialSummary.name = params.prompt.slice(0, 80);
-    emitAutoresearchStatus(broadcastEvent, activeExperiment, "running", initialSummary);
-    return buildResult(parts.join("\n"), {
-        experiment_id: id,
-        tmux_session: tmuxSession,
-        project_dir: projectDir,
-        jsonl_path: jsonlPath,
-        started: true,
-    });
+            // Read new JSONL lines
+            const { entries, newOffset } = readNewJsonlLines(activeExperiment.jsonlPath, activeExperiment.lastJsonlOffset);
+            if (entries.length === 0) {
+                const idleMs = Date.now() - activeExperiment.lastActivityAt;
+                // Idle detection: two tiers
+                // 1) max_iterations reached + 2 min idle → completed
+                // 2) general idle for 30 minutes without max_iterations reached → failed/stalled
+                //    30 min allows for long-running experiments (ML training, large builds)
+                const MAX_ITER_IDLE_MS = 2 * 60_000;
+                const GENERAL_IDLE_MS = 30 * 60_000;
+                const allEntries = parseJsonlFile(activeExperiment.jsonlPath);
+                const runCount = allEntries.filter((e) => e.type !== "config").length;
+                const maxReached = activeExperiment.maxIterations !== null && runCount >= activeExperiment.maxIterations;
+                const shouldStop = (maxReached && idleMs > MAX_ITER_IDLE_MS) || (idleMs > GENERAL_IDLE_MS);
+                if (shouldStop) {
+                    const expId = activeExperiment.id;
+                    const tmux = activeExperiment.tmuxSession;
+                    const outcome = resolveAutoresearchIdleOutcome(maxReached);
+                    stopPolling();
+                    finalizeAutoresearchRun(activeExperiment, outcome.state, { reason: outcome.reason, generateReport: true });
+                    spawnSync("tmux", ["send-keys", "-t", tmux, "C-c", ""], { stdio: "ignore" });
+                    setTimeout(() => spawnSync("tmux", ["kill-session", "-t", tmux], { stdio: "ignore" }), 2000);
+                    log.info("Autoresearch experiment finished after idle detection", {
+                        experimentId: expId,
+                        runCount,
+                        idleSeconds: Math.round(idleMs / 1000),
+                        state: outcome.state,
+                        reason: outcome.reason,
+                    });
+                    activeExperiment = null;
+                    return;
+                }
+                return;
+            }
+            activeExperiment.lastJsonlOffset = newOffset;
+            activeExperiment.lastActivityAt = Date.now();
+            // Refresh the live status snapshot for each new JSONL entry.
+            for (const _entry of entries) {
+                emitAutoresearchStatus(broadcastEvent, activeExperiment, "running", buildActiveExperimentSummary(activeExperiment));
+            }
+        }, 2000);
+        const parts = [
+            hasExistingData ? `✅ Autoresearch resumed.` : `✅ Autoresearch launched.`,
+            `Experiment: ${id}`,
+            `tmux session: ${tmuxSession}`,
+            `Project: ${workDir}`,
+            worktreeRoot ? `Worktree: ${worktreeRoot}` : "",
+            branchName ? `Branch: ${branchName} (git worktree mode)` : "Mode: sandboxed copy",
+            model ? `Model: ${model}` : "Model: (pi default)",
+            params.max_iterations ? `Max iterations: ${params.max_iterations}` : "",
+            hasExistingData ? `Resuming with existing JSONL data.` : "",
+            "",
+            useSandbox ? `Experiment runs in a copied sandbox — the original repo is not modified by this run.` : `⚠️ Git worktree mode — changes are made in a fresh git worktree on branch ${branchName} within the same repo. Existing repo-root autoresearch files are cleared in that worktree before launch to avoid stale experiment state reuse.`,
+            `Use stop_autoresearch to stop and clean up.`,
+        ].filter(Boolean);
+        // Publish the live status pane snapshot immediately.
+        const initialSummary = buildExperimentSummary([]);
+        initialSummary.name = params.prompt.slice(0, 80);
+        emitAutoresearchStatus(broadcastEvent, activeExperiment, "running", initialSummary);
+        return buildResult(parts.join("\n"), {
+            experiment_id: id,
+            tmux_session: tmuxSession,
+            project_dir: projectDir,
+            jsonl_path: jsonlPath,
+            started: true,
+        });
+    }
+    finally {
+        finishAutoresearchUiProgress(uiCtx);
+    }
 }
 function stopPolling() {
     if (activeExperiment?.pollInterval) {
@@ -822,7 +848,7 @@ function finalizeAutoresearchRun(exp, state, options = {}) {
     emitAutoresearchStatus(autoresearchWidgetBroadcast, exp, state, summary, options.reason ?? null, entries, report);
     return { summary, reportPath, report };
 }
-async function stopAutoresearch(params) {
+async function stopAutoresearch(params, uiCtx) {
     if (!activeExperiment) {
         return buildResult("No experiment is currently running.", { active: false });
     }
@@ -830,38 +856,44 @@ async function stopAutoresearch(params) {
         return buildResult("No experiment is currently running in this chat.", { active: false, chat_jid: params.chat_jid });
     }
     const exp = activeExperiment;
-    stopPolling();
-    // Send SIGINT to the tmux session
-    if (tmuxSessionExists(exp.tmuxSession)) {
-        spawnSync("tmux", ["send-keys", "-t", exp.tmuxSession, "C-c", ""], { stdio: "ignore" });
-        // Wait briefly for graceful shutdown
-        await new Promise((r) => setTimeout(r, 2000));
-        // Kill the session
-        spawnSync("tmux", ["kill-session", "-t", exp.tmuxSession], { stdio: "ignore" });
-    }
-    const parts = [`Experiment ${exp.id} stopped.`];
-    const { summary, reportPath, report } = finalizeAutoresearchRun(exp, "stopped", {
-        reason: "user_stopped",
-        generateReport: params.generate_report !== false,
-    });
-    if (reportPath) {
-        parts.push(`Report: ${reportPath}`);
-        if (report?.downloadUrl || report?.openUrl) {
-            parts.push(`Links: ${[report.openUrl ? `open ${report.openUrl}` : "", report.downloadUrl ? `download ${report.downloadUrl}` : ""].filter(Boolean).join(" • ")}`);
+    startAutoresearchUiProgress(uiCtx, `Autoresearch: stopping ${exp.id}…`);
+    try {
+        stopPolling();
+        // Send SIGINT to the tmux session
+        if (tmuxSessionExists(exp.tmuxSession)) {
+            spawnSync("tmux", ["send-keys", "-t", exp.tmuxSession, "C-c", ""], { stdio: "ignore" });
+            // Wait briefly for graceful shutdown
+            await new Promise((r) => setTimeout(r, 2000));
+            // Kill the session
+            spawnSync("tmux", ["kill-session", "-t", exp.tmuxSession], { stdio: "ignore" });
         }
+        const parts = [`Experiment ${exp.id} stopped.`];
+        const { summary, reportPath, report } = finalizeAutoresearchRun(exp, "stopped", {
+            reason: "user_stopped",
+            generateReport: params.generate_report !== false,
+        });
+        if (reportPath) {
+            parts.push(`Report: ${reportPath}`);
+            if (report?.downloadUrl || report?.openUrl) {
+                parts.push(`Links: ${[report.openUrl ? `open ${report.openUrl}` : "", report.downloadUrl ? `download ${report.downloadUrl}` : ""].filter(Boolean).join(" • ")}`);
+            }
+        }
+        if (existsSync(exp.jsonlPath)) {
+            parts.push("", `Results: ${summary.totalRuns} runs, ${summary.kept} kept, ${summary.discarded} discarded`, summary.bestMetric !== null ? `Best ${summary.metricName}: ${summary.bestMetric}${summary.metricUnit}` : "", summary.confidence !== null ? `Confidence: ${summary.confidence.toFixed(1)}×` : "");
+        }
+        activeExperiment = null;
+        return buildResult(parts.filter(Boolean).join("\n"), {
+            experiment_id: exp.id,
+            stopped: true,
+            report_path: reportPath,
+            report_media_id: report?.mediaId ?? null,
+            report_open_url: report?.openUrl ?? null,
+            report_download_url: report?.downloadUrl ?? null,
+        });
     }
-    if (existsSync(exp.jsonlPath)) {
-        parts.push("", `Results: ${summary.totalRuns} runs, ${summary.kept} kept, ${summary.discarded} discarded`, summary.bestMetric !== null ? `Best ${summary.metricName}: ${summary.bestMetric}${summary.metricUnit}` : "", summary.confidence !== null ? `Confidence: ${summary.confidence.toFixed(1)}×` : "");
+    finally {
+        finishAutoresearchUiProgress(uiCtx);
     }
-    activeExperiment = null;
-    return buildResult(parts.filter(Boolean).join("\n"), {
-        experiment_id: exp.id,
-        stopped: true,
-        report_path: reportPath,
-        report_media_id: report?.mediaId ?? null,
-        report_open_url: report?.openUrl ?? null,
-        report_download_url: report?.downloadUrl ?? null,
-    });
 }
 export async function stopAutoresearchFromWeb(params = {}) {
     return stopAutoresearch(params);
@@ -984,7 +1016,7 @@ export const autoresearchSupervisor = (pi) => {
                 }, pickerChatJid);
                 return buildResult("Model picker posted. Select a model and click Launch to start the experiment.", { pending: true });
             }
-            return startAutoresearch(params, broadcastEvent, resolveStatusChatJid());
+            return startAutoresearch(params, broadcastEvent, resolveStatusChatJid(), ctx);
         },
     });
     pi.registerTool({
@@ -993,8 +1025,8 @@ export const autoresearchSupervisor = (pi) => {
         description: "Stop the running autoresearch experiment. Sends SIGINT, generates a markdown report, and cleans up.",
         promptSnippet: "stop_autoresearch: stop the experiment and generate a report.",
         parameters: StopSchema,
-        async execute(_toolCallId, params) {
-            return stopAutoresearch(params);
+        async execute(_toolCallId, params, _signal, _update, ctx) {
+            return stopAutoresearch(params, ctx);
         },
     });
     pi.registerTool({

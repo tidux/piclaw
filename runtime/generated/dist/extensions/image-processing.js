@@ -113,459 +113,512 @@ function formatBytes(bytes) {
         return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-async function executeImageProcess(_toolCallId, params) {
+const IMAGE_PROCESS_WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+function startImageProcessUiProgress(ctx, message) {
+    if (!ctx?.hasUI || !ctx.ui)
+        return;
+    ctx.ui.setWorkingIndicator({ frames: IMAGE_PROCESS_WORKING_FRAMES, intervalMs: 90 });
+    ctx.ui.setWorkingMessage(message);
+}
+function updateImageProcessUiProgress(ctx, message) {
+    if (!ctx?.hasUI || !ctx.ui)
+        return;
+    ctx.ui.setWorkingMessage(message);
+}
+function finishImageProcessUiProgress(ctx) {
+    if (!ctx?.hasUI || !ctx.ui)
+        return;
+    ctx.ui.setWorkingMessage(undefined);
+    ctx.ui.setWorkingIndicator({ frames: [] });
+}
+function describeImageProcessAction(action, inputPath) {
+    const file = basename(inputPath);
+    switch (action) {
+        case "resize": return `Image: resizing ${file}…`;
+        case "crop": return `Image: cropping ${file}…`;
+        case "convert": return `Image: converting ${file}…`;
+        case "optimize": return `Image: optimizing ${file}…`;
+        case "trim": return `Image: trimming transparent edges from ${file}…`;
+        case "rotate": return `Image: rotating ${file}…`;
+        case "flip": return `Image: flipping ${file}…`;
+        case "blur": return `Image: blurring ${file}…`;
+        case "sharpen": return `Image: sharpening ${file}…`;
+        case "composite": return `Image: compositing ${file}…`;
+        case "svg_render": return `Image: rendering SVG ${file}…`;
+        case "tile": return `Image: generating deep-zoom tiles for ${file}…`;
+        case "frames": return `Image: extracting animation frames from ${file}…`;
+        case "spritesheet_to_gif": return `Image: assembling animated GIF from ${file}…`;
+        case "metadata": return `Image: inspecting metadata for ${file}…`;
+        default: return `Image: processing ${file} (${action})…`;
+    }
+}
+async function executeImageProcess(_toolCallId, params, _signal, _update, ctx) {
     const sharp = (await import("sharp")).default;
     const action = (params.action || "").toLowerCase().trim();
     const inputPath = resolveWorkspacePath(params.input);
-    if (!existsSync(inputPath)) {
-        return {
-            content: [{ type: "text", text: `File not found: ${params.input}` }],
-            details: { error: "not_found", input: params.input },
-        };
-    }
-    // Info action: return metadata without processing
-    if (action === "info") {
-        const meta = await sharp(inputPath).metadata();
-        const stat = statSync(inputPath);
-        const info = {
-            width: meta.width,
-            height: meta.height,
-            format: meta.format,
-            channels: meta.channels,
-            hasAlpha: meta.hasAlpha,
-            space: meta.space,
-            density: meta.density,
-            size: stat.size,
-            sizeFormatted: formatBytes(stat.size),
-        };
-        return {
-            content: [{ type: "text", text: `Image info for ${params.input}:\n${JSON.stringify(info, null, 2)}` }],
-            details: { action: "info", input: params.input, ...info },
-        };
-    }
-    // Determine output format and path
-    const requestedFormat = params.format?.toLowerCase().trim();
-    const outputFormat = requestedFormat && SUPPORTED_OUTPUT_FORMATS.includes(requestedFormat)
-        ? requestedFormat
-        : params.output
-            ? inferFormat(params.output)
-            : inferFormat(inputPath);
-    const outputPath = params.output
-        ? resolveWorkspacePath(params.output)
-        : buildOutputPath(inputPath, outputFormat, action === "optimize" ? "-optimized"
-            : action === "trim" ? "-trimmed"
-                : `-${action}`);
-    // Safety: refuse to overwrite the input file unless explicitly allowed
-    const overwrite = params.overwrite === true;
-    if (resolve(outputPath) === resolve(inputPath) && !overwrite) {
-        return {
-            content: [{ type: "text", text: `Output path is the same as input. Set overwrite=true to replace the original, or use a different output path.` }],
-            details: { error: "overwrite_refused", input: params.input, output: params.output },
-        };
-    }
-    // Also refuse to overwrite any existing file unless overwrite is set or the path was auto-generated
-    if (params.output && existsSync(outputPath) && !overwrite) {
-        return {
-            content: [{ type: "text", text: `Output file already exists: ${params.output}. Set overwrite=true to replace it.` }],
-            details: { error: "output_exists", output: params.output },
-        };
-    }
-    const preserveTransparency = params.preserve_transparency !== false;
-    const quality = params.quality ?? 80;
-    // Detect and preserve animation by default
-    const inputMeta = action !== "info" ? await sharp(inputPath).metadata() : null;
-    const isAnimated = (inputMeta?.pages ?? 1) > 1;
-    const shouldAnimate = params.animated !== false && isAnimated;
-    // Start the pipeline
-    let pipeline = sharp(inputPath, shouldAnimate ? { animated: true } : undefined);
-    // If converting to a format that doesn't support transparency, flatten
-    if (!preserveTransparency || !TRANSPARENCY_FORMATS.has(outputFormat)) {
-        pipeline = pipeline.flatten({ background: { r: 255, g: 255, b: 255 } });
-    }
-    switch (action) {
-        case "resize": {
-            if (!params.width && !params.height) {
-                return {
-                    content: [{ type: "text", text: "Resize requires at least width or height." }],
-                    details: { error: "missing_dimensions" },
-                };
-            }
-            const fit = (params.fit || "inside");
-            pipeline = pipeline.resize(params.width || null, params.height || null, {
-                fit,
-                withoutEnlargement: fit === "inside",
-            });
-            break;
-        }
-        case "crop": {
-            if (!params.width || !params.height) {
-                return {
-                    content: [{ type: "text", text: "Crop requires both width and height." }],
-                    details: { error: "missing_dimensions" },
-                };
-            }
-            pipeline = pipeline.extract({
-                left: params.left ?? 0,
-                top: params.top ?? 0,
-                width: params.width,
-                height: params.height,
-            });
-            break;
-        }
-        case "convert":
-        case "optimize":
-            // Format conversion / optimization — just apply the output format settings below
-            break;
-        case "trim": {
-            pipeline = pipeline.trim();
-            break;
-        }
-        case "rotate": {
-            const angle = params.angle ?? 90;
-            pipeline = pipeline.rotate(angle);
-            break;
-        }
-        case "flip": {
-            pipeline = pipeline.flip().flop();
-            break;
-        }
-        case "blur": {
-            const sigma = params.sigma ?? 3;
-            pipeline = pipeline.blur(sigma);
-            break;
-        }
-        case "sharpen": {
-            const sigma = params.sigma ?? 1;
-            pipeline = pipeline.sharpen(sigma);
-            break;
-        }
-        case "composite": {
-            if (!params.overlay) {
-                return {
-                    content: [{ type: "text", text: "Composite requires an overlay image path." }],
-                    details: { error: "missing_overlay" },
-                };
-            }
-            const overlayPath = resolveWorkspacePath(params.overlay);
-            if (!existsSync(overlayPath)) {
-                return {
-                    content: [{ type: "text", text: `Overlay file not found: ${params.overlay}` }],
-                    details: { error: "overlay_not_found", overlay: params.overlay },
-                };
-            }
-            const gravity = (params.gravity || "southeast");
-            pipeline = pipeline.composite([{ input: overlayPath, gravity }]);
-            break;
-        }
-        case "greyscale":
-        case "grayscale": {
-            pipeline = pipeline.greyscale();
-            break;
-        }
-        case "modulate": {
-            pipeline = pipeline.modulate({
-                brightness: params.brightness ?? 1.0,
-                saturation: params.saturation ?? 1.0,
-                hue: params.hue ?? 0,
-            });
-            break;
-        }
-        case "contrast": {
-            const multiplier = params.contrast ?? 1.5;
-            const offset = 128 * (1 - multiplier);
-            pipeline = pipeline.linear(multiplier, offset);
-            break;
-        }
-        case "gamma": {
-            const gammaValue = params.gamma ?? 2.2;
-            pipeline = pipeline.gamma(gammaValue);
-            break;
-        }
-        case "tint": {
-            const hex = (params.tint_color || "#FF8800").replace("#", "");
-            const r = parseInt(hex.slice(0, 2), 16) || 0;
-            const g = parseInt(hex.slice(2, 4), 16) || 0;
-            const b = parseInt(hex.slice(4, 6), 16) || 0;
-            pipeline = pipeline.tint({ r, g, b });
-            break;
-        }
-        case "normalize":
-        case "normalise": {
-            pipeline = pipeline.normalise();
-            break;
-        }
-        case "negate": {
-            pipeline = pipeline.negate();
-            break;
-        }
-        case "clahe": {
-            pipeline = pipeline.clahe({
-                width: params.clahe_width ?? 3,
-                height: params.clahe_height ?? 3,
-            });
-            break;
-        }
-        case "threshold": {
-            pipeline = pipeline.threshold(params.threshold_value ?? 128);
-            break;
-        }
-        case "median": {
-            pipeline = pipeline.median(params.median_size ?? 3);
-            break;
-        }
-        case "extend": {
-            const bg = params.extend_background || "";
-            const hexBg = bg.replace("#", "");
-            const background = hexBg.length >= 6
-                ? { r: parseInt(hexBg.slice(0, 2), 16), g: parseInt(hexBg.slice(2, 4), 16), b: parseInt(hexBg.slice(4, 6), 16), alpha: hexBg.length >= 8 ? parseInt(hexBg.slice(6, 8), 16) / 255 : 1 }
-                : { r: 0, g: 0, b: 0, alpha: 0 };
-            pipeline = pipeline.extend({
-                top: params.extend_top ?? 0,
-                bottom: params.extend_bottom ?? 0,
-                left: params.extend_left ?? 0,
-                right: params.extend_right ?? 0,
-                background,
-            });
-            break;
-        }
-        case "extract_channel": {
-            const channelIndex = (params.channel ?? 0);
-            pipeline = pipeline.extractChannel(channelIndex);
-            break;
-        }
-        case "remove_alpha": {
-            pipeline = pipeline.removeAlpha();
-            break;
-        }
-        case "unflatten": {
-            pipeline = pipeline.unflatten();
-            break;
-        }
-        case "text": {
-            if (!params.text) {
-                return {
-                    content: [{ type: "text", text: "Text overlay requires the text parameter." }],
-                    details: { error: "missing_text" },
-                };
-            }
-            const textColor = params.text_color || "#FFFFFF";
-            const fontSize = params.text_size ?? 24;
-            const svgText = `<svg xmlns="http://www.w3.org/2000/svg"><text x="10" y="${fontSize}" font-family="sans-serif" font-size="${fontSize}" fill="${textColor}">${params.text.replace(/&/g, "\&amp;").replace(/</g, "\&lt;").replace(/>/g, "\&gt;")}</text></svg>`;
-            const textBuf = await sharp(Buffer.from(svgText)).png().toBuffer();
-            pipeline = pipeline.composite([{ input: textBuf, gravity: params.gravity || "southeast" }]);
-            break;
-        }
-        case "svg_render": {
-            const density = params.density ?? 72;
-            pipeline = sharp(inputPath, { density });
-            if (!preserveTransparency || !TRANSPARENCY_FORMATS.has(outputFormat)) {
-                pipeline = pipeline.flatten({ background: { r: 255, g: 255, b: 255 } });
-            }
-            if (params.width || params.height) {
-                pipeline = pipeline.resize(params.width || null, params.height || null, { fit: "inside", withoutEnlargement: false });
-            }
-            break;
-        }
-        case "affine": {
-            if (!params.affine_matrix || params.affine_matrix.length !== 4) {
-                return {
-                    content: [{ type: "text", text: "Affine requires affine_matrix with 4 numbers [a,b,c,d]." }],
-                    details: { error: "missing_matrix" },
-                };
-            }
-            const [a, b, c, d] = params.affine_matrix;
-            pipeline = pipeline.affine([a, b, c, d], { background: { r: 0, g: 0, b: 0, alpha: 0 } });
-            break;
-        }
-        case "tile": {
-            const tileSize = params.tile_size ?? 256;
-            const tilePath = params.output
-                ? resolveWorkspacePath(params.output)
-                : buildOutputPath(inputPath, "png", "-tiles");
-            const { mkdirSync: mkFs } = await import("node:fs");
-            mkFs(tilePath, { recursive: true });
-            await sharp(inputPath).tile({ size: tileSize, layout: "dz" }).toFile(join(tilePath, "output"));
-            const workspaceDir = getWorkspaceDir();
-            const relTile = stripBaseDirForDisplay(workspaceDir, tilePath);
+    const showUiProgress = action !== "info";
+    if (showUiProgress)
+        startImageProcessUiProgress(ctx, describeImageProcessAction(action, inputPath));
+    try {
+        if (!existsSync(inputPath)) {
             return {
-                content: [{ type: "text", text: `Deep zoom tiles generated in ${relTile}/ (tile size: ${tileSize}px)` }],
-                details: { action: "tile", input: params.input, outputDir: relTile, tileSize },
+                content: [{ type: "text", text: `File not found: ${params.input}` }],
+                details: { error: "not_found", input: params.input },
             };
         }
-        case "metadata": {
+        // Info action: return metadata without processing
+        if (action === "info") {
             const meta = await sharp(inputPath).metadata();
-            const metaInfo = {
-                width: meta.width, height: meta.height, format: meta.format,
-                channels: meta.channels, hasAlpha: meta.hasAlpha, space: meta.space,
-                density: meta.density, chromaSubsampling: meta.chromaSubsampling,
-                isProgressive: meta.isProgressive, pages: meta.pages,
-                hasProfile: meta.hasProfile, icc: meta.icc ? `ICC profile (${meta.icc.length} bytes)` : null,
-                exif: meta.exif ? `EXIF data (${meta.exif.length} bytes)` : null,
-                xmp: meta.xmp ? `XMP data (${meta.xmp.length} bytes)` : null,
+            const stat = statSync(inputPath);
+            const info = {
+                width: meta.width,
+                height: meta.height,
+                format: meta.format,
+                channels: meta.channels,
+                hasAlpha: meta.hasAlpha,
+                space: meta.space,
+                density: meta.density,
+                size: stat.size,
+                sizeFormatted: formatBytes(stat.size),
             };
             return {
-                content: [{ type: "text", text: `Metadata for ${params.input}:\n${JSON.stringify(metaInfo, null, 2)}` }],
-                details: { action: "metadata", input: params.input, ...metaInfo },
+                content: [{ type: "text", text: `Image info for ${params.input}:\n${JSON.stringify(info, null, 2)}` }],
+                details: { action: "info", input: params.input, ...info },
             };
         }
-        case "frames": {
-            // Extract individual frames from an animated GIF/WebP
-            const meta = await sharp(inputPath, { animated: true }).metadata();
-            const pageCount = meta.pages ?? 1;
-            if (pageCount <= 1) {
-                return {
-                    content: [{ type: "text", text: `${params.input} has only 1 frame — nothing to extract.` }],
-                    details: { action: "frames", input: params.input, pages: 1 },
-                };
-            }
-            const pageHeight = meta.pageHeight ?? meta.height ?? 0;
-            const frameDir = params.output ? resolveWorkspacePath(params.output) : buildOutputPath(inputPath, "png", "-frames");
-            const { mkdirSync: mkdirSyncFs } = await import("node:fs");
-            mkdirSyncFs(frameDir, { recursive: true });
-            const extracted = [];
-            for (let i = 0; i < pageCount; i++) {
-                const framePath = join(frameDir, `frame-${String(i).padStart(4, "0")}.png`);
-                await sharp(inputPath, { animated: true, page: i }).png().toFile(framePath);
-                extracted.push(framePath);
-            }
-            const workspaceDir = getWorkspaceDir();
-            const relDir = stripBaseDirForDisplay(workspaceDir, frameDir);
+        // Determine output format and path
+        const requestedFormat = params.format?.toLowerCase().trim();
+        const outputFormat = requestedFormat && SUPPORTED_OUTPUT_FORMATS.includes(requestedFormat)
+            ? requestedFormat
+            : params.output
+                ? inferFormat(params.output)
+                : inferFormat(inputPath);
+        const outputPath = params.output
+            ? resolveWorkspacePath(params.output)
+            : buildOutputPath(inputPath, outputFormat, action === "optimize" ? "-optimized"
+                : action === "trim" ? "-trimmed"
+                    : `-${action}`);
+        // Safety: refuse to overwrite the input file unless explicitly allowed
+        const overwrite = params.overwrite === true;
+        if (resolve(outputPath) === resolve(inputPath) && !overwrite) {
             return {
-                content: [{ type: "text", text: `Extracted ${extracted.length} frames to ${relDir}/` }],
-                details: { action: "frames", input: params.input, frameCount: extracted.length, outputDir: relDir },
+                content: [{ type: "text", text: `Output path is the same as input. Set overwrite=true to replace the original, or use a different output path.` }],
+                details: { error: "overwrite_refused", input: params.input, output: params.output },
             };
         }
-        case "spritesheet_to_gif": {
-            // Assemble a horizontal/vertical spritesheet into an animated GIF
-            const meta = await sharp(inputPath).metadata();
-            const imgWidth = meta.width ?? 0;
-            const imgHeight = meta.height ?? 0;
-            const direction = (params.direction || "horizontal").toLowerCase();
-            let frameW, frameH, frameCount;
-            if (direction === "vertical") {
-                frameW = imgWidth;
-                frameCount = params.frame_count ?? (params.height ? Math.floor(imgHeight / params.height) : 1);
-                frameH = params.height ?? Math.floor(imgHeight / frameCount);
-            }
-            else {
-                frameH = imgHeight;
-                frameCount = params.frame_count ?? (params.width ? Math.floor(imgWidth / params.width) : 1);
-                frameW = params.width ?? Math.floor(imgWidth / frameCount);
-            }
-            if (frameCount < 2) {
-                return {
-                    content: [{ type: "text", text: `Could not split spritesheet into multiple frames. Provide frame_count or frame width/height.` }],
-                    details: { error: "insufficient_frames", width: imgWidth, height: imgHeight, direction },
-                };
-            }
-            const delay = typeof params.delay === "number" ? params.delay
-                : Array.isArray(params.delay) ? params.delay[0] ?? 100
-                    : 100;
-            const perFrameDelay = Array.isArray(params.delay) ? params.delay : Array(frameCount).fill(delay);
-            const loopCount = params.loop ?? 0;
-            // Extract frames using sharp, then assemble with gifenc
-            const { GIFEncoder, quantize, applyPalette } = await import("gifenc");
-            const gif = GIFEncoder();
-            for (let i = 0; i < frameCount; i++) {
-                const left = direction === "horizontal" ? i * frameW : 0;
-                const top = direction === "vertical" ? i * frameH : 0;
-                const frameRaw = await sharp(inputPath)
-                    .extract({ left, top, width: frameW, height: frameH })
-                    .ensureAlpha()
-                    .raw()
-                    .toBuffer();
-                const rgba = new Uint8Array(frameRaw);
-                const palette = quantize(rgba, 256, { format: "rgba4444" });
-                const indexed = applyPalette(rgba, palette, "rgba4444");
-                gif.writeFrame(indexed, frameW, frameH, {
-                    palette,
-                    delay: perFrameDelay[i] ?? delay,
-                    repeat: i === 0 ? loopCount : undefined,
+        // Also refuse to overwrite any existing file unless overwrite is set or the path was auto-generated
+        if (params.output && existsSync(outputPath) && !overwrite) {
+            return {
+                content: [{ type: "text", text: `Output file already exists: ${params.output}. Set overwrite=true to replace it.` }],
+                details: { error: "output_exists", output: params.output },
+            };
+        }
+        const preserveTransparency = params.preserve_transparency !== false;
+        const quality = params.quality ?? 80;
+        // Detect and preserve animation by default
+        const inputMeta = action !== "info" ? await sharp(inputPath).metadata() : null;
+        const isAnimated = (inputMeta?.pages ?? 1) > 1;
+        const shouldAnimate = params.animated !== false && isAnimated;
+        // Start the pipeline
+        let pipeline = sharp(inputPath, shouldAnimate ? { animated: true } : undefined);
+        // If converting to a format that doesn't support transparency, flatten
+        if (!preserveTransparency || !TRANSPARENCY_FORMATS.has(outputFormat)) {
+            pipeline = pipeline.flatten({ background: { r: 255, g: 255, b: 255 } });
+        }
+        switch (action) {
+            case "resize": {
+                if (!params.width && !params.height) {
+                    return {
+                        content: [{ type: "text", text: "Resize requires at least width or height." }],
+                        details: { error: "missing_dimensions" },
+                    };
+                }
+                const fit = (params.fit || "inside");
+                pipeline = pipeline.resize(params.width || null, params.height || null, {
+                    fit,
+                    withoutEnlargement: fit === "inside",
                 });
+                break;
             }
-            gif.finish();
-            const gifOutputPath = params.output
-                ? resolveWorkspacePath(params.output)
-                : buildOutputPath(inputPath, "gif", "-animated");
-            // Overwrite check
-            const canOverwrite = params.overwrite === true;
-            if (params.output && existsSync(gifOutputPath) && !canOverwrite) {
+            case "crop": {
+                if (!params.width || !params.height) {
+                    return {
+                        content: [{ type: "text", text: "Crop requires both width and height." }],
+                        details: { error: "missing_dimensions" },
+                    };
+                }
+                pipeline = pipeline.extract({
+                    left: params.left ?? 0,
+                    top: params.top ?? 0,
+                    width: params.width,
+                    height: params.height,
+                });
+                break;
+            }
+            case "convert":
+            case "optimize":
+                // Format conversion / optimization — just apply the output format settings below
+                break;
+            case "trim": {
+                pipeline = pipeline.trim();
+                break;
+            }
+            case "rotate": {
+                const angle = params.angle ?? 90;
+                pipeline = pipeline.rotate(angle);
+                break;
+            }
+            case "flip": {
+                pipeline = pipeline.flip().flop();
+                break;
+            }
+            case "blur": {
+                const sigma = params.sigma ?? 3;
+                pipeline = pipeline.blur(sigma);
+                break;
+            }
+            case "sharpen": {
+                const sigma = params.sigma ?? 1;
+                pipeline = pipeline.sharpen(sigma);
+                break;
+            }
+            case "composite": {
+                if (!params.overlay) {
+                    return {
+                        content: [{ type: "text", text: "Composite requires an overlay image path." }],
+                        details: { error: "missing_overlay" },
+                    };
+                }
+                const overlayPath = resolveWorkspacePath(params.overlay);
+                if (!existsSync(overlayPath)) {
+                    return {
+                        content: [{ type: "text", text: `Overlay file not found: ${params.overlay}` }],
+                        details: { error: "overlay_not_found", overlay: params.overlay },
+                    };
+                }
+                const gravity = (params.gravity || "southeast");
+                pipeline = pipeline.composite([{ input: overlayPath, gravity }]);
+                break;
+            }
+            case "greyscale":
+            case "grayscale": {
+                pipeline = pipeline.greyscale();
+                break;
+            }
+            case "modulate": {
+                pipeline = pipeline.modulate({
+                    brightness: params.brightness ?? 1.0,
+                    saturation: params.saturation ?? 1.0,
+                    hue: params.hue ?? 0,
+                });
+                break;
+            }
+            case "contrast": {
+                const multiplier = params.contrast ?? 1.5;
+                const offset = 128 * (1 - multiplier);
+                pipeline = pipeline.linear(multiplier, offset);
+                break;
+            }
+            case "gamma": {
+                const gammaValue = params.gamma ?? 2.2;
+                pipeline = pipeline.gamma(gammaValue);
+                break;
+            }
+            case "tint": {
+                const hex = (params.tint_color || "#FF8800").replace("#", "");
+                const r = parseInt(hex.slice(0, 2), 16) || 0;
+                const g = parseInt(hex.slice(2, 4), 16) || 0;
+                const b = parseInt(hex.slice(4, 6), 16) || 0;
+                pipeline = pipeline.tint({ r, g, b });
+                break;
+            }
+            case "normalize":
+            case "normalise": {
+                pipeline = pipeline.normalise();
+                break;
+            }
+            case "negate": {
+                pipeline = pipeline.negate();
+                break;
+            }
+            case "clahe": {
+                pipeline = pipeline.clahe({
+                    width: params.clahe_width ?? 3,
+                    height: params.clahe_height ?? 3,
+                });
+                break;
+            }
+            case "threshold": {
+                pipeline = pipeline.threshold(params.threshold_value ?? 128);
+                break;
+            }
+            case "median": {
+                pipeline = pipeline.median(params.median_size ?? 3);
+                break;
+            }
+            case "extend": {
+                const bg = params.extend_background || "";
+                const hexBg = bg.replace("#", "");
+                const background = hexBg.length >= 6
+                    ? { r: parseInt(hexBg.slice(0, 2), 16), g: parseInt(hexBg.slice(2, 4), 16), b: parseInt(hexBg.slice(4, 6), 16), alpha: hexBg.length >= 8 ? parseInt(hexBg.slice(6, 8), 16) / 255 : 1 }
+                    : { r: 0, g: 0, b: 0, alpha: 0 };
+                pipeline = pipeline.extend({
+                    top: params.extend_top ?? 0,
+                    bottom: params.extend_bottom ?? 0,
+                    left: params.extend_left ?? 0,
+                    right: params.extend_right ?? 0,
+                    background,
+                });
+                break;
+            }
+            case "extract_channel": {
+                const channelIndex = (params.channel ?? 0);
+                pipeline = pipeline.extractChannel(channelIndex);
+                break;
+            }
+            case "remove_alpha": {
+                pipeline = pipeline.removeAlpha();
+                break;
+            }
+            case "unflatten": {
+                pipeline = pipeline.unflatten();
+                break;
+            }
+            case "text": {
+                if (!params.text) {
+                    return {
+                        content: [{ type: "text", text: "Text overlay requires the text parameter." }],
+                        details: { error: "missing_text" },
+                    };
+                }
+                const textColor = params.text_color || "#FFFFFF";
+                const fontSize = params.text_size ?? 24;
+                const svgText = `<svg xmlns="http://www.w3.org/2000/svg"><text x="10" y="${fontSize}" font-family="sans-serif" font-size="${fontSize}" fill="${textColor}">${params.text.replace(/&/g, "\&amp;").replace(/</g, "\&lt;").replace(/>/g, "\&gt;")}</text></svg>`;
+                const textBuf = await sharp(Buffer.from(svgText)).png().toBuffer();
+                pipeline = pipeline.composite([{ input: textBuf, gravity: params.gravity || "southeast" }]);
+                break;
+            }
+            case "svg_render": {
+                updateImageProcessUiProgress(ctx, `Image: rasterizing SVG ${basename(inputPath)}…`);
+                const density = params.density ?? 72;
+                pipeline = sharp(inputPath, { density });
+                if (!preserveTransparency || !TRANSPARENCY_FORMATS.has(outputFormat)) {
+                    pipeline = pipeline.flatten({ background: { r: 255, g: 255, b: 255 } });
+                }
+                if (params.width || params.height) {
+                    pipeline = pipeline.resize(params.width || null, params.height || null, { fit: "inside", withoutEnlargement: false });
+                }
+                break;
+            }
+            case "affine": {
+                if (!params.affine_matrix || params.affine_matrix.length !== 4) {
+                    return {
+                        content: [{ type: "text", text: "Affine requires affine_matrix with 4 numbers [a,b,c,d]." }],
+                        details: { error: "missing_matrix" },
+                    };
+                }
+                const [a, b, c, d] = params.affine_matrix;
+                pipeline = pipeline.affine([a, b, c, d], { background: { r: 0, g: 0, b: 0, alpha: 0 } });
+                break;
+            }
+            case "tile": {
+                updateImageProcessUiProgress(ctx, `Image: generating deep-zoom tiles for ${basename(inputPath)}…`);
+                const tileSize = params.tile_size ?? 256;
+                const tilePath = params.output
+                    ? resolveWorkspacePath(params.output)
+                    : buildOutputPath(inputPath, "png", "-tiles");
+                const { mkdirSync: mkFs } = await import("node:fs");
+                mkFs(tilePath, { recursive: true });
+                await sharp(inputPath).tile({ size: tileSize, layout: "dz" }).toFile(join(tilePath, "output"));
+                const workspaceDir = getWorkspaceDir();
+                const relTile = stripBaseDirForDisplay(workspaceDir, tilePath);
                 return {
-                    content: [{ type: "text", text: `Output file already exists: ${params.output}. Set overwrite=true to replace it.` }],
-                    details: { error: "output_exists", output: params.output },
+                    content: [{ type: "text", text: `Deep zoom tiles generated in ${relTile}/ (tile size: ${tileSize}px)` }],
+                    details: { action: "tile", input: params.input, outputDir: relTile, tileSize },
                 };
             }
-            const { writeFileSync: writeFs } = await import("node:fs");
-            writeFs(gifOutputPath, Buffer.from(gif.bytes()));
-            const gifStat = statSync(gifOutputPath);
-            const workspaceDir = getWorkspaceDir();
-            const relOutput = stripBaseDirForDisplay(workspaceDir, gifOutputPath);
-            return {
-                content: [{ type: "text", text: `Animated GIF created: ${relOutput} (${frameW}x${frameH}, ${frameCount} frames, ${formatBytes(gifStat.size)})` }],
-                details: {
-                    action: "spritesheet_to_gif",
-                    input: params.input,
-                    output: relOutput,
-                    format: "gif",
-                    width: frameW,
-                    height: frameH,
-                    frameCount,
-                    delay: perFrameDelay.slice(0, frameCount),
-                    loop: loopCount,
-                    size: gifStat.size,
-                    mimeType: "image/gif",
-                },
-            };
+            case "metadata": {
+                updateImageProcessUiProgress(ctx, `Image: reading metadata for ${basename(inputPath)}…`);
+                const meta = await sharp(inputPath).metadata();
+                const metaInfo = {
+                    width: meta.width, height: meta.height, format: meta.format,
+                    channels: meta.channels, hasAlpha: meta.hasAlpha, space: meta.space,
+                    density: meta.density, chromaSubsampling: meta.chromaSubsampling,
+                    isProgressive: meta.isProgressive, pages: meta.pages,
+                    hasProfile: meta.hasProfile, icc: meta.icc ? `ICC profile (${meta.icc.length} bytes)` : null,
+                    exif: meta.exif ? `EXIF data (${meta.exif.length} bytes)` : null,
+                    xmp: meta.xmp ? `XMP data (${meta.xmp.length} bytes)` : null,
+                };
+                return {
+                    content: [{ type: "text", text: `Metadata for ${params.input}:\n${JSON.stringify(metaInfo, null, 2)}` }],
+                    details: { action: "metadata", input: params.input, ...metaInfo },
+                };
+            }
+            case "frames": {
+                updateImageProcessUiProgress(ctx, `Image: extracting animation frames from ${basename(inputPath)}…`);
+                // Extract individual frames from an animated GIF/WebP
+                const meta = await sharp(inputPath, { animated: true }).metadata();
+                const pageCount = meta.pages ?? 1;
+                if (pageCount <= 1) {
+                    return {
+                        content: [{ type: "text", text: `${params.input} has only 1 frame — nothing to extract.` }],
+                        details: { action: "frames", input: params.input, pages: 1 },
+                    };
+                }
+                const pageHeight = meta.pageHeight ?? meta.height ?? 0;
+                const frameDir = params.output ? resolveWorkspacePath(params.output) : buildOutputPath(inputPath, "png", "-frames");
+                const { mkdirSync: mkdirSyncFs } = await import("node:fs");
+                mkdirSyncFs(frameDir, { recursive: true });
+                const extracted = [];
+                for (let i = 0; i < pageCount; i++) {
+                    const framePath = join(frameDir, `frame-${String(i).padStart(4, "0")}.png`);
+                    await sharp(inputPath, { animated: true, page: i }).png().toFile(framePath);
+                    extracted.push(framePath);
+                }
+                const workspaceDir = getWorkspaceDir();
+                const relDir = stripBaseDirForDisplay(workspaceDir, frameDir);
+                return {
+                    content: [{ type: "text", text: `Extracted ${extracted.length} frames to ${relDir}/` }],
+                    details: { action: "frames", input: params.input, frameCount: extracted.length, outputDir: relDir },
+                };
+            }
+            case "spritesheet_to_gif": {
+                updateImageProcessUiProgress(ctx, `Image: assembling animated GIF from ${basename(inputPath)}…`);
+                // Assemble a horizontal/vertical spritesheet into an animated GIF
+                const meta = await sharp(inputPath).metadata();
+                const imgWidth = meta.width ?? 0;
+                const imgHeight = meta.height ?? 0;
+                const direction = (params.direction || "horizontal").toLowerCase();
+                let frameW, frameH, frameCount;
+                if (direction === "vertical") {
+                    frameW = imgWidth;
+                    frameCount = params.frame_count ?? (params.height ? Math.floor(imgHeight / params.height) : 1);
+                    frameH = params.height ?? Math.floor(imgHeight / frameCount);
+                }
+                else {
+                    frameH = imgHeight;
+                    frameCount = params.frame_count ?? (params.width ? Math.floor(imgWidth / params.width) : 1);
+                    frameW = params.width ?? Math.floor(imgWidth / frameCount);
+                }
+                if (frameCount < 2) {
+                    return {
+                        content: [{ type: "text", text: `Could not split spritesheet into multiple frames. Provide frame_count or frame width/height.` }],
+                        details: { error: "insufficient_frames", width: imgWidth, height: imgHeight, direction },
+                    };
+                }
+                const delay = typeof params.delay === "number" ? params.delay
+                    : Array.isArray(params.delay) ? params.delay[0] ?? 100
+                        : 100;
+                const perFrameDelay = Array.isArray(params.delay) ? params.delay : Array(frameCount).fill(delay);
+                const loopCount = params.loop ?? 0;
+                // Extract frames using sharp, then assemble with gifenc
+                const { GIFEncoder, quantize, applyPalette } = await import("gifenc");
+                const gif = GIFEncoder();
+                for (let i = 0; i < frameCount; i++) {
+                    const left = direction === "horizontal" ? i * frameW : 0;
+                    const top = direction === "vertical" ? i * frameH : 0;
+                    const frameRaw = await sharp(inputPath)
+                        .extract({ left, top, width: frameW, height: frameH })
+                        .ensureAlpha()
+                        .raw()
+                        .toBuffer();
+                    const rgba = new Uint8Array(frameRaw);
+                    const palette = quantize(rgba, 256, { format: "rgba4444" });
+                    const indexed = applyPalette(rgba, palette, "rgba4444");
+                    gif.writeFrame(indexed, frameW, frameH, {
+                        palette,
+                        delay: perFrameDelay[i] ?? delay,
+                        repeat: i === 0 ? loopCount : undefined,
+                    });
+                }
+                gif.finish();
+                const gifOutputPath = params.output
+                    ? resolveWorkspacePath(params.output)
+                    : buildOutputPath(inputPath, "gif", "-animated");
+                // Overwrite check
+                const canOverwrite = params.overwrite === true;
+                if (params.output && existsSync(gifOutputPath) && !canOverwrite) {
+                    return {
+                        content: [{ type: "text", text: `Output file already exists: ${params.output}. Set overwrite=true to replace it.` }],
+                        details: { error: "output_exists", output: params.output },
+                    };
+                }
+                const { writeFileSync: writeFs } = await import("node:fs");
+                writeFs(gifOutputPath, Buffer.from(gif.bytes()));
+                const gifStat = statSync(gifOutputPath);
+                const workspaceDir = getWorkspaceDir();
+                const relOutput = stripBaseDirForDisplay(workspaceDir, gifOutputPath);
+                return {
+                    content: [{ type: "text", text: `Animated GIF created: ${relOutput} (${frameW}x${frameH}, ${frameCount} frames, ${formatBytes(gifStat.size)})` }],
+                    details: {
+                        action: "spritesheet_to_gif",
+                        input: params.input,
+                        output: relOutput,
+                        format: "gif",
+                        width: frameW,
+                        height: frameH,
+                        frameCount,
+                        delay: perFrameDelay.slice(0, frameCount),
+                        loop: loopCount,
+                        size: gifStat.size,
+                        mimeType: "image/gif",
+                    },
+                };
+            }
+            default:
+                return {
+                    content: [{ type: "text", text: `Unknown action: ${action}. Use: resize, crop, convert, optimize, trim, rotate, flip, blur, sharpen, composite, greyscale, modulate, contrast, gamma, tint, normalize, negate, clahe, threshold, median, extend, extract_channel, remove_alpha, unflatten, text, svg_render, affine, tile, metadata, frames, spritesheet_to_gif, info` }],
+                    details: { error: "unknown_action", action },
+                };
         }
-        default:
-            return {
-                content: [{ type: "text", text: `Unknown action: ${action}. Use: resize, crop, convert, optimize, trim, rotate, flip, blur, sharpen, composite, greyscale, modulate, contrast, gamma, tint, normalize, negate, clahe, threshold, median, extend, extract_channel, remove_alpha, unflatten, text, svg_render, affine, tile, metadata, frames, spritesheet_to_gif, info` }],
-                details: { error: "unknown_action", action },
-            };
+        // Apply output format
+        switch (outputFormat) {
+            case "jpeg":
+                pipeline = pipeline.jpeg({ quality, mozjpeg: true });
+                break;
+            case "webp":
+                pipeline = pipeline.webp({ quality });
+                break;
+            case "avif":
+                pipeline = pipeline.avif({ quality });
+                break;
+            case "png":
+                pipeline = pipeline.png({ compressionLevel: Math.round((100 - quality) / 10) });
+                break;
+            case "tiff":
+                pipeline = pipeline.tiff({ quality });
+                break;
+            case "gif":
+                pipeline = pipeline.gif();
+                break;
+        }
+        await pipeline.toFile(outputPath);
+        const outputStat = statSync(outputPath);
+        const inputStat = statSync(inputPath);
+        const outputMeta = await sharp(outputPath).metadata();
+        const savings = inputStat.size - outputStat.size;
+        const workspaceDir = getWorkspaceDir();
+        const relativeOutput = stripBaseDirForDisplay(workspaceDir, outputPath);
+        return {
+            content: [{ type: "text", text: `${action} complete: ${relativeOutput} (${outputMeta.width}x${outputMeta.height}, ${formatBytes(outputStat.size)}${savings > 0 ? `, saved ${formatBytes(savings)}` : ""})` }],
+            details: {
+                action,
+                input: params.input,
+                output: relativeOutput,
+                format: outputFormat,
+                width: outputMeta.width,
+                height: outputMeta.height,
+                size: outputStat.size,
+                originalSize: inputStat.size,
+                savings: savings > 0 ? savings : 0,
+                mimeType: FORMAT_MIME[outputFormat],
+            },
+        };
     }
-    // Apply output format
-    switch (outputFormat) {
-        case "jpeg":
-            pipeline = pipeline.jpeg({ quality, mozjpeg: true });
-            break;
-        case "webp":
-            pipeline = pipeline.webp({ quality });
-            break;
-        case "avif":
-            pipeline = pipeline.avif({ quality });
-            break;
-        case "png":
-            pipeline = pipeline.png({ compressionLevel: Math.round((100 - quality) / 10) });
-            break;
-        case "tiff":
-            pipeline = pipeline.tiff({ quality });
-            break;
-        case "gif":
-            pipeline = pipeline.gif();
-            break;
+    finally {
+        if (showUiProgress)
+            finishImageProcessUiProgress(ctx);
     }
-    await pipeline.toFile(outputPath);
-    const outputStat = statSync(outputPath);
-    const inputStat = statSync(inputPath);
-    const outputMeta = await sharp(outputPath).metadata();
-    const savings = inputStat.size - outputStat.size;
-    const workspaceDir = getWorkspaceDir();
-    const relativeOutput = stripBaseDirForDisplay(workspaceDir, outputPath);
-    return {
-        content: [{ type: "text", text: `${action} complete: ${relativeOutput} (${outputMeta.width}x${outputMeta.height}, ${formatBytes(outputStat.size)}${savings > 0 ? `, saved ${formatBytes(savings)}` : ""})` }],
-        details: {
-            action,
-            input: params.input,
-            output: relativeOutput,
-            format: outputFormat,
-            width: outputMeta.width,
-            height: outputMeta.height,
-            size: outputStat.size,
-            originalSize: inputStat.size,
-            savings: savings > 0 ? savings : 0,
-            mimeType: FORMAT_MIME[outputFormat],
-        },
-    };
 }
 const HINT = [
     "## Image Processing",

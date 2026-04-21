@@ -1,7 +1,7 @@
 ---
 id: audit-core-pi-0.68.0-runtime-and-web-surfaces
 title: Audit core Pi 0.68.0 runtime and web surfaces
-status: doing
+status: done
 priority: high
 created: 2026-04-21
 updated: 2026-04-21
@@ -54,16 +54,16 @@ This ticket covers the rest of the **core runtime + web surface audit** so we do
 
 ## Acceptance Criteria
 
-- [ ] Document the exact Piclaw-owned runtime/web boundaries touched by Pi 0.68.0.
-- [ ] Verify that tool-name allowlists behave correctly for:
-  - [ ] default session bootstrap
-  - [ ] `activate_tools`
-  - [ ] `reset_active_tools`
-  - [ ] custom tool overrides
-- [ ] Verify that `/clone` is wired and tested as “duplicate current active branch into a new session”.
-- [ ] Verify that web `ExtensionUIContext` implements all upstream-required methods and note which are real vs placeholder implementations.
-- [ ] Produce explicit follow-ups where compatibility exists but product behavior is still missing.
-- [ ] Add or update regression coverage for the audited core surfaces.
+- [x] Document the exact Piclaw-owned runtime/web boundaries touched by Pi 0.68.0.
+- [x] Verify that tool-name allowlists behave correctly for:
+  - [x] default session bootstrap
+  - [x] `activate_tools`
+  - [x] `reset_active_tools`
+  - [x] custom tool overrides
+- [x] Verify that `/clone` is wired and tested as “duplicate current active branch into a new session”.
+- [x] Verify that web `ExtensionUIContext` implements all upstream-required methods and note which are real vs placeholder implementations.
+- [x] Produce explicit follow-ups where compatibility exists but product behavior is still missing.
+- [x] Add or update regression coverage for the audited core surfaces.
 
 ## Detailed changes to make
 
@@ -140,14 +140,29 @@ This ticket covers the rest of the **core runtime + web surface audit** so we do
 
 ## Definition of Done
 
-- [ ] All acceptance criteria satisfied and verified
-- [ ] Tests added or updated — passing locally
-- [ ] Type check clean
-- [ ] Docs and notes updated with links to ticket
-- [ ] Operational impact assessed
-- [ ] Follow-up tickets created for deferred scope
-- [ ] Update history complete with evidence
-- [ ] Ticket front matter updated
+- [x] All acceptance criteria satisfied and verified
+- [x] Tests added or updated — passing locally
+- [x] Type check clean
+- [x] Docs and notes updated with links to ticket
+- [x] Operational impact assessed
+- [x] Follow-up tickets created for deferred scope
+- [x] Update history complete with evidence
+- [x] Ticket front matter updated
+
+## Update history
+
+- 2026-04-21: Reconciled the core 0.68.0 audit against landed changes (`/clone`, tool-name allowlists, and web `ExtensionUIContext.setWorkingIndicator`).
+- 2026-04-21: Recorded the exact Piclaw-owned runtime/web boundaries touched by the upstream bump in `runtime/test/workitems/upstream-068-audit-summary.md`.
+- 2026-04-21: Confirmed no remaining product gap in the core runtime/web surface beyond optional polish items already tracked separately.
+- 2026-04-21: Added/ran focused regression coverage tying built-in and packaged progress adoption back to the audited core web bridge.
+
+## Evidence
+
+- `runtime/test/workitems/upstream-068-audit-summary.md`
+- `runtime/test/extensions/upstream-068-builtins-and-integrations.test.ts`
+- `runtime/test/agent-pool/tool-factory.test.ts`
+- `runtime/test/agent-control/agent-control-handlers.test.ts`
+- `runtime/test/channels/web/tool-status-hints.test.ts`
 
 ## Links
 

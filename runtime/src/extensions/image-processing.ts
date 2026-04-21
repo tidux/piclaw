@@ -128,42 +128,96 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+type ImageProcessUiContext = {
+  hasUI?: boolean;
+  ui?: {
+    setWorkingIndicator: (options?: { frames?: string[]; intervalMs?: number }) => void;
+    setWorkingMessage: (message?: string) => void;
+  };
+};
+
+const IMAGE_PROCESS_WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function startImageProcessUiProgress(ctx: ImageProcessUiContext | undefined, message: string): void {
+  if (!ctx?.hasUI || !ctx.ui) return;
+  ctx.ui.setWorkingIndicator({ frames: IMAGE_PROCESS_WORKING_FRAMES, intervalMs: 90 });
+  ctx.ui.setWorkingMessage(message);
+}
+
+function updateImageProcessUiProgress(ctx: ImageProcessUiContext | undefined, message: string): void {
+  if (!ctx?.hasUI || !ctx.ui) return;
+  ctx.ui.setWorkingMessage(message);
+}
+
+function finishImageProcessUiProgress(ctx: ImageProcessUiContext | undefined): void {
+  if (!ctx?.hasUI || !ctx.ui) return;
+  ctx.ui.setWorkingMessage(undefined);
+  ctx.ui.setWorkingIndicator({ frames: [] });
+}
+
+function describeImageProcessAction(action: string, inputPath: string): string {
+  const file = basename(inputPath);
+  switch (action) {
+    case "resize": return `Image: resizing ${file}…`;
+    case "crop": return `Image: cropping ${file}…`;
+    case "convert": return `Image: converting ${file}…`;
+    case "optimize": return `Image: optimizing ${file}…`;
+    case "trim": return `Image: trimming transparent edges from ${file}…`;
+    case "rotate": return `Image: rotating ${file}…`;
+    case "flip": return `Image: flipping ${file}…`;
+    case "blur": return `Image: blurring ${file}…`;
+    case "sharpen": return `Image: sharpening ${file}…`;
+    case "composite": return `Image: compositing ${file}…`;
+    case "svg_render": return `Image: rendering SVG ${file}…`;
+    case "tile": return `Image: generating deep-zoom tiles for ${file}…`;
+    case "frames": return `Image: extracting animation frames from ${file}…`;
+    case "spritesheet_to_gif": return `Image: assembling animated GIF from ${file}…`;
+    case "metadata": return `Image: inspecting metadata for ${file}…`;
+    default: return `Image: processing ${file} (${action})…`;
+  }
+}
+
 async function executeImageProcess(
   _toolCallId: string,
   params: ImageProcessParams,
+  _signal?: AbortSignal,
+  _update?: unknown,
+  ctx?: ImageProcessUiContext,
 ): Promise<AgentToolResult<Record<string, unknown>>> {
   const sharp = (await import("sharp")).default;
 
   const action = (params.action || "").toLowerCase().trim();
   const inputPath = resolveWorkspacePath(params.input);
+  const showUiProgress = action !== "info";
+  if (showUiProgress) startImageProcessUiProgress(ctx, describeImageProcessAction(action, inputPath));
 
-  if (!existsSync(inputPath)) {
-    return {
-      content: [{ type: "text", text: `File not found: ${params.input}` }],
-      details: { error: "not_found", input: params.input },
-    };
-  }
-
-  // Info action: return metadata without processing
-  if (action === "info") {
-    const meta = await sharp(inputPath).metadata();
-    const stat = statSync(inputPath);
-    const info = {
-      width: meta.width,
-      height: meta.height,
-      format: meta.format,
-      channels: meta.channels,
-      hasAlpha: meta.hasAlpha,
-      space: meta.space,
-      density: meta.density,
-      size: stat.size,
-      sizeFormatted: formatBytes(stat.size),
-    };
-    return {
-      content: [{ type: "text", text: `Image info for ${params.input}:\n${JSON.stringify(info, null, 2)}` }],
-      details: { action: "info", input: params.input, ...info },
-    };
-  }
+  try {
+    if (!existsSync(inputPath)) {
+      return {
+        content: [{ type: "text", text: `File not found: ${params.input}` }],
+        details: { error: "not_found", input: params.input },
+      };
+    }
+    // Info action: return metadata without processing
+    if (action === "info") {
+      const meta = await sharp(inputPath).metadata();
+      const stat = statSync(inputPath);
+      const info = {
+        width: meta.width,
+        height: meta.height,
+        format: meta.format,
+        channels: meta.channels,
+        hasAlpha: meta.hasAlpha,
+        space: meta.space,
+        density: meta.density,
+        size: stat.size,
+        sizeFormatted: formatBytes(stat.size),
+      };
+      return {
+        content: [{ type: "text", text: `Image info for ${params.input}:\n${JSON.stringify(info, null, 2)}` }],
+        details: { action: "info", input: params.input, ...info },
+      };
+    }
 
   // Determine output format and path
   const requestedFormat = params.format?.toLowerCase().trim();
@@ -411,6 +465,7 @@ async function executeImageProcess(
     }
 
     case "svg_render": {
+      updateImageProcessUiProgress(ctx, `Image: rasterizing SVG ${basename(inputPath)}…`);
       const density = params.density ?? 72;
       pipeline = sharp(inputPath, { density });
       if (!preserveTransparency || !TRANSPARENCY_FORMATS.has(outputFormat)) {
@@ -435,6 +490,7 @@ async function executeImageProcess(
     }
 
     case "tile": {
+      updateImageProcessUiProgress(ctx, `Image: generating deep-zoom tiles for ${basename(inputPath)}…`);
       const tileSize = params.tile_size ?? 256;
       const tilePath = params.output
         ? resolveWorkspacePath(params.output)
@@ -451,6 +507,7 @@ async function executeImageProcess(
     }
 
     case "metadata": {
+      updateImageProcessUiProgress(ctx, `Image: reading metadata for ${basename(inputPath)}…`);
       const meta = await sharp(inputPath).metadata();
       const metaInfo = {
         width: meta.width, height: meta.height, format: meta.format,
@@ -468,6 +525,7 @@ async function executeImageProcess(
     }
 
     case "frames": {
+      updateImageProcessUiProgress(ctx, `Image: extracting animation frames from ${basename(inputPath)}…`);
       // Extract individual frames from an animated GIF/WebP
       const meta = await sharp(inputPath, { animated: true }).metadata();
       const pageCount = meta.pages ?? 1;
@@ -496,6 +554,7 @@ async function executeImageProcess(
     }
 
     case "spritesheet_to_gif": {
+      updateImageProcessUiProgress(ctx, `Image: assembling animated GIF from ${basename(inputPath)}…`);
       // Assemble a horizontal/vertical spritesheet into an animated GIF
       const meta = await sharp(inputPath).metadata();
       const imgWidth = meta.width ?? 0;
@@ -640,6 +699,9 @@ async function executeImageProcess(
       mimeType: FORMAT_MIME[outputFormat],
     },
   };
+  } finally {
+    if (showUiProgress) finishImageProcessUiProgress(ctx);
+  }
 }
 
 const HINT = [

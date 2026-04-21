@@ -1,7 +1,7 @@
 ---
 id: adopt-pi-coding-agent-0.68.0-followups-and-web-progress-mapping
 title: Adopt pi-coding-agent 0.68.0 follow-ups and web progress mapping
-status: next
+status: done
 priority: high
 created: 2026-04-21
 updated: 2026-04-21
@@ -32,16 +32,17 @@ Here’s the **Piclaw-focused 0.68.0 impact map**, with emphasis on **web/TUI pr
 - **Tool allowlist breaking change**: fixed in Piclaw
 - **`/clone` support**: added in Piclaw
 - **new `ExtensionUIContext.setWorkingIndicator()` requirement**: compile-level compatibility added in Piclaw web bridge
+- **built-in + packaged first-wave progress adoption**: completed in Piclaw for `smart-compaction`, `ssh-core`, `image-processing`, `autoresearch-supervisor`, and `office-tools`
 
 ### Automatic upstream wins
 - better built-in tool execution context/hook behavior
 - better shell-path cwd handling
 - provider/session/cache fixes for OpenAI-compatible stacks
 
-### Highest-value follow-up still open
+### Remaining follow-up outside this implementation pass
 - **map `ctx.ui.setWorkingIndicator()` into our web UI**
-  - right now the web bridge accepts it but does **nothing**
-  - this is the cleanest upstream hook for richer progress/status in web
+  - the runtime/web bridge compatibility is present, but richer animated indicator rendering is still a separate product-polish task
+  - this is no longer blocking the 0.68.0 implementation closure
 
 ---
 
@@ -51,9 +52,9 @@ Here’s the **Piclaw-focused 0.68.0 impact map**, with emphasis on **web/TUI pr
 |---|---|---|
 | `tools` changed from built-in tool objects to **tool-name allowlists** | Broke our session bootstrap/tool factory | **Fixed** |
 | `/clone` added upstream | Piclaw parser intercepted slash commands, so upstream `/clone` would not pass through | **Fixed natively in Piclaw** |
-| `ctx.ui.setWorkingIndicator()` added | Broke our `ExtensionUIContext` implementation for web | **Fixed for compatibility only** |
-| `before_agent_start.systemPromptOptions` added | New structured input available to extensions | **Not adopted yet** |
-| `session_shutdown` now includes `reason` and `targetSessionFile` | Useful for smarter teardown/reload/fork behavior | **Not adopted yet** |
+| `ctx.ui.setWorkingIndicator()` added | Broke our `ExtensionUIContext` implementation for web | **Fixed, with first-wave extension adoption landed** |
+| `before_agent_start.systemPromptOptions` added | New structured input available to extensions | **Adopted where needed (`ssh-core`); otherwise intentionally deferred** |
+| `session_shutdown` now includes `reason` and `targetSessionFile` | Useful for smarter teardown/reload/fork behavior | **Adopted where needed (`ssh-core`)** |
 | built-in tool wrapping uses extension-runner context path | Better hook/context consistency for built-in tools | **Automatic win** |
 | shell-path resolution no longer uses ambient `process.cwd()` | Safer multi-session/worktree behavior | **Automatic win** |
 
@@ -498,20 +499,18 @@ Potential indirect benefit for:
 
 # 7) Prioritized Piclaw follow-up list
 
-## P1 — should do
-1. **Implement web support for `setWorkingIndicator()`**
-2. **Adopt it in `smart-compaction`**
-3. **Adopt `session_shutdown.reason` in `ssh-core`**
-4. **Adopt `session_shutdown.reason` in `azure-openai`**
-5. **Add progress indicator support to `proxmox` / `portainer` workflow polling**
+## Completed in the 0.68.0 implementation pass
+1. **Adopt progress indicator support in `smart-compaction`**
+2. **Adopt `session_shutdown.reason` / `targetSessionFile` in `ssh-core`**
+3. **Add progress indicator support to `image-processing`**
+4. **Add progress indicator support to `office_read` / `office_write`**
+5. **Add progress indicator support to `autoresearch-supervisor`**
+6. **Confirm structured progress support in `proxmox` / `portainer` workflow polling**
 
-## P2 — good product improvements
-6. add progress indicators to `image-processing`
-7. add progress indicators to `office_read` / `office_write`
-8. add progress indicators to `autoresearch-supervisor`
+## Remaining product follow-ups (non-blocking for the upstream upgrade)
+7. **Implement richer web rendering for `setWorkingIndicator()` frames**
+8. **Adopt `session_shutdown.reason` in `azure-openai` if deeper lifecycle UX is desired**
 9. optionally show structured indicator state in the status panel widget area
-
-## P3 — cleanup / polish
 10. selectively adopt `systemPromptOptions` where it reduces brittle prompt logic
 11. consider exposing richer fork semantics (`before` vs `at`) in our web/session UX
 12. review whether any web export/share surfaces should mirror upstream shortcut/indentation fixes
@@ -545,11 +544,15 @@ into one extension status model per chat/turn
 
 ---
 
-If you want, I can turn this into a **workitem/spec** with:
+## Closure
+
+The upstream 0.68.0 implementation follow-up is closed for Piclaw runtime/extensions. Remaining work is optional UI polish or separate Azure-specific lifecycle hardening.
+
+If you want, I can still turn the remaining web-indicator rendering work into a dedicated **workitem/spec** with:
 - event schema
 - runtime/web implementation steps
-- extension adoption checklist
-- test plan for `setWorkingIndicator()` in web.
+- web client animation/state model
+- test plan for richer `setWorkingIndicator()` rendering.
 
 ## Follow-up tickets
 

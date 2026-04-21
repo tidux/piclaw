@@ -1,7 +1,7 @@
 ---
 id: plan-and-sequence-pi-0.68.0-follow-up-rollout
 title: Plan and sequence the Pi 0.68.0 follow-up rollout
-status: doing
+status: done
 priority: medium
 created: 2026-04-21
 updated: 2026-04-21
@@ -45,11 +45,11 @@ The follow-up list from the 0.68.0 audit is already clear. This ticket turns it 
 
 ## Acceptance Criteria
 
-- [ ] Produce a recommended delivery order with explicit dependencies.
-- [ ] Separate must-have implementation work from audit-only and polish work.
-- [ ] Identify which tickets can be parallelized.
-- [ ] Identify which tickets should be gated on the web indicator plumbing.
-- [ ] Record a minimal ship path and a fuller product-improvement path.
+- [x] Produce a recommended delivery order with explicit dependencies.
+- [x] Separate must-have implementation work from audit-only and polish work.
+- [x] Identify which tickets can be parallelized.
+- [x] Identify which tickets should be gated on the web indicator plumbing.
+- [x] Record a minimal ship path and a fuller product-improvement path.
 
 ## Recommended sequencing
 
@@ -57,29 +57,34 @@ The follow-up list from the 0.68.0 audit is already clear. This ticket turns it 
 - core audit ticket
 - web working-indicator plumbing
 - web progress/status model spec
+- **Status:** done
 
 ### Phase 2
 - built-in extension first adopters:
   - `smart-compaction`
   - `ssh-core`
+- **Status:** done
 
 ### Phase 3
 - packaged integrations first adopters:
   - `proxmox`
   - `portainer`
   - Azure lifecycle improvements
+- **Status:** done for `proxmox` / `portainer`; Azure remains tracked in its dedicated audit ticket
 
 ### Phase 4
 - second-wave adopters:
   - `image-processing`
   - `office-tools`
   - `autoresearch-supervisor`
+- **Status:** done in this pass
 
 ### Phase 5
 - optional polish:
   - `systemPromptOptions`
   - richer web fork semantics
   - export/share follow-ups
+- **Status:** deferred/non-blocking
 
 ## Deliverables
 
@@ -94,11 +99,24 @@ The follow-up list from the 0.68.0 audit is already clear. This ticket turns it 
 
 ## Definition of Done
 
-- [ ] All acceptance criteria satisfied and verified
-- [ ] Docs and notes updated with links to ticket
-- [ ] Follow-up tickets created for deferred scope
-- [ ] Update history complete with evidence
-- [ ] Ticket front matter updated
+- [x] All acceptance criteria satisfied and verified
+- [x] Docs and notes updated with links to ticket
+- [x] Follow-up tickets created for deferred scope
+- [x] Update history complete with evidence
+- [x] Ticket front matter updated
+
+## Update history
+
+- 2026-04-21: Reconciled the rollout sequence against the implementation state after landing built-in and packaged progress adoptions.
+- 2026-04-21: Marked Phases 1–4 complete for the 0.68.0 upstream implementation scope.
+- 2026-04-21: Left only optional polish items deferred because they are not required for the upstream upgrade closure.
+
+## Evidence
+
+- `runtime/test/workitems/upstream-068-audit-summary.md`
+- `workitems/20-doing/audit-core-pi-0.68.0-runtime-and-web-surfaces.md`
+- `workitems/20-doing/audit-built-in-extensions-for-pi-0.68.0-adoption.md`
+- `workitems/20-doing/audit-packaged-integrations-for-pi-0.68.0-adoption.md`
 
 ## Links
 

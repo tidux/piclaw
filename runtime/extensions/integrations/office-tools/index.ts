@@ -52,6 +52,33 @@ function readTrimmedString(...values: unknown[]): string | null {
   return null;
 }
 
+type OfficeToolUiContext = {
+  hasUI?: boolean;
+  ui?: {
+    setWorkingIndicator: (options?: { frames?: string[]; intervalMs?: number }) => void;
+    setWorkingMessage: (message?: string) => void;
+  };
+};
+
+const OFFICE_WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function startOfficeUiProgress(ctx: OfficeToolUiContext | undefined, message: string): void {
+  if (!ctx?.hasUI || !ctx.ui) return;
+  ctx.ui.setWorkingIndicator({ frames: OFFICE_WORKING_FRAMES, intervalMs: 90 });
+  ctx.ui.setWorkingMessage(message);
+}
+
+function updateOfficeUiProgress(ctx: OfficeToolUiContext | undefined, message: string): void {
+  if (!ctx?.hasUI || !ctx.ui) return;
+  ctx.ui.setWorkingMessage(message);
+}
+
+function finishOfficeUiProgress(ctx: OfficeToolUiContext | undefined): void {
+  if (!ctx?.hasUI || !ctx.ui) return;
+  ctx.ui.setWorkingMessage(undefined);
+  ctx.ui.setWorkingIndicator({ frames: [] });
+}
+
 registerToolStatusHintProvider({
   id: "office_tools",
   buildHints: ({ toolName, args }) => {
@@ -863,7 +890,8 @@ export const officeWriteParameters = Type.Object({
   markdown: Type.String({ description: "Markdown content to convert" }),
 });
 
-export async function executeOfficeRead(params: { path: string }, ctx?: { cwd?: string }): Promise<any> {
+export async function executeOfficeRead(params: { path: string }, ctx?: { cwd?: string } & OfficeToolUiContext): Promise<any> {
+  startOfficeUiProgress(ctx, `Office: reading ${params.path}…`);
   try {
     const baseDir = ctx?.cwd ?? process.cwd();
     const filePath = resolveWorkspacePath(baseDir, params.path);
@@ -873,6 +901,7 @@ export async function executeOfficeRead(params: { path: string }, ctx?: { cwd?: 
       return { content: [{ type: "text", text: `Unsupported format: ${ext}. Supported: .docx, .xlsx, .pptx.` }], details: { ok: false } };
     }
 
+    updateOfficeUiProgress(ctx, `Office: parsing ${basename(filePath)}…`);
     const buf = readFileSync(filePath);
     if (buf[0] === 0xD0 && buf[1] === 0xCF && buf[2] === 0x11 && buf[3] === 0xE0) {
       return { content: [{ type: "text", text: `Legacy Office format (OLE2), not OOXML. Re-save as ${ext}x in Office first.` }], details: { ok: false } };
@@ -893,14 +922,17 @@ export async function executeOfficeRead(params: { path: string }, ctx?: { cwd?: 
       content: [{ type: "text", text: `Failed to read Office document: ${error.message}` }],
       details: { ok: false, error: error.message },
     };
+  } finally {
+    finishOfficeUiProgress(ctx);
   }
 }
 
 export async function executeOfficeWrite(
   params: { path: string; markdown: string },
   signal?: MaybeAbortSignal,
-  ctx?: { cwd?: string },
+  ctx?: { cwd?: string } & OfficeToolUiContext,
 ): Promise<any> {
+  startOfficeUiProgress(ctx, `Office: writing ${params.path}…`);
   try {
     const baseDir = ctx?.cwd ?? process.cwd();
     const filePath = resolveWorkspacePath(baseDir, params.path);
@@ -910,11 +942,15 @@ export async function executeOfficeWrite(
     }
     mkdirSync(dirname(filePath), { recursive: true });
 
+    updateOfficeUiProgress(ctx, `Office: generating ${basename(filePath)}…`);
     let buf: Buffer | null = null;
     if (ext === ".docx") buf = await mdToDocx(params.markdown);
     else if (ext === ".xlsx") buf = mdToXlsx(params.markdown);
     else if (ext === ".pptx") buf = await mdToPptx(params.markdown);
-    else if (ext === ".pdf") await mdToPdf(params.markdown, filePath, signal);
+    else if (ext === ".pdf") {
+      updateOfficeUiProgress(ctx, `Office: exporting PDF ${basename(filePath)}…`);
+      await mdToPdf(params.markdown, filePath, signal);
+    }
 
     if (buf) writeFileSync(filePath, buf);
     const size = existsSync(filePath) ? readFileSync(filePath).length : 0;
@@ -927,6 +963,8 @@ export async function executeOfficeWrite(
       content: [{ type: "text", text: `Failed to generate Office output: ${error.message}` }],
       details: { ok: false, error: error.message },
     };
+  } finally {
+    finishOfficeUiProgress(ctx);
   }
 }
 

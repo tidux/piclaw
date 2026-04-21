@@ -1,7 +1,7 @@
 ---
 id: audit-packaged-integrations-for-pi-0.68.0-adoption
 title: Audit packaged integrations for Pi 0.68.0 adoption
-status: doing
+status: done
 priority: high
 created: 2026-04-21
 updated: 2026-04-21
@@ -42,11 +42,11 @@ This ticket audits the packaged layer and the delegated runtime behavior togethe
 
 ## Acceptance Criteria
 
-- [ ] Every packaged integration is audited for 0.68.0 impact and classified.
-- [ ] Progress/status adoption opportunities are recorded for each long-running integration.
-- [ ] Delegation boundaries between packaged wrappers and `runtime/src/extensions/*` are explicit.
-- [ ] Packaging/resource registration still behaves correctly after the upstream bump.
-- [ ] Follow-up implementation tickets exist for any high-value product changes not done here.
+- [x] Every packaged integration is audited for 0.68.0 impact and classified.
+- [x] Progress/status adoption opportunities are recorded for each long-running integration.
+- [x] Delegation boundaries between packaged wrappers and `runtime/src/extensions/*` are explicit.
+- [x] Packaging/resource registration still behaves correctly after the upstream bump.
+- [x] Follow-up implementation tickets exist for any high-value product changes not done here.
 
 ## Detailed changes to make
 
@@ -136,14 +136,30 @@ For each integration, record:
 
 ## Definition of Done
 
-- [ ] All acceptance criteria satisfied and verified
-- [ ] Tests added or updated — passing locally
-- [ ] Type check clean
-- [ ] Docs and notes updated with links to ticket
-- [ ] Operational impact assessed
-- [ ] Follow-up tickets created for deferred scope
-- [ ] Update history complete with evidence
-- [ ] Ticket front matter updated
+- [x] All acceptance criteria satisfied and verified
+- [x] Tests added or updated — passing locally
+- [x] Type check clean
+- [x] Docs and notes updated with links to ticket
+- [x] Operational impact assessed
+- [x] Follow-up tickets created for deferred scope
+- [x] Update history complete with evidence
+- [x] Ticket front matter updated
+
+## Update history
+
+- 2026-04-21: Re-audited packaged wrappers for `ssh`, `keychain`, `context-mode`, `bun-runner`, `office-tools`, `proxmox`, and `portainer` against the 0.68.0 runtime surface.
+- 2026-04-21: Confirmed `proxmox` and `portainer` already expose structured working-indicator state for long workflows.
+- 2026-04-21: Added bounded working-indicator adoption for `office-tools` / `office-tools-tool` read/write flows.
+- 2026-04-21: Confirmed `bun-runner` remains intentionally separate from `bash` and does not need a 0.68.0-specific API change.
+- 2026-04-21: Added/ran focused packaged integration regression coverage in `runtime/test/extensions/upstream-068-builtins-and-integrations.test.ts` and existing office/bun-runner suites.
+
+## Evidence
+
+- `runtime/test/workitems/upstream-068-audit-summary.md`
+- `runtime/test/extensions/upstream-068-builtins-and-integrations.test.ts`
+- `runtime/test/extensions/extensions-bun-runner.test.ts`
+- `runtime/test/extensions/extensions-office-tools.test.ts`
+- `runtime/test/extensions/office-tools-tool.test.ts`
 
 ## Links
 
