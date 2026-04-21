@@ -678,6 +678,18 @@ function buildWorkflowSummary(workflow, result) {
     const maybeArrayCount = Array.isArray(result.result) ? ` (${result.result.length} items)` : "";
     return `Portainer workflow ${workflow} completed${maybeArrayCount}.`;
 }
+function startPortainerUiProgress(ctx, message) {
+    if (!ctx?.hasUI || !ctx.ui)
+        return;
+    ctx.ui.setWorkingIndicator({ frames: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"], intervalMs: 90 });
+    ctx.ui.setWorkingMessage(message);
+}
+function finishPortainerUiProgress(ctx) {
+    if (!ctx?.hasUI || !ctx.ui)
+        return;
+    ctx.ui.setWorkingMessage(undefined);
+    ctx.ui.setWorkingIndicator({ frames: [] });
+}
 export const portainerTool = (pi) => {
     pi.on("before_agent_start", async (event) => ({
         systemPrompt: `${event.systemPrompt}\n\n${PORTAINER_TOOL_HINT}`,
@@ -688,7 +700,7 @@ export const portainerTool = (pi) => {
         description: "Get, set, or clear the session-scoped Portainer API profile, perform ad-hoc API requests, or run common Portainer workflows.",
         promptSnippet: "portainer: inspect/update the current session Portainer API profile, send ad-hoc API requests, or run common endpoint/stack/container/image/volume workflows.",
         parameters: PortainerToolSchema,
-        async execute(_toolCallId, params) {
+        async execute(_toolCallId, params, _signal, _update, ctx) {
             const chatJid = normalizeChatJid(params.chat_jid);
             if (params.action === "contract") {
                 const payload = buildPortainerContractPayload();
@@ -822,20 +834,26 @@ export const portainerTool = (pi) => {
                 };
             }
             if (params.action === "discover") {
-                const discovery = await discoverPortainerInstances();
-                return {
-                    content: [{
-                            type: "text",
-                            text: discovery.default_candidate
-                                ? `Discovered ${discovery.candidates.length} Portainer candidate(s); default ${discovery.default_candidate.api_token_keychain}${discovery.default_candidate.base_url ? ` @ ${discovery.default_candidate.base_url}` : ""}.`
-                                : "No Portainer instances discovered from current keychain/env hints.",
-                        }],
-                    details: {
-                        action: "discover",
-                        chat_jid: chatJid,
-                        ...discovery,
-                    },
-                };
+                startPortainerUiProgress(ctx, "Portainer: discovering configured instances…");
+                try {
+                    const discovery = await discoverPortainerInstances();
+                    return {
+                        content: [{
+                                type: "text",
+                                text: discovery.default_candidate
+                                    ? `Discovered ${discovery.candidates.length} Portainer candidate(s); default ${discovery.default_candidate.api_token_keychain}${discovery.default_candidate.base_url ? ` @ ${discovery.default_candidate.base_url}` : ""}.`
+                                    : "No Portainer instances discovered from current keychain/env hints.",
+                            }],
+                        details: {
+                            action: "discover",
+                            chat_jid: chatJid,
+                            ...discovery,
+                        },
+                    };
+                }
+                finally {
+                    finishPortainerUiProgress(ctx);
+                }
             }
             if (params.action === "workflow") {
                 if (!params.workflow) {
@@ -845,47 +863,53 @@ export const portainerTool = (pi) => {
                     };
                 }
                 const help = getPortainerWorkflowHelp(params.workflow);
-                const workflowResult = await handlers.workflow(chatJid, {
-                    workflow: help.runtime_workflow,
-                    ...(typeof params.endpoint_id === "number" ? { endpoint_id: params.endpoint_id } : {}),
-                    ...(typeof params.stack_id === "number" ? { stack_id: params.stack_id } : {}),
-                    ...(typeof params.container_id === "string" ? { container_id: params.container_id } : {}),
-                    ...(typeof params.network_id === "string" ? { network_id: params.network_id } : {}),
-                    ...(typeof params.name === "string" ? { name: params.name } : {}),
-                    ...(typeof params.stack_name === "string" ? { stack_name: params.stack_name } : {}),
-                    ...(typeof params.stack_file_content === "string" ? { stack_file_content: params.stack_file_content } : {}),
-                    ...(typeof params.image === "string" ? { image: params.image } : {}),
-                    ...(typeof params.volume_name === "string" ? { volume_name: params.volume_name } : {}),
-                    ...(typeof params.unmanaged === "boolean" ? { unmanaged: params.unmanaged } : {}),
-                    ...(typeof params.force === "boolean" ? { force: params.force } : {}),
-                    ...(typeof params.all_unused === "boolean" ? { all_unused: params.all_unused } : {}),
-                    ...(typeof params.tail === "number" ? { tail: params.tail } : {}),
-                    ...(typeof params.timestamps === "boolean" ? { timestamps: params.timestamps } : {}),
-                    ...(typeof params.timeout_sec === "number" ? { timeout_sec: params.timeout_sec } : {}),
-                    ...(typeof params.command === "string" ? { command: params.command } : {}),
-                    ...(Array.isArray(params.command_args) ? { command_args: params.command_args } : {}),
-                    ...(params.shell_family === "powershell" || params.shell_family === "posix" ? { shell_family: params.shell_family } : {}),
-                    ...(typeof params.driver === "string" ? { driver: params.driver } : {}),
-                    ...(typeof params.internal === "boolean" ? { internal: params.internal } : {}),
-                    ...(typeof params.attachable === "boolean" ? { attachable: params.attachable } : {}),
-                    ...(typeof params.enable_ipv6 === "boolean" ? { enable_ipv6: params.enable_ipv6 } : {}),
-                    ...(params.labels ? { labels: params.labels } : {}),
-                    ...(params.options ? { options: params.options } : {}),
-                    ...(Array.isArray(params.names) ? { names: params.names } : {}),
-                });
-                const presented = presentStructuredToolValue(buildWorkflowSummary(help.canonical_workflow, workflowResult), "Result", workflowResult.result, `portainer:workflow:${help.canonical_workflow}`);
-                return {
-                    content: [{ type: "text", text: presented.text }],
-                    details: {
-                        action: "workflow",
-                        chat_jid: chatJid,
-                        ok: true,
-                        canonical_workflow: help.canonical_workflow,
-                        runtime_workflow: help.runtime_workflow,
-                        response: workflowResult,
-                        ...(presented.stored_output ? { result_tool_output: presented.stored_output } : {}),
-                    },
-                };
+                startPortainerUiProgress(ctx, `Portainer: running workflow ${help.canonical_workflow}…`);
+                try {
+                    const workflowResult = await handlers.workflow(chatJid, {
+                        workflow: help.runtime_workflow,
+                        ...(typeof params.endpoint_id === "number" ? { endpoint_id: params.endpoint_id } : {}),
+                        ...(typeof params.stack_id === "number" ? { stack_id: params.stack_id } : {}),
+                        ...(typeof params.container_id === "string" ? { container_id: params.container_id } : {}),
+                        ...(typeof params.network_id === "string" ? { network_id: params.network_id } : {}),
+                        ...(typeof params.name === "string" ? { name: params.name } : {}),
+                        ...(typeof params.stack_name === "string" ? { stack_name: params.stack_name } : {}),
+                        ...(typeof params.stack_file_content === "string" ? { stack_file_content: params.stack_file_content } : {}),
+                        ...(typeof params.image === "string" ? { image: params.image } : {}),
+                        ...(typeof params.volume_name === "string" ? { volume_name: params.volume_name } : {}),
+                        ...(typeof params.unmanaged === "boolean" ? { unmanaged: params.unmanaged } : {}),
+                        ...(typeof params.force === "boolean" ? { force: params.force } : {}),
+                        ...(typeof params.all_unused === "boolean" ? { all_unused: params.all_unused } : {}),
+                        ...(typeof params.tail === "number" ? { tail: params.tail } : {}),
+                        ...(typeof params.timestamps === "boolean" ? { timestamps: params.timestamps } : {}),
+                        ...(typeof params.timeout_sec === "number" ? { timeout_sec: params.timeout_sec } : {}),
+                        ...(typeof params.command === "string" ? { command: params.command } : {}),
+                        ...(Array.isArray(params.command_args) ? { command_args: params.command_args } : {}),
+                        ...(params.shell_family === "powershell" || params.shell_family === "posix" ? { shell_family: params.shell_family } : {}),
+                        ...(typeof params.driver === "string" ? { driver: params.driver } : {}),
+                        ...(typeof params.internal === "boolean" ? { internal: params.internal } : {}),
+                        ...(typeof params.attachable === "boolean" ? { attachable: params.attachable } : {}),
+                        ...(typeof params.enable_ipv6 === "boolean" ? { enable_ipv6: params.enable_ipv6 } : {}),
+                        ...(params.labels ? { labels: params.labels } : {}),
+                        ...(params.options ? { options: params.options } : {}),
+                        ...(Array.isArray(params.names) ? { names: params.names } : {}),
+                    });
+                    const presented = presentStructuredToolValue(buildWorkflowSummary(help.canonical_workflow, workflowResult), "Result", workflowResult.result, `portainer:workflow:${help.canonical_workflow}`);
+                    return {
+                        content: [{ type: "text", text: presented.text }],
+                        details: {
+                            action: "workflow",
+                            chat_jid: chatJid,
+                            ok: true,
+                            canonical_workflow: help.canonical_workflow,
+                            runtime_workflow: help.runtime_workflow,
+                            response: workflowResult,
+                            ...(presented.stored_output ? { result_tool_output: presented.stored_output } : {}),
+                        },
+                    };
+                }
+                finally {
+                    finishPortainerUiProgress(ctx);
+                }
             }
             const outputPath = typeof params.output_path === "string" ? params.output_path.trim() : "";
             const outputFormat = params.output_format === "jsonl" ? "jsonl" : "json";

@@ -59,7 +59,7 @@ const KEYCHAIN_HINT = [
     "Use keychain for listing available key names and retrieving entry secrets/usernames.",
     "You can also store/update entries and delete obsolete ones.",
     "Only reveal secrets to the user when explicitly requested.",
-    "Tool outputs are automatically redacted for known keychain secret values except for direct keychain tool reads.",
+    "Tool outputs are automatically redacted for sensitive keychain values except for direct keychain tool reads.",
 ].join("\n");
 function listPrefixedEntries(prefix, options = {}) {
     return listKeychainEntries()

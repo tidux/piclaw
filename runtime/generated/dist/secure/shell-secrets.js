@@ -17,6 +17,16 @@ function powerShellQuote(value) {
 function shouldRedactSecret(secret) {
     return secret.length >= 4 || secret.includes("\n");
 }
+const SENSITIVE_KEYCHAIN_NAME_PATTERN = /(^|[\/_.-])(token|password|passwd|pass|pat|secret|api[_-]?key|access[_-]?key|private[_-]?key|credential|credentials|cookie|session|oauth|bearer)([\/_.-]|$)/i;
+function shouldRedactKeychainEntry(entry) {
+    if (!shouldRedactSecret(entry.secret))
+        return false;
+    if (entry.secret.includes("\n"))
+        return true;
+    if (entry.type === "token" || entry.type === "password" || entry.type === "basic")
+        return true;
+    return SENSITIVE_KEYCHAIN_NAME_PATTERN.test(entry.name);
+}
 export async function createKeychainOutputRedactor() {
     try {
         const values = new Map();
@@ -24,7 +34,7 @@ export async function createKeychainOutputRedactor() {
             try {
                 const entry = await getKeychainEntry(name);
                 const secret = entry.secret;
-                if (!secret || !shouldRedactSecret(secret) || values.has(secret))
+                if (!secret || !shouldRedactKeychainEntry(entry) || values.has(secret))
                     continue;
                 values.set(secret, name);
             }
@@ -34,8 +44,8 @@ export async function createKeychainOutputRedactor() {
                 continue;
             }
         }
-        const replacements = [...values.entries()]
-            .map(([secret, name]) => ({ secret, label: name }))
+        const replacements = [...values.keys()]
+            .map((secret) => ({ secret }))
             .sort((a, b) => b.secret.length - a.secret.length);
         if (replacements.length === 0) {
             return {
@@ -49,7 +59,7 @@ export async function createKeychainOutputRedactor() {
             redact: (text) => {
                 let next = text;
                 for (const replacement of replacements) {
-                    next = next.replaceAll(replacement.secret, `[REDACTED:${replacement.label}]`);
+                    next = next.replaceAll(replacement.secret, `[REDACTED]`);
                 }
                 return next;
             },

@@ -18,7 +18,7 @@
 import Database from "bun:sqlite";
 import fs from "fs";
 import path from "path";
-import { STORE_DIR } from "../core/config.js";
+import { STORE_DIR, WORKSPACE_DIR } from "../core/config.js";
 import { createLogger, debugSuppressedError } from "../utils/logger.js";
 const log = createLogger("db.connection");
 /** Singleton database handle; set by initDatabase(), accessed via getDb(). */
@@ -26,6 +26,23 @@ let db = null;
 let dbMode = null;
 /** Cache key for the currently-open database target or in-memory test identity. */
 let dbPathCache = null;
+const CANONICAL_WORKSPACE_DIR = path.resolve("/workspace");
+const CANONICAL_LIVE_DB_PATH = path.join(CANONICAL_WORKSPACE_DIR, ".piclaw", "store", "messages.db");
+export function isLikelyTestHarnessProcess(argv = [...process.argv, ...(globalThis.Bun?.argv ?? [])]) {
+    return argv.some((value) => {
+        if (typeof value !== "string")
+            return false;
+        return /\.test\.[cm]?[jt]sx?$/.test(value) || /(?:^|[/\\])test(?:[/\\]|$)/.test(value);
+    });
+}
+export function shouldBlockLiveDatabaseOpenInTests(options) {
+    const { useMemory, nextPath, workspaceDir = WORKSPACE_DIR, allowLiveDbInTests = process.env.PICLAW_ALLOW_LIVE_DB_IN_TESTS === "1" || process.env.PICLAW_ALLOW_LIVE_DB_IN_TESTS === "true", argv, } = options;
+    if (useMemory || allowLiveDbInTests)
+        return false;
+    if (!isLikelyTestHarnessProcess(argv))
+        return false;
+    return path.resolve(workspaceDir) === CANONICAL_WORKSPACE_DIR && path.resolve(nextPath) === CANONICAL_LIVE_DB_PATH;
+}
 /**
  * Create all tables, indexes, FTS virtual tables, and triggers if they do
  * not already exist. Called once during initDatabase().
@@ -661,6 +678,11 @@ export function initDatabase() {
     const nextCacheKey = useMemory
         ? `memory:${process.env.PICLAW_WORKSPACE ?? ""}:${process.env.PICLAW_STORE ?? ""}:${process.env.PICLAW_DATA ?? ""}`
         : nextPath;
+    if (shouldBlockLiveDatabaseOpenInTests({ useMemory, nextPath })) {
+        throw new Error(`Refusing to open live database from a test process: ${nextPath}. ` +
+            `Set PICLAW_DB_IN_MEMORY=1 or isolate PICLAW_WORKSPACE/PICLAW_STORE, ` +
+            `or override with PICLAW_ALLOW_LIVE_DB_IN_TESTS=1 if this is truly intentional.`);
+    }
     let reuse = false;
     if (db && dbMode === nextMode && dbPathCache === nextCacheKey) {
         try {

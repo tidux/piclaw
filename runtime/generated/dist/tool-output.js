@@ -26,8 +26,16 @@ import { buildPreviewLines } from "./utils/preview.js";
 /** Directory where tool output log files are stored on disk. */
 const TOOL_OUTPUT_DIR = join(DATA_DIR, "tool-output");
 const log = createLogger("tool-output");
+const DEFAULT_TOOL_OUTPUT_RETENTION_MS = 4 * 60 * 60 * 1000;
+const DEFAULT_TOOL_OUTPUT_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
 /** Default chunk size (characters) for FTS indexing. */
 const DEFAULT_CHUNK_SIZE = 4000;
+/**
+ * Convert a retention interval in milliseconds to an ISO cutoff timestamp.
+ */
+function buildToolOutputCutoff(maxAgeMs) {
+    return new Date(Date.now() - maxAgeMs).toISOString();
+}
 /**
  * Generate a short text preview of the first N lines of content.
  * Used as the default summary when none is provided.
@@ -128,11 +136,11 @@ export function searchToolOutput(handle, query, limit = 5) {
     return searchToolOutputSnippets(handle, trimmed, limit);
 }
 /**
- * Delete tool outputs older than `maxAgeDays`. Removes both the DB records
+ * Delete tool outputs older than `maxAgeMs`. Removes both the DB records
  * and the on-disk log files. Returns the number of records pruned.
  */
-export function pruneToolOutputs(maxAgeDays = 30) {
-    const cutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000).toISOString();
+export function pruneToolOutputs(maxAgeMs = DEFAULT_TOOL_OUTPUT_RETENTION_MS) {
+    const cutoff = buildToolOutputCutoff(maxAgeMs);
     const rows = deleteToolOutputsBefore(cutoff);
     for (const row of rows) {
         if (row.path && existsSync(row.path)) {
@@ -156,13 +164,13 @@ let cleanupStarted = false;
  * Start a periodic timer that prunes old tool outputs.
  * Called once by runtime.ts during startup.
  */
-export function startToolOutputCleanup(maxAgeDays = 30, intervalMs = 12 * 60 * 60 * 1000) {
+export function startToolOutputCleanup(maxAgeMs = DEFAULT_TOOL_OUTPUT_RETENTION_MS, intervalMs = DEFAULT_TOOL_OUTPUT_CLEANUP_INTERVAL_MS) {
     if (cleanupStarted)
         return;
     cleanupStarted = true;
     // Run an initial prune immediately, then on a recurring interval.
-    pruneToolOutputs(maxAgeDays);
-    setInterval(() => pruneToolOutputs(maxAgeDays), intervalMs).unref();
+    pruneToolOutputs(maxAgeMs);
+    setInterval(() => pruneToolOutputs(maxAgeMs), intervalMs).unref();
 }
 /**
  * Read the full content of a tool output log file from disk.

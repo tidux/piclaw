@@ -703,113 +703,123 @@ export const smartCompaction = (pi) => {
         const { messagesToSummarize, tokensBefore, firstKeptEntryId, previousSummary, settings, } = preparation;
         if (messagesToSummarize.length === 0)
             return;
-        // Capture the signal reference from the event. The upstream
-        // `_compactionAbortController` can be cleared by a concurrent `compact()`
-        // call's finally block while our async handler is in flight. By capturing
-        // the signal here we can check `.aborted` reliably and return `{ cancel }`
-        // instead of falling through — which would crash upstream when it accesses
-        // the already-cleared controller.
-        const abortSignal = signal;
-        // ── Compute topic-shift signal once for all downstream paths ──────
-        // Both tryNoOpCompaction (to gate the minimal-content fast path) and
-        // buildSelectivePrompt (to annotate the compaction prompt) need this.
-        // Computing it once avoids a redundant full scan of the message array.
-        const llmMessages = convertToLlm(messagesToSummarize);
-        // Check abort early — a concurrent compact() may have already cancelled us.
-        if (abortSignal.aborted)
-            return { cancel: true };
-        const topicShift = detectRecentTopicShift(llmMessages);
-        log.debug("Pivot detection result", {
-            detected: !!topicShift,
-            reasons: topicShift?.reasons ?? [],
-            overlap: topicShift?.overlap ?? null,
-            messageCount: llmMessages.length,
-        });
-        // ── No-op detection ──────────────────────────────────────────────
-        // Skip the LLM call entirely when we can produce a good summary
-        // mechanically. This saves ~60-110s and 100-270k input tokens.
-        const noOpResult = tryNoOpCompaction(llmMessages, preparation, firstKeptEntryId, tokensBefore, topicShift, ctx);
-        if (noOpResult)
-            return noOpResult;
-        // Short conversations → built-in full-pass is fine
-        if (messagesToSummarize.length < SELECTIVE_THRESHOLD)
-            return;
-        ctx.ui.notify(`Smart compaction: ${messagesToSummarize.length} msgs → selective extraction`, "info");
-        const promptText = buildSelectivePrompt(llmMessages, { tokensBefore, previousSummary, fileOps: preparation.fileOps }, customInstructions, topicShift);
-        ctx.ui.notify(`Prompt: ${Math.round(promptText.length / 1000)}k chars (vs ~${Math.round(tokensBefore / 1000)}k tokens full)`, "info");
-        // Model — use the session's own model (already session-scoped)
-        const model = ctx.model;
-        if (!model) {
-            ctx.ui.notify("No model available for smart compaction", "warning");
-            return;
-        }
-        const auth = await resolveModelRequestAuth(ctx.modelRegistry, model);
-        if (!auth.ok) {
-            ctx.ui.notify("Compaction model is not configured in Pi Agent settings (run `pi /login`)", "warning");
-            return;
-        }
-        const messages = [
-            {
-                role: "user",
-                content: [{ type: "text", text: promptText }],
-                timestamp: Date.now(),
-            },
-        ];
-        const maxTokens = Math.floor(0.8 * settings.reserveTokens);
-        const completionOptions = model.reasoning
-            ? { maxTokens, signal: abortSignal, apiKey: auth.apiKey, reasoning: "high" }
-            : { maxTokens, signal: abortSignal, apiKey: auth.apiKey };
+        ctx.ui.setWorkingIndicator({ frames: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"], intervalMs: 90 });
+        ctx.ui.setWorkingMessage(`Smart compaction: scanning ${messagesToSummarize.length} messages…`);
         try {
-            const response = await completeSimple(model, { systemPrompt: SYSTEM_PROMPT, messages }, completionOptions);
-            if (response.stopReason === "error") {
-                ctx.ui.notify(`Smart compaction LLM error: ${response.errorMessage || "unknown"}`, "warning");
-                return; // fall through to built-in
-            }
-            const summary = response.content
-                .filter((c) => c.type === "text")
-                .map((c) => c.text)
-                .join("\n")
-                .trim();
-            if (summary.length < MIN_SUMMARY_CHARS) {
-                ctx.ui.notify("Smart compaction summary too short, falling back to built-in", "warning");
+            // Capture the signal reference from the event. The upstream
+            // `_compactionAbortController` can be cleared by a concurrent `compact()`
+            // call's finally block while our async handler is in flight. By capturing
+            // the signal here we can check `.aborted` reliably and return `{ cancel }`
+            // instead of falling through — which would crash upstream when it accesses
+            // the already-cleared controller.
+            const abortSignal = signal;
+            // ── Compute topic-shift signal once for all downstream paths ──────
+            // Both tryNoOpCompaction (to gate the minimal-content fast path) and
+            // buildSelectivePrompt (to annotate the compaction prompt) need this.
+            // Computing it once avoids a redundant full scan of the message array.
+            const llmMessages = convertToLlm(messagesToSummarize);
+            // Check abort early — a concurrent compact() may have already cancelled us.
+            if (abortSignal.aborted)
+                return { cancel: true };
+            const topicShift = detectRecentTopicShift(llmMessages);
+            log.debug("Pivot detection result", {
+                detected: !!topicShift,
+                reasons: topicShift?.reasons ?? [],
+                overlap: topicShift?.overlap ?? null,
+                messageCount: llmMessages.length,
+            });
+            // ── No-op detection ──────────────────────────────────────────────
+            // Skip the LLM call entirely when we can produce a good summary
+            // mechanically. This saves ~60-110s and 100-270k input tokens.
+            const noOpResult = tryNoOpCompaction(llmMessages, preparation, firstKeptEntryId, tokensBefore, topicShift, ctx);
+            if (noOpResult)
+                return noOpResult;
+            // Short conversations → built-in full-pass is fine
+            if (messagesToSummarize.length < SELECTIVE_THRESHOLD)
+                return;
+            ctx.ui.setWorkingMessage(`Smart compaction: extracting signal from ${messagesToSummarize.length} messages…`);
+            ctx.ui.notify(`Smart compaction: ${messagesToSummarize.length} msgs → selective extraction`, "info");
+            const promptText = buildSelectivePrompt(llmMessages, { tokensBefore, previousSummary, fileOps: preparation.fileOps }, customInstructions, topicShift);
+            ctx.ui.notify(`Prompt: ${Math.round(promptText.length / 1000)}k chars (vs ~${Math.round(tokensBefore / 1000)}k tokens full)`, "info");
+            // Model — use the session's own model (already session-scoped)
+            const model = ctx.model;
+            if (!model) {
+                ctx.ui.notify("No model available for smart compaction", "warning");
                 return;
             }
-            if (abortSignal.aborted)
-                return { cancel: true };
-            // Append deterministic file sections (same format as built-in)
-            const { readFiles, modifiedFiles } = fileListsFromOps(preparation.fileOps);
-            let fullSummary = summary;
-            if (!summary.includes("<read-files>") &&
-                !summary.includes("<modified-files>")) {
-                const parts = [];
-                if (readFiles.length > 0) {
-                    parts.push(`\n<read-files>\n${readFiles.join("\n")}\n</read-files>`);
-                }
-                if (modifiedFiles.length > 0) {
-                    parts.push(`\n<modified-files>\n${modifiedFiles.join("\n")}\n</modified-files>`);
-                }
-                if (parts.length)
-                    fullSummary += "\n" + parts.join("\n");
+            const auth = await resolveModelRequestAuth(ctx.modelRegistry, model);
+            if (!auth.ok) {
+                ctx.ui.notify("Compaction model is not configured in Pi Agent settings (run `pi /login`)", "warning");
+                return;
             }
-            ctx.ui.notify("Smart compaction complete ✓", "info");
-            return {
-                compaction: {
-                    summary: fullSummary,
-                    firstKeptEntryId,
-                    tokensBefore,
+            const messages = [
+                {
+                    role: "user",
+                    content: [{ type: "text", text: promptText }],
+                    timestamp: Date.now(),
                 },
-            };
-        }
-        catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            if (!abortSignal.aborted) {
-                ctx.ui.notify(`Smart compaction error: ${msg}`, "warning");
+            ];
+            const maxTokens = Math.floor(0.8 * settings.reserveTokens);
+            const completionOptions = model.reasoning
+                ? { maxTokens, signal: abortSignal, apiKey: auth.apiKey, reasoning: "high" }
+                : { maxTokens, signal: abortSignal, apiKey: auth.apiKey };
+            try {
+                ctx.ui.setWorkingMessage("Smart compaction: generating selective summary…");
+                const response = await completeSimple(model, { systemPrompt: SYSTEM_PROMPT, messages }, completionOptions);
+                if (response.stopReason === "error") {
+                    ctx.ui.notify(`Smart compaction LLM error: ${response.errorMessage || "unknown"}`, "warning");
+                    return; // fall through to built-in
+                }
+                const summary = response.content
+                    .filter((c) => c.type === "text")
+                    .map((c) => c.text)
+                    .join("\n")
+                    .trim();
+                if (summary.length < MIN_SUMMARY_CHARS) {
+                    ctx.ui.notify("Smart compaction summary too short, falling back to built-in", "warning");
+                    return;
+                }
+                if (abortSignal.aborted)
+                    return { cancel: true };
+                // Append deterministic file sections (same format as built-in)
+                const { readFiles, modifiedFiles } = fileListsFromOps(preparation.fileOps);
+                let fullSummary = summary;
+                if (!summary.includes("<read-files>") &&
+                    !summary.includes("<modified-files>")) {
+                    const parts = [];
+                    if (readFiles.length > 0) {
+                        parts.push(`\n<read-files>\n${readFiles.join("\n")}\n</read-files>`);
+                    }
+                    if (modifiedFiles.length > 0) {
+                        parts.push(`\n<modified-files>\n${modifiedFiles.join("\n")}\n</modified-files>`);
+                    }
+                    if (parts.length)
+                        fullSummary += "\n" + parts.join("\n");
+                }
+                ctx.ui.notify("Smart compaction complete ✓", "info");
+                return {
+                    compaction: {
+                        summary: fullSummary,
+                        firstKeptEntryId,
+                        tokensBefore,
+                    },
+                };
             }
-            // If aborted, return cancel so upstream doesn't access the
-            // potentially-cleared _compactionAbortController.
-            if (abortSignal.aborted)
-                return { cancel: true };
-            return; // fall through to built-in
+            catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                if (!abortSignal.aborted) {
+                    ctx.ui.notify(`Smart compaction error: ${msg}`, "warning");
+                }
+                // If aborted, return cancel so upstream doesn't access the
+                // potentially-cleared _compactionAbortController.
+                if (abortSignal.aborted)
+                    return { cancel: true };
+                return; // fall through to built-in
+            }
+        }
+        finally {
+            ctx.ui.setWorkingMessage(undefined);
+            ctx.ui.setWorkingIndicator({ frames: [] });
         }
     });
 };

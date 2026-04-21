@@ -599,10 +599,18 @@ export function setWebTotpSecret(secret) {
     }
     return WEB_RUNTIME_CONFIG.totpSecret;
 }
+const DEFAULT_TOOL_OUTPUT_RETENTION_MS = 4 * 60 * 60 * 1000;
+const DEFAULT_TOOL_OUTPUT_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
+const legacyToolOutputRetentionDays = parseInt(process.env.PICLAW_TOOL_OUTPUT_RETENTION_DAYS || "", 10);
+const toolOutputRetentionMs = parseInt(process.env.PICLAW_TOOL_OUTPUT_RETENTION_MS || "", 10);
 /** Grouped tool-output retention settings. */
 export const TOOL_OUTPUT_CONFIG = Object.freeze({
-    retentionDays: parseInt(process.env.PICLAW_TOOL_OUTPUT_RETENTION_DAYS || "30", 10),
-    cleanupIntervalMs: parseInt(process.env.PICLAW_TOOL_OUTPUT_CLEANUP_INTERVAL_MS || String(12 * 60 * 60 * 1000), 10),
+    retentionMs: Number.isFinite(toolOutputRetentionMs) && toolOutputRetentionMs > 0
+        ? toolOutputRetentionMs
+        : Number.isFinite(legacyToolOutputRetentionDays) && legacyToolOutputRetentionDays > 0
+            ? legacyToolOutputRetentionDays * 24 * 60 * 60 * 1000
+            : DEFAULT_TOOL_OUTPUT_RETENTION_MS,
+    cleanupIntervalMs: parseInt(process.env.PICLAW_TOOL_OUTPUT_CLEANUP_INTERVAL_MS || String(DEFAULT_TOOL_OUTPUT_CLEANUP_INTERVAL_MS), 10),
 });
 /** Return the grouped tool-output settings for startup wiring and tests. */
 export function getToolOutputConfig() {

@@ -17,7 +17,7 @@ import { handleCommands, handleContext, handleLast, handleSearchWorkspace, handl
 import { handleCycleModel, handleCycleThinking, handleModel, handleThinking, } from "./handlers/model.js";
 import { handleBash, handleShell } from "./handlers/operations.js";
 import { handleFollowupMode, handleQueue, handleSteeringMode, handleSteer } from "./handlers/queue.js";
-import { handleExportHtml, handleFork, handleForks, handleNewSession, handleSessionName, handleSessionRotate, handleSwitchSession, } from "./handlers/session.js";
+import { handleClone, handleExportHtml, handleFork, handleForks, handleNewSession, handleSessionName, handleSessionRotate, handleSwitchSession, } from "./handlers/session.js";
 import { handlePasskey } from "./handlers/passkey.js";
 import { handleLogin, handleLogout } from "./handlers/login.js";
 import { handleTotp } from "./handlers/totp.js";
@@ -78,6 +78,8 @@ export async function applyControlCommand(runtime, modelRegistry, command) {
             return handleSessionRotate(session, runtime, command);
         case "fork":
             return handleFork(session, runtime, command);
+        case "clone":
+            return handleClone(session, runtime, command);
         case "forks":
             return handleForks(session, command);
         case "export_html":

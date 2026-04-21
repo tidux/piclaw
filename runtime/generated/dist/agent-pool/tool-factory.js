@@ -4,7 +4,7 @@
  * Keeps tool construction separate from AgentPool orchestration so the pool can
  * compose a focused factory instead of owning direct SDK tool wiring.
  */
-import { createBashTool, createBashToolDefinition, createEditTool, createReadTool, createWriteTool } from "@mariozechner/pi-coding-agent";
+import { createBashToolDefinition } from "@mariozechner/pi-coding-agent";
 /**
  * Creates the default built-in tool set for agent sessions.
  * On Windows, bash is omitted so the PowerShell extension can provide the active shell tool.
@@ -15,14 +15,12 @@ export class AgentToolFactory {
         this.options = options;
     }
     createDefaultTools() {
-        const { workspaceDir, bashOperations, platform = process.platform } = this.options;
+        const { platform = process.platform } = this.options;
         return [
-            createReadTool(workspaceDir),
-            ...(platform === "win32"
-                ? []
-                : [createBashTool(workspaceDir, bashOperations ? { operations: bashOperations } : undefined)]),
-            createEditTool(workspaceDir),
-            createWriteTool(workspaceDir),
+            "read",
+            ...(platform === "win32" ? [] : ["bash"]),
+            "edit",
+            "write",
         ];
     }
     /**

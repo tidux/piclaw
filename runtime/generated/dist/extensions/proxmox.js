@@ -816,6 +816,18 @@ function buildWorkflowSummary(workflow, result) {
         : "";
     return `Proxmox workflow ${workflow}${vmPrefix}${nodeSuffix} completed${maybePoints}.`;
 }
+function startProxmoxUiProgress(ctx, message) {
+    if (!ctx?.hasUI || !ctx.ui)
+        return;
+    ctx.ui.setWorkingIndicator({ frames: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"], intervalMs: 90 });
+    ctx.ui.setWorkingMessage(message);
+}
+function finishProxmoxUiProgress(ctx) {
+    if (!ctx?.hasUI || !ctx.ui)
+        return;
+    ctx.ui.setWorkingMessage(undefined);
+    ctx.ui.setWorkingIndicator({ frames: [] });
+}
 /** Registers the agent-only Proxmox API configuration/request tool. */
 export const proxmoxTool = (pi) => {
     pi.on("before_agent_start", async (event) => ({
@@ -827,7 +839,7 @@ export const proxmoxTool = (pi) => {
         description: "Get, set, or clear the session-scoped Proxmox API profile, perform ad-hoc API requests, or run common Proxmox workflows.",
         promptSnippet: "proxmox: inspect/update the current session Proxmox API profile, send ad-hoc API requests, or run common VM/task/metrics workflows.",
         parameters: ProxmoxToolSchema,
-        async execute(_toolCallId, params) {
+        async execute(_toolCallId, params, _signal, _update, ctx) {
             const chatJid = normalizeChatJid(params.chat_jid);
             if (params.action === "contract") {
                 const payload = buildProxmoxContractPayload();
@@ -961,20 +973,26 @@ export const proxmoxTool = (pi) => {
                 };
             }
             if (params.action === "discover") {
-                const discovery = await discoverProxmoxInstances();
-                return {
-                    content: [{
-                            type: "text",
-                            text: discovery.default_candidate
-                                ? `Discovered ${discovery.candidates.length} Proxmox candidate(s); default ${discovery.default_candidate.api_token_keychain}${discovery.default_candidate.base_url ? ` @ ${discovery.default_candidate.base_url}` : ""}.`
-                                : "No Proxmox instances discovered from current keychain/env hints.",
-                        }],
-                    details: {
-                        action: "discover",
-                        chat_jid: chatJid,
-                        ...discovery,
-                    },
-                };
+                startProxmoxUiProgress(ctx, "Proxmox: discovering configured instances…");
+                try {
+                    const discovery = await discoverProxmoxInstances();
+                    return {
+                        content: [{
+                                type: "text",
+                                text: discovery.default_candidate
+                                    ? `Discovered ${discovery.candidates.length} Proxmox candidate(s); default ${discovery.default_candidate.api_token_keychain}${discovery.default_candidate.base_url ? ` @ ${discovery.default_candidate.base_url}` : ""}.`
+                                    : "No Proxmox instances discovered from current keychain/env hints.",
+                            }],
+                        details: {
+                            action: "discover",
+                            chat_jid: chatJid,
+                            ...discovery,
+                        },
+                    };
+                }
+                finally {
+                    finishProxmoxUiProgress(ctx);
+                }
             }
             if (params.action === "workflow") {
                 if (!params.workflow) {
@@ -984,81 +1002,87 @@ export const proxmoxTool = (pi) => {
                     };
                 }
                 const help = getProxmoxWorkflowHelp(params.workflow);
-                const workflowResult = await handlers.workflow(chatJid, {
-                    workflow: help.runtime_workflow,
-                    ...(typeof params.vmid === "number" ? { vmid: params.vmid } : {}),
-                    ...(typeof params.node === "string" ? { node: params.node } : {}),
-                    ...(typeof params.storage === "string" ? { storage: params.storage } : {}),
-                    ...(typeof params.upid === "string" ? { upid: params.upid } : {}),
-                    ...(typeof params.backup_volid === "string" ? { backup_volid: params.backup_volid } : {}),
-                    ...(typeof params.timeout_ms === "number" ? { timeout_ms: params.timeout_ms } : {}),
-                    ...(typeof params.poll_ms === "number" ? { poll_ms: params.poll_ms } : {}),
-                    ...(typeof params.force === "boolean" ? { force: params.force } : {}),
-                    ...(params.target ? { target: params.target } : {}),
-                    ...(typeof params.timeframe === "string" ? { timeframe: params.timeframe } : {}),
-                    ...(typeof params.cf === "string" ? { cf: params.cf } : {}),
-                    ...(typeof params.metric === "string" ? { metric: params.metric } : {}),
-                    ...(Array.isArray(params.metrics) ? { metrics: params.metrics } : {}),
-                    ...(typeof params.snapshot_name === "string" ? { snapshot_name: params.snapshot_name } : {}),
-                    ...(typeof params.description === "string" ? { description: params.description } : {}),
-                    ...(typeof params.name === "string" ? { name: params.name } : {}),
-                    ...(typeof params.hostname === "string" ? { hostname: params.hostname } : {}),
-                    ...(typeof params.memory === "number" ? { memory: params.memory } : {}),
-                    ...(typeof params.cores === "number" ? { cores: params.cores } : {}),
-                    ...(typeof params.sockets === "number" ? { sockets: params.sockets } : {}),
-                    ...(typeof params.ostype === "string" ? { ostype: params.ostype } : {}),
-                    ...(typeof params.net0 === "string" ? { net0: params.net0 } : {}),
-                    ...(typeof params.ostemplate === "string" ? { ostemplate: params.ostemplate } : {}),
-                    ...(typeof params.rootfs === "string" ? { rootfs: params.rootfs } : {}),
-                    ...(typeof params.password === "string" ? { password: params.password } : {}),
-                    ...(typeof params.ssh_public_keys === "string" ? { ssh_public_keys: params.ssh_public_keys } : {}),
-                    ...(typeof params.unprivileged === "boolean" ? { unprivileged: params.unprivileged } : {}),
-                    ...(params.config && typeof params.config === "object" && !Array.isArray(params.config) ? { config: params.config } : {}),
-                    ...(typeof params.newid === "number" ? { newid: params.newid } : {}),
-                    ...(typeof params.new_name === "string" ? { new_name: params.new_name } : {}),
-                    ...(typeof params.target_node === "string" ? { target_node: params.target_node } : {}),
-                    ...(typeof params.target_storage === "string" ? { target_storage: params.target_storage } : {}),
-                    ...(typeof params.storage_type === "string" ? { storage_type: params.storage_type } : {}),
-                    ...(typeof params.full === "boolean" ? { full: params.full } : {}),
-                    ...(typeof params.online === "boolean" ? { online: params.online } : {}),
-                    ...(typeof params.with_local_disks === "boolean" ? { with_local_disks: params.with_local_disks } : {}),
-                    ...(typeof params.mode === "string" ? { mode: params.mode } : {}),
-                    ...(typeof params.compress === "string" ? { compress: params.compress } : {}),
-                    ...(typeof params.slot === "string" ? { slot: params.slot } : {}),
-                    ...(typeof params.iso_volume === "string" ? { iso_volume: params.iso_volume } : {}),
-                    ...(typeof params.disk === "string" ? { disk: params.disk } : {}),
-                    ...(typeof params.size === "string" ? { size: params.size } : {}),
-                    ...(typeof params.unlink === "boolean" ? { unlink: params.unlink } : {}),
-                    ...(typeof params.download_url === "string" ? { download_url: params.download_url } : {}),
-                    ...(typeof params.filename === "string" ? { filename: params.filename } : {}),
-                    ...(typeof params.content === "string" ? { content: params.content } : {}),
-                    ...(typeof params.checksum === "string" ? { checksum: params.checksum } : {}),
-                    ...(typeof params.checksum_algorithm === "string" ? { checksum_algorithm: params.checksum_algorithm } : {}),
-                    ...(typeof params.compression === "string" ? { compression: params.compression } : {}),
-                    ...(typeof params.verify_certificates === "boolean" ? { verify_certificates: params.verify_certificates } : {}),
-                    ...(typeof params.command === "string" ? { command: params.command } : {}),
-                    ...(Array.isArray(params.command_args) ? { command_args: params.command_args } : {}),
-                    ...(typeof params.input_data === "string" ? { input_data: params.input_data } : {}),
-                    ...(params.shell_family === "powershell" || params.shell_family === "posix" ? { shell_family: params.shell_family } : {}),
-                    ...(typeof params.limit === "number" ? { limit: params.limit } : {}),
-                    ...(typeof params.lines === "number" ? { lines: params.lines } : {}),
-                });
-                const presented = presentStructuredToolValue(buildWorkflowSummary(help.canonical_workflow, workflowResult), "Result", workflowResult.result, `proxmox:workflow:${help.canonical_workflow}`);
-                return {
-                    content: [{
-                            type: "text",
-                            text: presented.text,
-                        }],
-                    details: {
-                        action: "workflow",
-                        chat_jid: chatJid,
-                        ok: true,
-                        canonical_workflow: help.canonical_workflow,
-                        runtime_workflow: help.runtime_workflow,
-                        response: workflowResult,
-                        ...(presented.stored_output ? { result_tool_output: presented.stored_output } : {}),
-                    },
-                };
+                startProxmoxUiProgress(ctx, `Proxmox: running workflow ${help.canonical_workflow}…`);
+                try {
+                    const workflowResult = await handlers.workflow(chatJid, {
+                        workflow: help.runtime_workflow,
+                        ...(typeof params.vmid === "number" ? { vmid: params.vmid } : {}),
+                        ...(typeof params.node === "string" ? { node: params.node } : {}),
+                        ...(typeof params.storage === "string" ? { storage: params.storage } : {}),
+                        ...(typeof params.upid === "string" ? { upid: params.upid } : {}),
+                        ...(typeof params.backup_volid === "string" ? { backup_volid: params.backup_volid } : {}),
+                        ...(typeof params.timeout_ms === "number" ? { timeout_ms: params.timeout_ms } : {}),
+                        ...(typeof params.poll_ms === "number" ? { poll_ms: params.poll_ms } : {}),
+                        ...(typeof params.force === "boolean" ? { force: params.force } : {}),
+                        ...(params.target ? { target: params.target } : {}),
+                        ...(typeof params.timeframe === "string" ? { timeframe: params.timeframe } : {}),
+                        ...(typeof params.cf === "string" ? { cf: params.cf } : {}),
+                        ...(typeof params.metric === "string" ? { metric: params.metric } : {}),
+                        ...(Array.isArray(params.metrics) ? { metrics: params.metrics } : {}),
+                        ...(typeof params.snapshot_name === "string" ? { snapshot_name: params.snapshot_name } : {}),
+                        ...(typeof params.description === "string" ? { description: params.description } : {}),
+                        ...(typeof params.name === "string" ? { name: params.name } : {}),
+                        ...(typeof params.hostname === "string" ? { hostname: params.hostname } : {}),
+                        ...(typeof params.memory === "number" ? { memory: params.memory } : {}),
+                        ...(typeof params.cores === "number" ? { cores: params.cores } : {}),
+                        ...(typeof params.sockets === "number" ? { sockets: params.sockets } : {}),
+                        ...(typeof params.ostype === "string" ? { ostype: params.ostype } : {}),
+                        ...(typeof params.net0 === "string" ? { net0: params.net0 } : {}),
+                        ...(typeof params.ostemplate === "string" ? { ostemplate: params.ostemplate } : {}),
+                        ...(typeof params.rootfs === "string" ? { rootfs: params.rootfs } : {}),
+                        ...(typeof params.password === "string" ? { password: params.password } : {}),
+                        ...(typeof params.ssh_public_keys === "string" ? { ssh_public_keys: params.ssh_public_keys } : {}),
+                        ...(typeof params.unprivileged === "boolean" ? { unprivileged: params.unprivileged } : {}),
+                        ...(params.config && typeof params.config === "object" && !Array.isArray(params.config) ? { config: params.config } : {}),
+                        ...(typeof params.newid === "number" ? { newid: params.newid } : {}),
+                        ...(typeof params.new_name === "string" ? { new_name: params.new_name } : {}),
+                        ...(typeof params.target_node === "string" ? { target_node: params.target_node } : {}),
+                        ...(typeof params.target_storage === "string" ? { target_storage: params.target_storage } : {}),
+                        ...(typeof params.storage_type === "string" ? { storage_type: params.storage_type } : {}),
+                        ...(typeof params.full === "boolean" ? { full: params.full } : {}),
+                        ...(typeof params.online === "boolean" ? { online: params.online } : {}),
+                        ...(typeof params.with_local_disks === "boolean" ? { with_local_disks: params.with_local_disks } : {}),
+                        ...(typeof params.mode === "string" ? { mode: params.mode } : {}),
+                        ...(typeof params.compress === "string" ? { compress: params.compress } : {}),
+                        ...(typeof params.slot === "string" ? { slot: params.slot } : {}),
+                        ...(typeof params.iso_volume === "string" ? { iso_volume: params.iso_volume } : {}),
+                        ...(typeof params.disk === "string" ? { disk: params.disk } : {}),
+                        ...(typeof params.size === "string" ? { size: params.size } : {}),
+                        ...(typeof params.unlink === "boolean" ? { unlink: params.unlink } : {}),
+                        ...(typeof params.download_url === "string" ? { download_url: params.download_url } : {}),
+                        ...(typeof params.filename === "string" ? { filename: params.filename } : {}),
+                        ...(typeof params.content === "string" ? { content: params.content } : {}),
+                        ...(typeof params.checksum === "string" ? { checksum: params.checksum } : {}),
+                        ...(typeof params.checksum_algorithm === "string" ? { checksum_algorithm: params.checksum_algorithm } : {}),
+                        ...(typeof params.compression === "string" ? { compression: params.compression } : {}),
+                        ...(typeof params.verify_certificates === "boolean" ? { verify_certificates: params.verify_certificates } : {}),
+                        ...(typeof params.command === "string" ? { command: params.command } : {}),
+                        ...(Array.isArray(params.command_args) ? { command_args: params.command_args } : {}),
+                        ...(typeof params.input_data === "string" ? { input_data: params.input_data } : {}),
+                        ...(params.shell_family === "powershell" || params.shell_family === "posix" ? { shell_family: params.shell_family } : {}),
+                        ...(typeof params.limit === "number" ? { limit: params.limit } : {}),
+                        ...(typeof params.lines === "number" ? { lines: params.lines } : {}),
+                    });
+                    const presented = presentStructuredToolValue(buildWorkflowSummary(help.canonical_workflow, workflowResult), "Result", workflowResult.result, `proxmox:workflow:${help.canonical_workflow}`);
+                    return {
+                        content: [{
+                                type: "text",
+                                text: presented.text,
+                            }],
+                        details: {
+                            action: "workflow",
+                            chat_jid: chatJid,
+                            ok: true,
+                            canonical_workflow: help.canonical_workflow,
+                            runtime_workflow: help.runtime_workflow,
+                            response: workflowResult,
+                            ...(presented.stored_output ? { result_tool_output: presented.stored_output } : {}),
+                        },
+                    };
+                }
+                finally {
+                    finishProxmoxUiProgress(ctx);
+                }
             }
             const outputPath = typeof params.output_path === "string" ? params.output_path.trim() : "";
             const outputFormat = params.output_format === "jsonl" ? "jsonl" : "json";

@@ -184,6 +184,15 @@ export class UiBridge {
             setWorkingMessage: (message) => {
                 this.channel.broadcastEvent("extension_ui_working", { chat_jid: chatJid, message });
             },
+            setWorkingIndicator: (options) => {
+                this.channel.broadcastEvent("extension_ui_working_indicator", {
+                    chat_jid: chatJid,
+                    ...(Array.isArray(options?.frames) ? { frames: options.frames } : {}),
+                    ...(typeof options?.intervalMs === "number" && Number.isFinite(options.intervalMs)
+                        ? { interval_ms: options.intervalMs }
+                        : {}),
+                });
+            },
             setWidget: (key, content, options) => {
                 if (Array.isArray(content)) {
                     this.channel.broadcastEvent("extension_ui_widget", { chat_jid: chatJid, key, content, options });

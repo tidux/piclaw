@@ -2,7 +2,7 @@
  * agent-control/handlers/session.ts – Handlers for session management commands.
  *
  * Handles /session-name, /new-session, /switch-session, /session-rotate,
- * /fork, /forks, and /export-html commands for managing the pi-agent session tree.
+ * /fork, /clone, /forks, and /export-html commands for managing the pi-agent session tree.
  *
  * Consumers: agent-control-handlers.ts dispatches to these handlers.
  */
@@ -73,7 +73,26 @@ export async function handleFork(session, runtime, command) {
         return { status: "error", message };
     }
 }
-/** Handle /fork: fork the conversation from a specific entry. */
+/** Handle /clone: fork from the current tree leaf into a new session. */
+export async function handleClone(session, runtime, _command) {
+    const leafId = session.sessionManager.getLeafId();
+    if (!leafId) {
+        return { status: "error", message: "Nothing to clone yet." };
+    }
+    try {
+        const result = await runtime.fork(leafId);
+        if (result.cancelled) {
+            return { status: "error", message: "Clone cancelled." };
+        }
+        const selected = result.selectedText ? `Selected text:\n${result.selectedText}` : "Clone created.";
+        return { status: "success", message: selected };
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { status: "error", message };
+    }
+}
+/** Handle /forks: list forkable messages. */
 export async function handleForks(session, _command) {
     const messages = session.getUserMessagesForForking();
     if (messages.length === 0) {
