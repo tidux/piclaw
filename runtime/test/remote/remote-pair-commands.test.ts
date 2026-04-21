@@ -640,6 +640,18 @@ describe("remote pair commands", () => {
     expect(pi.messages[0]).toContain("Permissions failed");
   });
 
+  test("runSetPermissionsFlow rejects custom as invalid (not user-facing)", async () => {
+    const peerData = makePairedPeer();
+    upsertRemotePeer(peerData);
+
+    const pi = makeMockPi();
+    await runSetPermissionsFlow(peerData.instance_id, "custom", pi);
+
+    expect(pi.messages[0]).toContain("Invalid profile");
+    const stored = getRemotePeer(peerData.instance_id);
+    expect(stored?.profile).toBe("restricted"); // unchanged from default
+  });
+
   // ─── runSetModeFlow ──────────────────────────────────────────────────────────
 
   test("runSetModeFlow updates mode field", async () => {

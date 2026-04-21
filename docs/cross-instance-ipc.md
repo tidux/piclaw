@@ -351,6 +351,7 @@ Pairing grants identity trust, not blanket execution rights.
 | `read-only` | all tools classified as read-only (no side-effects) |
 | `restricted` (default) | proposal channel with constrained tools (shell, file-write, keychain, and other mutating tools denied) |
 | `full` | full remote execution rights |
+| `custom` | explicit allowlist (internal only — not yet user-facing) |
 
 ### Restricted baseline (deny by default)
 

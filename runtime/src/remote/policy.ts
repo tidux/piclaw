@@ -69,6 +69,6 @@ export function getToolCeilingFilter(profile: RemotePeerProfile): ((toolName: st
     return (name: string) => getToolCapability(name).kind === "read-only";
   }
 
-  // restricted
+  // restricted + custom (custom deferred: falls back to restricted ceiling)
   return (name: string) => !RESTRICTED_TOOL_DENYLIST.has(name);
 }

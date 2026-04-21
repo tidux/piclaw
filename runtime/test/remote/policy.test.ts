@@ -48,4 +48,19 @@ describe("getToolCeilingFilter", () => {
     expect(RESTRICTED_TOOL_DENYLIST.has("activate_tools")).toBe(true);
     expect(RESTRICTED_TOOL_DENYLIST.has("reset_active_tools")).toBe(true);
   });
+
+  test("custom profile falls back to restricted ceiling", () => {
+    const customFilter = getToolCeilingFilter("custom")!;
+    const restrictedFilter = getToolCeilingFilter("restricted")!;
+    expect(customFilter).toBeTruthy();
+    // custom should behave identically to restricted
+    for (const tool of RESTRICTED_TOOL_DENYLIST) {
+      expect(customFilter(tool)).toBe(false);
+    }
+    expect(customFilter("read")).toBe(true);
+    expect(customFilter("find")).toBe(true);
+    // Same results as restricted
+    expect(customFilter("bash")).toBe(restrictedFilter("bash"));
+    expect(customFilter("read")).toBe(restrictedFilter("read"));
+  });
 });
