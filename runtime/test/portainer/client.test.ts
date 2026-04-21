@@ -86,7 +86,7 @@ test("container exec injects env-style keychain entries and redacts output", asy
       command_args: ["-lc", 'printf %s "$STRIPE_KEY"'],
     })).resolves.toEqual({
       exec_id: "exec1",
-      output: "[REDACTED:STRIPE_KEY]",
+      output: "[REDACTED]",
       inspect: { ExitCode: 0, Running: false },
     });
 
@@ -140,7 +140,7 @@ test("container exec decodes multiplexed Docker stream output", async () => {
       command_args: ["-lc", 'printf %s "$STRIPE_KEY"'],
     })).resolves.toEqual({
       exec_id: "exec1",
-      output: "[REDACTED:STRIPE_KEY]\n",
+      output: "[REDACTED]\n",
       inspect: { ExitCode: 0, Running: false },
     });
   });
@@ -339,7 +339,7 @@ test("requestPortainerApi redacts secret values in HTTP error bodies", async () 
     await expect(portainer.requestPortainerApi(
       { base_url: "https://portainer.example.com:9443", api_token_keychain: "portainer/relay", allow_insecure_tls: true },
       { method: "GET", path: "/api/endpoints" },
-    )).rejects.toThrow("[REDACTED:STRIPE_KEY]");
+    )).rejects.toThrow("[REDACTED]");
   });
 });
 

@@ -128,7 +128,7 @@ describe("keychain-tools extension", () => {
     expect(result?.systemPrompt).toContain("portainer/relay");
   });
 
-  test("tool_result redacts non-keychain tool content and details", async () => {
+  test("tool_result redacts sensitive values but leaves non-sensitive secret-type identifiers alone", async () => {
     const db = await importFresh<typeof import("../src/db.js")>("../src/db.js");
     const keychain = await importFresh<typeof import("../src/secure/keychain.js")>("../src/secure/keychain.js");
     db.initDatabase();
@@ -137,21 +137,26 @@ describe("keychain-tools extension", () => {
       type: "token",
       secret: "stripe-secret",
     });
+    await keychain.setKeychainEntry({
+      name: "restic/azure-account-name",
+      type: "secret",
+      secret: "piclawstorage",
+    });
 
     const fake = await registerKeychainExtension();
     const toolResult = fake.handlers.find((entry) => entry.event === "tool_result")?.handler;
     const result = await toolResult?.({
       toolName: "bash",
-      content: [{ type: "text", text: "value=stripe-secret" }],
-      details: { nested: "stripe-secret" },
+      content: [{ type: "text", text: "value=stripe-secret account=piclawstorage" }],
+      details: { nested: "stripe-secret", account: "piclawstorage" },
       input: {},
       isError: false,
       toolCallId: "tool-1",
       type: "tool_result",
     });
 
-    expect(result?.content?.[0]?.text).toBe("value=[REDACTED:STRIPE_KEY]");
-    expect(result?.details).toEqual({ nested: "[REDACTED:STRIPE_KEY]" });
+    expect(result?.content?.[0]?.text).toBe("value=[REDACTED] account=piclawstorage");
+    expect(result?.details).toEqual({ nested: "[REDACTED]", account: "piclawstorage" });
 
     const keychainPassthrough = await toolResult?.({
       toolName: "keychain",

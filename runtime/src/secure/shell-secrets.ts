@@ -41,6 +41,15 @@ function shouldRedactSecret(secret: string): boolean {
   return secret.length >= 4 || secret.includes("\n");
 }
 
+const SENSITIVE_KEYCHAIN_NAME_PATTERN = /(^|[\/_.-])(token|password|passwd|pass|pat|secret|api[_-]?key|access[_-]?key|private[_-]?key|credential|credentials|cookie|session|oauth|bearer)([\/_.-]|$)/i;
+
+function shouldRedactKeychainEntry(entry: { name: string; type: string; secret: string }): boolean {
+  if (!shouldRedactSecret(entry.secret)) return false;
+  if (entry.secret.includes("\n")) return true;
+  if (entry.type === "token" || entry.type === "password" || entry.type === "basic") return true;
+  return SENSITIVE_KEYCHAIN_NAME_PATTERN.test(entry.name);
+}
+
 export async function createKeychainOutputRedactor(): Promise<TextRedactor> {
   try {
     const values = new Map<string, string>();
@@ -48,7 +57,7 @@ export async function createKeychainOutputRedactor(): Promise<TextRedactor> {
       try {
         const entry = await getKeychainEntry(name);
         const secret = entry.secret;
-        if (!secret || !shouldRedactSecret(secret) || values.has(secret)) continue;
+        if (!secret || !shouldRedactKeychainEntry(entry) || values.has(secret)) continue;
         values.set(secret, name);
       } catch (error) {
         if (isImplicitKeychainUnavailableError(error)) continue;
@@ -56,8 +65,8 @@ export async function createKeychainOutputRedactor(): Promise<TextRedactor> {
       }
     }
 
-    const replacements = [...values.entries()]
-      .map(([secret, name]) => ({ secret, label: name }))
+    const replacements = [...values.keys()]
+      .map((secret) => ({ secret }))
       .sort((a, b) => b.secret.length - a.secret.length);
 
     if (replacements.length === 0) {
@@ -73,7 +82,7 @@ export async function createKeychainOutputRedactor(): Promise<TextRedactor> {
       redact: (text) => {
         let next = text;
         for (const replacement of replacements) {
-          next = next.replaceAll(replacement.secret, `[REDACTED:${replacement.label}]`);
+          next = next.replaceAll(replacement.secret, `[REDACTED]`);
         }
         return next;
       },

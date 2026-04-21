@@ -110,7 +110,7 @@ test("guest agent exec injects env-style keychain entries and redacts output", a
     })).resolves.toMatchObject({
       pid: 123,
       exitcode: 0,
-      out_data: "[REDACTED:STRIPE_KEY]",
+      out_data: "[REDACTED]",
       err_data: "",
       raw: {
         exited: true,
@@ -218,7 +218,7 @@ test("guest agent exec handles numeric exited flags and plain-text output", asyn
     })).resolves.toMatchObject({
       pid: 123,
       exitcode: 0,
-      out_data: "[REDACTED:STRIPE_KEY]",
+      out_data: "[REDACTED]",
       err_data: "",
       raw: {
         exited: 1,
@@ -252,7 +252,7 @@ test("requestProxmoxApi redacts secret values in HTTP error bodies", async () =>
     await expect(proxmox.requestProxmoxApi(
       { base_url: "https://proxmox.example.com:8006/api2/json", api_token_keychain: "proxmox/direct", allow_insecure_tls: true },
       { method: "GET", path: "/cluster/status" },
-    )).rejects.toThrow("[REDACTED:STRIPE_KEY]");
+    )).rejects.toThrow("[REDACTED]");
   });
 });
 
