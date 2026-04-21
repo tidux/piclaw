@@ -1,30 +1,55 @@
 # WhatsApp integration
 
-The primary interface is the web UI. WhatsApp is a secondary, opt‑in channel for chat‑style access.
+The primary interface is the web UI. WhatsApp is an **opt-in secondary channel**
+for chat-style access from mobile devices. It shares the same agent pool, SQLite
+store, and session state as the web UI.
 
-## Pairing
+## Prerequisites
 
-Start `piclaw` and scan the QR code shown in the logs. In headless environments, use a pairing code by setting a phone number:
+- A WhatsApp account you can scan a QR code or request a pairing code from
+- `WHATSAPP_PHONE` set to your international number (no `+` or spaces)
+- Piclaw accessible with persistent storage (the Baileys session is stored in
+  `/workspace/.piclaw/data/sessions/`)
+
+## Enabling
+
+Set your phone number as an environment variable or in config:
 
 ```bash
-WHATSAPP_PHONE=1234567890
+PICLAW_WHATSAPP_PHONE=1234567890
 ```
 
-You can also store it in `/workspace/.piclaw/config.json`:
+Or in `/workspace/.piclaw/config.json`:
 
 ```json
 { "whatsappPhone": "1234567890" }
 ```
 
+If `WHATSAPP_PHONE` is not set, Piclaw skips all WhatsApp connection attempts.
+A no-op stub is used internally so the web UI and other channels work normally
+without reconnect noise.
+
+## Pairing
+
+On first start with a phone number configured, Piclaw will request a pairing code
+and log it. Enter the code in WhatsApp → Settings → Linked devices → Link with
+phone number.
+
+You can also scan a QR code if Piclaw logs one instead.
+
+```bash
+docker logs piclaw | grep -E 'QR|pairing'
+```
+
 ## Triggering the agent
 
-`piclaw` only responds when the trigger name is present:
+Piclaw only responds when the trigger name appears at the start of a message:
 
 ```
-@PiClaw
+@PiClaw what is the weather today?
 ```
 
-Set a custom name via `.piclaw/config.json`:
+The trigger name matches `assistantName` in config. To set a custom name:
 
 ```json
 {
@@ -34,10 +59,43 @@ Set a custom name via `.piclaw/config.json`:
 }
 ```
 
-## Notes
+Or via environment variable:
 
-- If `WHATSAPP_PHONE` is not set (empty or unset), piclaw skips all WhatsApp connection attempts. A no‑op stub is used internally so the web UI and other channels work normally without noisy reconnect logs.
-- WhatsApp state is persisted in SQLite and the session store, so reconnects are usually seamless.
-- If you do not need WhatsApp, simply leave `WHATSAPP_PHONE` unset; the web UI still works.
+```bash
+PICLAW_ASSISTANT_NAME=MyBot
+```
 
-See [runtime-flows.md](runtime-flows.md) for the web‑first flow and [architecture.md](architecture.md) for component context.
+## Session persistence
+
+WhatsApp state (auth keys, session identifiers) is stored via the Baileys library
+in `/workspace/.piclaw/data/` as part of Piclaw's normal persistent data. Reconnects
+after a container restart are usually seamless without re-scanning.
+
+If you need to reset the WhatsApp session:
+
+```bash
+rm -rf /workspace/.piclaw/data/sessions/whatsapp*
+```
+
+Then restart Piclaw and pair again.
+
+## Limitations
+
+- WhatsApp is a secondary channel. Complex web-only features (file upload, Adaptive
+  Cards, timeline widgets, draw.io, VNC) are not available over WhatsApp.
+- Messages sent from the Piclaw WhatsApp account on other devices may be reflected
+  into the agent context depending on the Baileys version.
+- Rate-limiting and WhatsApp ToS apply. Do not use high-frequency automation flows
+  over this channel.
+- The WhatsApp channel is not compatible with suspendable or serverless hosting
+  targets because Baileys requires a persistent long-lived connection.
+
+## Disabling
+
+Simply unset or leave `WHATSAPP_PHONE` empty. The channel is never loaded.
+
+## See also
+
+- [Architecture](architecture.md) — how WhatsApp shares the agent pool with the web UI
+- [Runtime flows](runtime-flows.md) — message routing and turn state machine
+- [Configuration](configuration.md) — full environment variable reference

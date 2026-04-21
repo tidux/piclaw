@@ -171,6 +171,7 @@ See [docs/development.md](docs/development.md).
 - [Web pane extensions](docs/web-pane-extensions.md)
 - [Extension UI contract](docs/extension-ui-contract.md)
 - [Vendored widget libraries](docs/vendored-widget-libraries.md) — Babylon.js, ECharts, D3, Mermaid, fonts, and the widget post-processing helpers
+- [Visual artifact generator](docs/visual-artifact-generator.md) — skill for generating polished HTML pages, diagrams, tables, slide decks, and draw.io files from vendored libraries
 - [Dream memory system](docs/dream-memory.md) — nightly memory consolidation and daily note maintenance
 - [Web notification delivery policy](docs/web-notification-delivery-policy.md)
 - [iOS PWA reference](docs/PWA.md) — viewport, safe area, and standalone-mode quirks

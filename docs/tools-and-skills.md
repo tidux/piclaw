@@ -496,7 +496,7 @@ Each skill keeps its script alongside its `SKILL.md` for portability. Current se
 | `export-timeline-pdf` | Export a chat timeline to PDF via Playwright |
 | `feature-refinement-flow` | Structured 20-question refinement flow before implementation |
 | `visual-design` | Apply the saved visual-design profile (charts, diagrams, Mermaid, layouts, styling defaults) consistently across generated outputs |
-| `visual-artifact-generator` | Generate polished self-contained HTML pages, diagrams, data tables, diff reviews, slide decks, and draw.io files using Piclaw vendored libraries |
+| `visual-artifact-generator` | Generate polished self-contained HTML pages, diagrams, data tables, diff reviews, slide decks, and draw.io files using Piclaw vendored libraries. See [visual-artifact-generator.md](visual-artifact-generator.md). |
 | `situate-daily-notes` | Situation report and Obsidian-style daily summary notes |
 | `timeline-cleanup` | Delete low-value timeline messages by keyword patterns |
 | `proxmox-management` | Manage Proxmox VM lifecycle, USB mapping passthrough, and backup-restore moves |
