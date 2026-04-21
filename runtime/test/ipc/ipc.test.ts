@@ -619,6 +619,30 @@ test("IPC cleanup_tasks does not fail after deleting rows when notification send
   expect(db.getTaskRunLogs(completedId).length).toBe(0);
 });
 
+test("IPC pause_task resume_task and cancel_task mutate lifecycle", async () => {
+  const taskId = `task_lifecycle_${Date.now()}`;
+  db.createTask({
+    id: taskId,
+    chat_jid: "web:default",
+    prompt: "hello",
+    model: null,
+    schedule_type: "interval",
+    schedule_value: "60000",
+    next_run: new Date(Date.now() + 60_000).toISOString(),
+    status: "active",
+    created_at: new Date().toISOString(),
+  });
+
+  await ipc.processTaskCommand({ type: "pause_task", taskId }, deps);
+  expect(db.getTaskById(taskId)?.status).toBe("paused");
+
+  await ipc.processTaskCommand({ type: "resume_task", taskId }, deps);
+  expect(db.getTaskById(taskId)?.status).toBe("active");
+
+  await ipc.processTaskCommand({ type: "cancel_task", taskId }, deps);
+  expect(db.getTaskById(taskId)).toBeNull();
+});
+
 test("IPC watcher stop waits for the active poll to finish", async () => {
   await ipc.stopIpcWatcher();
 

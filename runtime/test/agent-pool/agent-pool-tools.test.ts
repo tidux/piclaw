@@ -8,10 +8,23 @@
  * and slash commands (/tasks, /scheduled, /theme, /tint) on a mock ExtensionAPI.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import "../helpers.js";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { builtinExtensionFactories } from "../../src/extensions/index.js";
+import { closeDbQuietly } from "../helpers.js";
+
+let dbModule: typeof import("../../src/db.js") | null = null;
+
+beforeEach(async () => {
+  dbModule = await import("../../src/db.js");
+  dbModule.initDatabase();
+});
+
+afterEach(() => {
+  closeDbQuietly(dbModule);
+  dbModule = null;
+});
 
 function makeFakeApi() {
   const tools = new Map<string, any>();
@@ -86,5 +99,81 @@ describe("builtin extension factories", () => {
 
   test("factories array has expected length", () => {
     expect(builtinExtensionFactories.length).toBe(19);
+  });
+
+  test("scheduled_tasks unifies create pause resume and delete", async () => {
+    const fake = makeFakeApi();
+    for (const factory of builtinExtensionFactories) {
+      factory(fake.api);
+    }
+
+    const tool = fake.tools.get("scheduled_tasks");
+    expect(tool).toBeTruthy();
+
+    const created = await tool.execute("call-1", {
+      action: "create",
+      chat_jid: "web:test",
+      schedule_type: "once",
+      schedule_value: "2099-01-01T00:00:00.000Z",
+      prompt: "say hi",
+    });
+    expect(created.details.ok).toBe(true);
+    const taskId = created.details.id;
+    expect(typeof taskId).toBe("string");
+
+    const paused = await tool.execute("call-2", { action: "pause", id: taskId });
+    expect(paused.details.ok).toBe(true);
+    expect(paused.details.old_status).toBe("active");
+    expect(paused.details.new_status).toBe("paused");
+
+    const resumed = await tool.execute("call-3", { action: "resume", id: taskId });
+    expect(resumed.details.ok).toBe(true);
+    expect(resumed.details.old_status).toBe("paused");
+    expect(resumed.details.new_status).toBe("active");
+
+    const deleted = await tool.execute("call-4", { action: "delete", id: taskId });
+    expect(deleted.details.ok).toBe(true);
+    expect(deleted.details.deleted).toBe(true);
+    expect(deleted.details.new_status).toBe("deleted");
+
+    const fetched = await tool.execute("call-5", { action: "get", id: taskId });
+    expect(fetched.details.found).toBe(false);
+  });
+
+  test("scheduled_tasks protects internal tasks unless explicitly allowed", async () => {
+    const fake = makeFakeApi();
+    for (const factory of builtinExtensionFactories) {
+      factory(fake.api);
+    }
+
+    const db = await import("../../src/db.js");
+    db.createTask({
+      id: "task-internal-protected",
+      chat_jid: "web:test",
+      prompt: "/dream",
+      model: null,
+      task_kind: "internal",
+      command: null,
+      cwd: null,
+      timeout_sec: null,
+      schedule_type: "cron",
+      schedule_value: "0 1 * * *",
+      next_run: "2099-01-01T01:00:00.000Z",
+      status: "active",
+      created_at: new Date().toISOString(),
+    });
+
+    const tool = fake.tools.get("scheduled_tasks");
+    const blocked = await tool.execute("call-6", { action: "delete", id: "task-internal-protected" });
+    expect(blocked.details.ok).toBe(false);
+    expect(blocked.details.protected).toBe(true);
+
+    const allowed = await tool.execute("call-7", {
+      action: "delete",
+      id: "task-internal-protected",
+      allow_internal: true,
+    });
+    expect(allowed.details.ok).toBe(true);
+    expect(allowed.details.deleted).toBe(true);
   });
 });
