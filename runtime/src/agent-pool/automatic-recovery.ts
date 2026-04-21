@@ -134,11 +134,10 @@ export function decideAutomaticRecovery(input: RecoveryDecisionInput): RecoveryD
 
   if (input.snapshot.hadToolActivity) {
     // Tool activity normally prevents automatic retry because replaying
-    // side-effecting tools is unsafe. However, when the failure is clearly
-    // context-pressure related (compaction was in progress or the error text
-    // indicates context limits), compaction-then-retry is still safe because
-    // the retry will compact first and the tools already executed are part of
-    // the persisted session history.
+    // side-effecting tools is unsafe. However, when no completed assistant
+    // turn was emitted, compacting and retrying is still safe — tool results
+    // are already persisted in session history and the retry is attempting to
+    // recover the missing assistant reply, not replay tool side effects.
     if (isContextPressureFailure(errorText) || input.snapshot.sawCompactionIntent) {
       return {
         recover: true,
@@ -147,22 +146,21 @@ export function decideAutomaticRecovery(input: RecoveryDecisionInput): RecoveryD
         reason: "Failure looks context-related despite tool activity; compacting before retrying.",
       };
     }
-    // Tool calls executed but the model never produced a text reply.
-    // The tool results are already persisted in the session, so compacting
-    // and retrying is safe — we are not replaying side effects.
-    if (!input.snapshot.hadPartialOutput && !input.snapshot.hadCompletedTurnOutput) {
+    if (!input.snapshot.hadCompletedTurnOutput) {
       return {
         recover: true,
         classifier: "context_pressure",
         strategy: "compact_then_retry",
-        reason: "Tool activity without any text output; compacting before retrying.",
+        reason: input.snapshot.hadPartialOutput
+          ? "Tool activity without a completed assistant turn; compacting before retrying."
+          : "Tool activity without any text output; compacting before retrying.",
       };
     }
     return {
       recover: false,
       classifier: "tool_activity",
       strategy: null,
-      reason: "Automatic recovery skipped because tool activity with partial output occurred during the failed run.",
+      reason: "Automatic recovery skipped because tool activity with a completed turn already occurred during the failed run.",
     };
   }
 

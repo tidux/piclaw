@@ -1580,22 +1580,29 @@ export async function processChat(
       return;
     }
 
-    // A turn that finishes with no persisted output after automatic recovery
-    // has been attempted.  Show a concise notice and advance the cursor so the
-    // chat is not blocked.  Do NOT record a failed run — that would require a
-    // recovery card to unblock, which we no longer show for blank turns.
+    // Missing terminal output is a real failure. Never consume the user turn
+    // as a success when no persisted assistant reply exists.
     const title = "Agent produced no response";
     const detail =
-      "The model returned an empty reply. Try `/compact` to shrink the session, or switch to a model with a larger context window.";
+      "The model returned an empty reply before finalization. The turn was not committed as success.";
     const previewBlock = preview ? `\n\n> ${preview}` : "";
     const noticeText = `⚠️ ${title}.\n\n${detail}${previewBlock}`;
 
-    log.warn("Agent completed without output; advancing cursor past blank turn", {
-      operation: "process_chat.no_output_blank",
+    log.warn("Agent completed without output; marking run as failed", {
+      operation: "process_chat.no_output_blank_failed",
       chatJid,
       hadIntermediateOutput,
       persistedIntermediateOutput,
       hadDraft,
+      recovery: lastRecoveryMeta,
+    });
+
+    endChatRunWithError(chatJid, {
+      prevTs: prevCursor,
+      failedTs: lastMessage.timestamp,
+      messageId: lastMessage.id,
+      threadRootId: resolvedThreadRootId ?? null,
+      createdAt: new Date().toISOString(),
     });
 
     const notice = channel.storeMessage(chatJid, noticeText, true, [], {
@@ -1615,8 +1622,12 @@ export async function processChat(
       turn_id: turnId,
     });
 
-    // Advance cursor past the blank turn so the chat is not stuck.
-    await finalizeSuccessfulRun();
+    if (lastRecoveryMeta?.exhausted) {
+      await channel.sendMessage(chatJid, `${title}. Choose how to continue.`, {
+        threadId: resolvedThreadRootId,
+        contentBlocks: [buildRecoveryExhaustedCard(turnId, resolvedThreadRootId, lastRecoveryMeta.attemptsUsed || 0, lastRecoveryMeta.lastClassifier)],
+      });
+    }
     return;
   }
 

@@ -87,6 +87,61 @@ function buildRetryStatusPayload(base) {
         retry_delay_ms: DEFAULT_BASE_RETRY_MS,
     };
 }
+function buildAgentStatusPhaseKey(payload) {
+    const type = typeof payload.type === "string" ? payload.type : "unknown";
+    const title = typeof payload.title === "string" ? payload.title.trim() : "";
+    const intentKey = typeof payload.intent_key === "string"
+        ? payload.intent_key.trim()
+        : (typeof payload.intentKey === "string" ? payload.intentKey.trim() : "");
+    const toolName = typeof payload.tool_name === "string"
+        ? payload.tool_name.trim()
+        : (typeof payload.toolName === "string" ? payload.toolName.trim() : "");
+    if ((type === "tool_call" || type === "tool_status") && toolName) {
+        return `tool:${toolName}:${title}`;
+    }
+    if (type === "intent" && intentKey) {
+        return `intent:${intentKey}:${title}`;
+    }
+    return `${type}:${title}`;
+}
+function withAgentStatusProgressMetadata(payload, previousStatus) {
+    const now = new Date().toISOString();
+    const next = { ...payload };
+    const type = typeof next.type === "string" ? next.type : "";
+    if (type === "done" || type === "error") {
+        return {
+            ...next,
+            last_event_at: now,
+            phase_key: buildAgentStatusPhaseKey(next),
+        };
+    }
+    const previous = previousStatus && typeof previousStatus === "object" ? previousStatus : null;
+    const previousPhaseKey = previous && typeof previous.phase_key === "string"
+        ? previous.phase_key
+        : previous
+            ? buildAgentStatusPhaseKey(previous)
+            : null;
+    const nextPhaseKey = buildAgentStatusPhaseKey(next);
+    const previousStartedAt = previous && typeof previous.started_at === "string"
+        ? previous.started_at
+        : (previous && typeof previous.startedAt === "string" ? previous.startedAt : null);
+    const previousRunStartedAt = previous && typeof previous.run_started_at === "string"
+        ? previous.run_started_at
+        : (previous && typeof previous.runStartedAt === "string" ? previous.runStartedAt : null);
+    return {
+        ...next,
+        started_at: typeof next.started_at === "string"
+            ? next.started_at
+            : previousPhaseKey === nextPhaseKey && previousStartedAt
+                ? previousStartedAt
+                : now,
+        run_started_at: typeof next.run_started_at === "string"
+            ? next.run_started_at
+            : previousRunStartedAt || now,
+        last_event_at: now,
+        phase_key: nextPhaseKey,
+    };
+}
 export function withResolvedToolStatusHints(chatJid, payload) {
     const isToolStatus = payload?.type === "tool_call" || payload?.type === "tool_status";
     const toolName = typeof payload?.tool_name === "string" ? payload.tool_name.trim() : "";
@@ -508,8 +563,9 @@ export async function handleAgentMessage(channel, req, pathname, chatJid, defaul
     const identity = getIdentityConfig();
     const withAgentProfile = createAgentProfileBuilder(chatJid, identity.assistantName, resolveAvatarUrl("agent", identity.assistantAvatar), identity.userName || null, resolveAvatarUrl("user", identity.userAvatar), identity.userAvatarBackground || null);
     const emitCommandStatus = (payload) => {
-        channel.updateAgentStatus(chatJid, payload);
-        channel.broadcastEvent("agent_status", withAgentProfile(payload));
+        const nextPayload = withAgentStatusProgressMetadata(payload, channel.getAgentStatus(chatJid));
+        channel.updateAgentStatus(chatJid, nextPayload);
+        channel.broadcastEvent("agent_status", withAgentProfile(nextPayload));
     };
     const queueFollowupMessage = async () => {
         // Web queued follow-ups are managed by the web channel itself rather than
@@ -876,6 +932,7 @@ export async function processChat(channel, chatJid, agentId, threadRootId) {
             if (isToolStatus && toolName) {
                 nextPayload = withResolvedToolStatusHints(chatJid, payload);
             }
+            nextPayload = withAgentStatusProgressMetadata(nextPayload, channel.getAgentStatus(chatJid));
             channel.updateAgentStatus(chatJid, nextPayload);
             emitter.status(nextPayload);
         },

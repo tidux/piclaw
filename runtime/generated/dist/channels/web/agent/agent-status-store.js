@@ -6,7 +6,10 @@ function isRestartRestorableStatus(status) {
         return false;
     const intentKey = status.intent_key ?? status.intentKey;
     const startedAt = status.started_at ?? status.startedAt;
-    return status.type === "intent" && intentKey === "compaction" && typeof startedAt === "string" && startedAt.length > 0;
+    return status.type === "intent"
+        && (intentKey === "compaction" || intentKey === "recovery")
+        && typeof startedAt === "string"
+        && startedAt.length > 0;
 }
 /** In-memory + persisted lifecycle store for active web agent statuses. */
 export class AgentStatusStore {

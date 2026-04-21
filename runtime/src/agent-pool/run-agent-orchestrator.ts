@@ -551,25 +551,36 @@ async function runPromptAttempt(
       output = { status: "error", result: null, error: latentStateError };
     } else {
       const blankTurnDelta = inspectBlankTurnSessionDelta(session, sessionEntryBaseline);
-      if (
-        !finalText
-        && finalAttachments.length === 0
-        && !hadCompletedTurnOutput
-        && !hadPartialOutput
-        && !hadToolActivity
-        && isBlankTurnSessionDelta(blankTurnDelta)
-      ) {
-        const detail = [
-          `${blankTurnDelta?.appendedUserMessageCount ?? 0} user message(s)`,
-          `${blankTurnDelta?.appendedAssistantMessageCount ?? 0} assistant message(s)`,
-          `${blankTurnDelta?.appendedToolResultMessageCount ?? 0} tool-result message(s)`,
-        ].join(", ");
-        options.onWarn?.("Prompt resolved with a blank user-only session delta", {
-          operation: "run_agent.blank_turn_delta",
-          chatJid,
-          detail,
-          blankTurnDelta,
-        });
+      if (!finalText && finalAttachments.length === 0 && !hadCompletedTurnOutput) {
+        let detail: string;
+        if (!hadPartialOutput && !hadToolActivity && isBlankTurnSessionDelta(blankTurnDelta)) {
+          detail = [
+            `${blankTurnDelta?.appendedUserMessageCount ?? 0} user message(s)`,
+            `${blankTurnDelta?.appendedAssistantMessageCount ?? 0} assistant message(s)`,
+            `${blankTurnDelta?.appendedToolResultMessageCount ?? 0} tool-result message(s)`,
+          ].join(", ");
+          options.onWarn?.("Prompt resolved with a blank user-only session delta", {
+            operation: "run_agent.blank_turn_delta",
+            chatJid,
+            detail,
+            blankTurnDelta,
+          });
+        } else {
+          detail = [
+            hadPartialOutput ? "partial output seen" : null,
+            hadToolActivity ? "tool activity seen" : null,
+            blankTurnDelta ? `session delta: ${blankTurnDelta.appendedEntryCount} appended entries` : null,
+          ].filter(Boolean).join(", ") || "no completed assistant turn was emitted";
+          options.onWarn?.("Prompt resolved without a completed assistant reply", {
+            operation: "run_agent.no_terminal_reply",
+            chatJid,
+            detail,
+            hadPartialOutput,
+            hadToolActivity,
+            hadCompletedTurnOutput,
+            blankTurnDelta,
+          });
+        }
         output = {
           status: "error",
           result: null,

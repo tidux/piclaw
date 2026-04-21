@@ -345,6 +345,99 @@ test("runAgentPrompt aborts a stuck pre-prompt compaction and continues", async 
   }
 });
 
+test("runAgentPrompt recovers when tool activity only produced partial output and no completed turn", async () => {
+  const restoreEnv = setEnv({
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "1",
+    PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS: "2",
+    PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS: "30000",
+  });
+  const events: string[] = [];
+
+  class StubSession {
+    private listeners: Array<(event: any) => void> = [];
+    sessionManager = { getLeafId: () => "leaf-1" };
+    isStreaming = false;
+    isCompacting = false;
+    isRetrying = false;
+    promptCalls = 0;
+    compactCalls = 0;
+    subscribe(listener: (event: any) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((entry) => entry !== listener);
+      };
+    }
+    async compact() {
+      this.compactCalls += 1;
+    }
+    async prompt() {
+      this.promptCalls += 1;
+      if (this.promptCalls === 1) {
+        for (const listener of this.listeners) {
+          listener({ type: "tool_execution_start", toolCallId: "tool-1", toolName: "write_file", args: { path: "x" } });
+          listener({
+            type: "message_update",
+            assistantMessageEvent: {
+              type: "text_start",
+              contentIndex: 0,
+              partial: { content: [{ type: "text", textSignature: JSON.stringify({ v: 1, id: "msg_c", phase: "commentary" }) }] },
+            },
+          });
+          listener({
+            type: "message_update",
+            assistantMessageEvent: {
+              type: "text_delta",
+              delta: "draft",
+              contentIndex: 0,
+              partial: { content: [{ type: "text", textSignature: JSON.stringify({ v: 1, id: "msg_c", phase: "commentary" }) }] },
+            },
+          });
+        }
+        return;
+      }
+      for (const listener of this.listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_start" } });
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done" } });
+      }
+    }
+    async abort() {}
+  }
+
+  try {
+    const session = new StubSession();
+    const turnCoordinator = new AgentTurnCoordinator({
+      takeAttachments: () => [],
+      touchSession: () => {},
+      recordMessageUsage: () => {},
+    });
+
+    const result = await runAgentPrompt("test", "web:default", {
+      timeoutMs: 0,
+      onEvent: (event) => {
+        if (event.type === "recovery_start" || event.type === "recovery_end" || event.type === "compaction_start" || event.type === "compaction_end") {
+          events.push(event.type);
+        }
+      },
+    }, {
+      getOrCreateRuntime: async () => createRuntime(session) as any,
+      turnCoordinator,
+      clearAttachments: () => {},
+      takeAttachments: () => [],
+      logsDir: createTestLogsDir(),
+      setActiveForkBaseLeaf: () => {},
+      clearActiveForkBaseLeaf: () => {},
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.result).toBe("done");
+    expect(session.promptCalls).toBe(2);
+    expect(session.compactCalls).toBe(1);
+    expect(events).toEqual(["recovery_start", "compaction_start", "compaction_end", "recovery_end"]);
+  } finally {
+    restoreEnv();
+  }
+});
+
 test("runAgentPrompt prompts the rotated runtime session after auto-rotation swaps objects", async () => {
   const workspaceBase = mkdtempSync(join(tmpdir(), "piclaw-run-agent-rotate-"));
   const restoreEnv = setEnv({
@@ -1083,8 +1176,8 @@ test("runAgentPrompt ignores commentary-only aborted output", async () => {
     clearActiveForkBaseLeaf: () => {},
   });
 
-  expect(result.status).toBe("success");
-  expect(result.result).toBeNull();
+  expect(result.status).toBe("error");
+  expect(result.error).toContain("Prompt completed without emitting an assistant reply before finalization");
   expect(result.attachments).toBeUndefined();
 });
 

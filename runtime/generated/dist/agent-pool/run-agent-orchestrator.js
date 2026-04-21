@@ -6,10 +6,12 @@ import { getAgentRuntimeConfig, getSessionStorageConfig } from "../core/config.j
 import { detectChannel } from "../router.js";
 import { pruneOrphanToolResults } from "./orphan-tool-results.js";
 import { writeAgentLog } from "./logging.js";
+import { createLogger, debugSuppressedError } from "../utils/logger.js";
 import { getSessionFileLineCount, getSessionFileSize, rotateSession } from "../session-rotation.js";
 import { withChatContext } from "../core/chat-context.js";
 import { formatTimeoutDuration, resolveSessionIdleMaxWaitMs, waitForSessionIdle, } from "./prompt-utils.js";
 import { inspectBlankTurnSessionDelta, isBlankTurnSessionDelta, snapshotSessionEntryCount, } from "./blank-turn-detection.js";
+const log = createLogger("agent-pool.run-orchestrator");
 async function maybeAutoRotateSession(session, runtime, chatJid, options) {
     const sessionStorageConfig = getSessionStorageConfig();
     const autoRotateEnabled = sessionStorageConfig.autoRotate
@@ -139,6 +141,70 @@ function getSessionStateErrorMessage(session) {
     const errorMessage = session.agent?.state?.errorMessage;
     return typeof errorMessage === "string" && errorMessage.trim() ? errorMessage.trim() : null;
 }
+const DEFAULT_COMPACTION_TIMEOUT_MS = 90_000;
+function parsePositiveInt(value, fallback) {
+    const parsed = Number.parseInt(String(value || "").trim(), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+function getCompactionTimeoutMs() {
+    return parsePositiveInt(process.env.PICLAW_COMPACTION_TIMEOUT_MS, DEFAULT_COMPACTION_TIMEOUT_MS);
+}
+async function abortCompactionBestEffort(session, chatJid, options) {
+    try {
+        const compactingSession = session;
+        if (typeof compactingSession.abortCompaction === "function" && session.isCompacting) {
+            compactingSession.abortCompaction();
+            return;
+        }
+        if (typeof compactingSession.abort === "function") {
+            await compactingSession.abort();
+        }
+    }
+    catch (error) {
+        options.onWarn?.("Failed to abort stuck compaction", {
+            operation: "run_agent.abort_stuck_compaction",
+            chatJid,
+            err: error,
+        });
+    }
+}
+async function runCompactionWithTimeout(session, chatJid, options, runCompact) {
+    const timeoutMs = getCompactionTimeoutMs();
+    if (timeoutMs <= 0) {
+        try {
+            await runCompact();
+            return { ok: true };
+        }
+        catch (error) {
+            return { ok: false, errorMessage: error instanceof Error ? error.message : String(error) };
+        }
+    }
+    const compactionOutcome = new Promise((resolve) => {
+        void Promise.resolve()
+            .then(() => runCompact())
+            .then(() => resolve({ ok: true }))
+            .catch((error) => resolve({
+            ok: false,
+            errorMessage: error instanceof Error ? error.message : String(error),
+        }));
+    });
+    const timedOut = Symbol("compaction-timeout");
+    let timeoutId = null;
+    const timeoutOutcome = new Promise((resolve) => {
+        timeoutId = setTimeout(() => resolve(timedOut), timeoutMs);
+    });
+    const outcome = await Promise.race([compactionOutcome, timeoutOutcome]);
+    if (timeoutId)
+        clearTimeout(timeoutId);
+    if (outcome !== timedOut) {
+        return outcome;
+    }
+    await abortCompactionBestEffort(session, chatJid, options);
+    return {
+        ok: false,
+        errorMessage: `Compaction timed out after ${formatTimeoutDuration(timeoutMs)}`,
+    };
+}
 async function maybeAutoCompactSessionBeforePrompt(session, chatJid, options, onEvent) {
     if (session.isStreaming || session.isCompacting || session.isRetrying)
         return;
@@ -180,29 +246,26 @@ async function maybeAutoCompactSessionBeforePrompt(session, chatJid, options, on
         // compact() path. Emit them locally so the web UI still shows the
         // "Compacting context" status pill during what can be a 30-60s operation.
         onEvent?.({ type: "compaction_start", reason: "threshold" });
-        try {
-            await session.compact();
-            onEvent?.({
-                type: "compaction_end",
-                reason: "threshold",
-                result: undefined,
-                aborted: false,
-                willRetry: false,
-            });
-        }
-        catch (compactError) {
-            const aborted = compactError instanceof Error &&
-                (compactError.message === "Compaction cancelled" || compactError.name === "AbortError");
+        const compactionResult = await runCompactionWithTimeout(session, chatJid, options, async () => await session.compact());
+        if (!compactionResult.ok) {
+            const aborted = /compaction cancelled|aborterror/i.test(compactionResult.errorMessage);
             onEvent?.({
                 type: "compaction_end",
                 reason: "threshold",
                 result: undefined,
                 aborted,
                 willRetry: false,
-                errorMessage: aborted ? undefined : `Pre-prompt compaction failed: ${compactError instanceof Error ? compactError.message : String(compactError)}`,
+                errorMessage: aborted ? undefined : `Pre-prompt compaction failed: ${compactionResult.errorMessage}`,
             });
-            throw compactError;
+            throw new Error(compactionResult.errorMessage);
         }
+        onEvent?.({
+            type: "compaction_end",
+            reason: "threshold",
+            result: undefined,
+            aborted: false,
+            willRetry: false,
+        });
     }
     catch (error) {
         options.onWarn?.("Pre-prompt auto-compaction skipped", {
@@ -248,30 +311,27 @@ async function runRecoveryCompaction(session, chatJid, runOptions, options) {
         chatJid,
     });
     emitAgentSessionEvent(runOptions.onEvent, { type: "compaction_start", reason: "overflow" });
-    try {
-        await session.compact();
-        emitAgentSessionEvent(runOptions.onEvent, {
-            type: "compaction_end",
-            reason: "overflow",
-            result: undefined,
-            aborted: false,
-            willRetry: true,
-        });
-        return { ok: true };
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const aborted = error instanceof Error && (error.name === "AbortError" || error.message === "Compaction cancelled");
+    const compactionResult = await runCompactionWithTimeout(session, chatJid, options, async () => await session.compact());
+    if (!compactionResult.ok) {
+        const aborted = /compaction cancelled|aborterror/i.test(compactionResult.errorMessage);
         emitAgentSessionEvent(runOptions.onEvent, {
             type: "compaction_end",
             reason: "overflow",
             result: undefined,
             aborted,
             willRetry: false,
-            errorMessage: aborted ? undefined : `Recovery compaction failed: ${errorMessage}`,
+            errorMessage: aborted ? undefined : `Recovery compaction failed: ${compactionResult.errorMessage}`,
         });
-        return { ok: false, errorMessage };
+        return { ok: false, errorMessage: compactionResult.errorMessage };
     }
+    emitAgentSessionEvent(runOptions.onEvent, {
+        type: "compaction_end",
+        reason: "overflow",
+        result: undefined,
+        aborted: false,
+        willRetry: true,
+    });
+    return { ok: true };
 }
 async function runPromptAttempt(prompt, chatJid, session, timeoutMs, runOptions, options, totalRunStartedAt) {
     let hadToolActivity = false;
@@ -402,7 +462,9 @@ async function runPromptAttempt(prompt, chatJid, session, timeoutMs, runOptions,
                         sawCompactionIntent = true;
                     }
                 }
-                catch { /* best-effort */ }
+                catch (err) {
+                    debugSuppressedError(log, "Failed to estimate context tokens for compaction heuristic; skipping pressure check.", err);
+                }
             }
             else {
                 output = {
