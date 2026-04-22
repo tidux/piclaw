@@ -114,7 +114,9 @@ type EditorClientMessage =
   | { type: "close_document"; path: string }
   | { type: "completion"; path: string; line: number; character: number; request_id?: string | null }
   | { type: "hover"; path: string; line: number; character: number; request_id?: string | null }
-  | { type: "definition"; path: string; line: number; character: number; request_id?: string | null };
+  | { type: "definition"; path: string; line: number; character: number; request_id?: string | null }
+  | { type: "references"; path: string; line: number; character: number; request_id?: string | null }
+  | { type: "rename"; path: string; line: number; character: number; new_name: string; request_id?: string | null };
 
 function createHandoffToken(): string {
   try {
@@ -345,6 +347,20 @@ export class LspSessionService {
             position: { line: Math.max(0, payload.line), character: Math.max(0, payload.character) },
           }, "definition_result");
           break;
+        case "references":
+          await this.forwardRequest(session, ws, payload.path, payload.request_id, "textDocument/references", {
+            textDocument: { uri: this.uriForSessionPath(session, payload.path) },
+            position: { line: Math.max(0, payload.line), character: Math.max(0, payload.character) },
+            context: { includeDeclaration: true },
+          }, "references_result");
+          break;
+        case "rename":
+          await this.forwardRequest(session, ws, payload.path, payload.request_id, "textDocument/rename", {
+            textDocument: { uri: this.uriForSessionPath(session, payload.path) },
+            position: { line: Math.max(0, payload.line), character: Math.max(0, payload.character) },
+            newName: String(payload.new_name || "").trim(),
+          }, "rename_result");
+          break;
       }
     }).catch((error) => {
       this.send(ws, {
@@ -428,9 +444,11 @@ export class LspSessionService {
       const pending = session.pendingRequests.get(payload.id)!;
       session.pendingRequests.delete(payload.id);
       if (pending.kind === "browser") {
-        const result = pending.responseType === "definition_result"
-          ? this.serializeDefinitionResult(payload.result)
-          : (payload.result ?? null);
+        const result = pending.responseType === "definition_result" || pending.responseType === "references_result"
+          ? this.serializeLocationResult(payload.result)
+          : pending.responseType === "rename_result"
+            ? this.serializeWorkspaceEdit(payload.result)
+            : (payload.result ?? null);
         this.send(pending.ws, {
           type: pending.responseType,
           request_id: pending.requestId,
@@ -718,14 +736,14 @@ export class LspSessionService {
     return target;
   }
 
-  private serializeDefinitionResult(result: unknown): unknown {
+  private serializeLocationResult(result: unknown): unknown {
     if (Array.isArray(result)) {
-      return result.map((item) => this.serializeDefinitionLocation(item)).filter(Boolean);
+      return result.map((item) => this.serializeLocation(item)).filter(Boolean);
     }
-    return this.serializeDefinitionLocation(result);
+    return this.serializeLocation(result);
   }
 
-  private serializeDefinitionLocation(value: any): any {
+  private serializeLocation(value: any): any {
     if (!value || typeof value !== "object") return null;
     const rawUri = String(value.targetUri || value.uri || "").trim();
     if (!rawUri) return null;
@@ -736,6 +754,44 @@ export class LspSessionService {
         ...value,
         path: toRelativePath(absolutePath),
       };
+    } catch {
+      return null;
+    }
+  }
+
+  private serializeWorkspaceEdit(value: any): any {
+    if (!value || typeof value !== "object") return null;
+    const changes = value.changes && typeof value.changes === "object" ? value.changes : null;
+    const documentChanges = Array.isArray(value.documentChanges) ? value.documentChanges : null;
+    return {
+      changes: changes ? Object.fromEntries(
+        Object.entries(changes)
+          .map(([uri, edits]) => {
+            const path = this.pathForUri(uri);
+            return path ? [path, edits] : null;
+          })
+          .filter(Boolean) as Array<[string, unknown]>
+      ) : null,
+      documentChanges: documentChanges ? documentChanges.map((change: any) => {
+        if (!change || typeof change !== "object") return null;
+        const rawUri = String(change.textDocument?.uri || "").trim();
+        const path = this.pathForUri(rawUri);
+        if (!path) return null;
+        return {
+          ...change,
+          path,
+        };
+      }).filter(Boolean) : null,
+    };
+  }
+
+  private pathForUri(uri: string): string | null {
+    const rawUri = String(uri || "").trim();
+    if (!rawUri) return null;
+    try {
+      const parsed = new URL(rawUri);
+      const absolutePath = decodeURIComponent(parsed.pathname || "");
+      return toRelativePath(absolutePath);
     } catch {
       return null;
     }

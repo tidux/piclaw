@@ -215,6 +215,44 @@ export function createLspClientAdapter(options = {}) {
         return request('definition', line, character);
     }
 
+    function requestReferences(line, character) {
+        return request('references', line, character);
+    }
+
+    function requestRename(line, character, newName) {
+        if (!connected) return Promise.resolve(null);
+        const requestId = createRequestId();
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                pending.delete(requestId);
+                resolve(null);
+            }, 10000);
+            pending.set(requestId, {
+                resolve: (value) => {
+                    clearTimeout(timeout);
+                    resolve(value);
+                },
+                reject: (error) => {
+                    clearTimeout(timeout);
+                    reject(error);
+                },
+            });
+            const sent = send({
+                type: 'rename',
+                path,
+                line,
+                character,
+                new_name: String(newName || ''),
+                request_id: requestId,
+            });
+            if (!sent) {
+                pending.delete(requestId);
+                clearTimeout(timeout);
+                resolve(null);
+            }
+        });
+    }
+
     function dispose() {
         closeDocument();
         for (const deferred of pending.values()) {
@@ -238,6 +276,8 @@ export function createLspClientAdapter(options = {}) {
         requestCompletion,
         requestHover,
         requestDefinition,
+        requestReferences,
+        requestRename,
         isAvailable: () => Boolean(sessionInfo?.available),
         isConnected: () => connected,
         getSessionInfo: () => sessionInfo,

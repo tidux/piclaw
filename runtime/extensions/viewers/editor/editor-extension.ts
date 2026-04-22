@@ -603,6 +603,8 @@ export class StandaloneEditorInstance implements PaneInstance {
                 { key: 'Mod-s', run: () => { this.handleSave(); return true; } },
                 { key: 'F12', run: () => this.handleGoToDefinition() },
                 { key: 'Mod-.', run: () => this.handleGoToDefinition() },
+                { key: 'Shift-F12', run: () => this.handleFindReferences() },
+                { key: 'F2', run: () => this.handleRenameSymbol() },
             ]),
             EditorView.updateListener.of((update: any) => {
                 if (update.docChanged) this.checkDirty();
@@ -1250,12 +1252,159 @@ export class StandaloneEditorInstance implements PaneInstance {
         return true;
     }
 
-    private supportsLspCapability(capability: 'completionProvider' | 'hoverProvider' | 'definitionProvider'): boolean {
+    private async handleFindReferences(): Promise<boolean> {
+        if (!this.supportsLspCapability('referencesProvider')) return false;
+        if (!this.view || !this.lspClient?.isConnected?.()) return false;
+        const pos = this.view.state.selection.main.head;
+        const line = this.view.state.doc.lineAt(pos);
+        const result = await this.lspClient.requestReferences(line.number - 1, pos - line.from);
+        const references = Array.isArray(result) ? result.filter(Boolean) : [];
+        if (!references.length) {
+            this.updateStatusText('No references found');
+            return true;
+        }
+        const target = references[0];
+        const range = target?.targetSelectionRange || target?.targetRange || target?.range;
+        const targetPath = String(target?.path || '').trim();
+        if (!targetPath || !range) {
+            this.updateStatusText(`Found ${references.length} reference${references.length === 1 ? '' : 's'}`);
+            return true;
+        }
+        this.updateStatusText(`Found ${references.length} reference${references.length === 1 ? '' : 's'}`);
+        const viewState = {
+            cursorLine: Number(range?.start?.line ?? 0) + 1,
+            cursorCol: Number(range?.start?.character ?? 0) + 1,
+        };
+        if (targetPath === this.path) {
+            this.restoreViewState(viewState);
+            this.focus();
+            return true;
+        }
+        this.ownerDocument.dispatchEvent(new CustomEvent('editor:open-tab', {
+            detail: {
+                path: targetPath,
+                label: targetPath.split('/').pop() || targetPath,
+                viewState,
+            },
+        }));
+        return true;
+    }
+
+    private async handleRenameSymbol(): Promise<boolean> {
+        if (!this.supportsLspCapability('renameProvider')) return false;
+        if (!this.view || !this.lspClient?.isConnected?.()) return false;
+        const pos = this.view.state.selection.main.head;
+        const line = this.view.state.doc.lineAt(pos);
+        const defaultName = this.currentWordAtCursor();
+        const nextName = this.ownerWindow.prompt('Rename symbol', defaultName || '') || '';
+        const trimmed = nextName.trim();
+        if (!trimmed || trimmed === defaultName) return true;
+        const workspaceEdit = await this.lspClient.requestRename(line.number - 1, pos - line.from, trimmed);
+        if (!workspaceEdit) {
+            this.updateStatusText('Rename did not return any edits');
+            return true;
+        }
+        const appliedCount = await this.applyWorkspaceEdit(workspaceEdit);
+        this.updateStatusText(appliedCount > 0
+            ? `Renamed symbol across ${appliedCount} file${appliedCount === 1 ? '' : 's'}`
+            : 'Rename returned no file changes');
+        if (this.lspClient) {
+            this.syncLspDocument();
+            startCompletion(this.view);
+        }
+        return true;
+    }
+
+    private currentWordAtCursor(): string {
+        if (!this.view) return '';
+        const pos = this.view.state.selection.main.head;
+        const word = this.view.state.wordAt(pos);
+        return word ? this.view.state.sliceDoc(word.from, word.to) : '';
+    }
+
+    private async applyWorkspaceEdit(workspaceEdit: any): Promise<number> {
+        const changeEntries = new Map<string, any[]>();
+        const directChanges = workspaceEdit?.changes && typeof workspaceEdit.changes === 'object'
+            ? workspaceEdit.changes
+            : null;
+        if (directChanges) {
+            for (const [filePath, edits] of Object.entries(directChanges)) {
+                changeEntries.set(String(filePath), Array.isArray(edits) ? edits : []);
+            }
+        }
+        const documentChanges = Array.isArray(workspaceEdit?.documentChanges) ? workspaceEdit.documentChanges : [];
+        for (const change of documentChanges) {
+            const filePath = String(change?.path || '').trim();
+            if (!filePath) continue;
+            const edits = Array.isArray(change?.edits) ? change.edits : [];
+            changeEntries.set(filePath, edits);
+        }
+        let appliedCount = 0;
+        for (const [filePath, edits] of changeEntries.entries()) {
+            const content = await this.loadEditableContentForWorkspaceEdit(filePath);
+            if (content == null) continue;
+            const nextContent = this.applyTextEditsToContent(content, edits);
+            const result = await updateWorkspaceFile(filePath, nextContent);
+            appliedCount += 1;
+            if (filePath === this.path) {
+                this.initialContent = nextContent;
+                this.currentMtime = result?.mtime || this.currentMtime;
+                const viewState = this.captureViewState();
+                this.renderEditorSurface(nextContent, this.diffMode, viewState);
+                this.setDirty(false);
+            }
+        }
+        return appliedCount;
+    }
+
+    private async loadEditableContentForWorkspaceEdit(filePath: string): Promise<string | null> {
+        if (filePath === this.path && this.view) {
+            return this.view.state.doc.toString();
+        }
+        const payload = await getWorkspaceFile(filePath, EDITOR_MAX_BYTES, 'edit');
+        if (payload?.error || payload?.kind === 'binary') return null;
+        return String(payload?.text || '');
+    }
+
+    private applyTextEditsToContent(content: string, edits: any[]): string {
+        const normalized = Array.isArray(edits) ? edits.slice() : [];
+        normalized.sort((a: any, b: any) => {
+            const aLine = Number(a?.range?.start?.line ?? 0);
+            const bLine = Number(b?.range?.start?.line ?? 0);
+            if (aLine !== bLine) return bLine - aLine;
+            const aChar = Number(a?.range?.start?.character ?? 0);
+            const bChar = Number(b?.range?.start?.character ?? 0);
+            return bChar - aChar;
+        });
+        let next = content;
+        for (const edit of normalized) {
+            const range = edit?.range;
+            if (!range) continue;
+            const from = this.offsetFromLineCharacter(next, Number(range?.start?.line ?? 0), Number(range?.start?.character ?? 0));
+            const to = this.offsetFromLineCharacter(next, Number(range?.end?.line ?? range?.start?.line ?? 0), Number(range?.end?.character ?? range?.start?.character ?? 0));
+            next = `${next.slice(0, from)}${String(edit?.newText || '')}${next.slice(to)}`;
+        }
+        return next;
+    }
+
+    private offsetFromLineCharacter(content: string, line: number, character: number): number {
+        const lines = content.split('\n');
+        const safeLine = Math.max(0, Math.min(line, Math.max(0, lines.length - 1)));
+        let offset = 0;
+        for (let index = 0; index < safeLine; index += 1) {
+            offset += lines[index].length + 1;
+        }
+        return offset + Math.max(0, Math.min(character, lines[safeLine]?.length ?? 0));
+    }
+
+    private supportsLspCapability(capability: 'completionProvider' | 'hoverProvider' | 'definitionProvider' | 'referencesProvider' | 'renameProvider'): boolean {
         const capabilities = this.lspClient?.getServerCapabilities?.();
         if (!capabilities || typeof capabilities !== 'object') return false;
         if (capability === 'completionProvider') return Boolean(capabilities.completionProvider);
         if (capability === 'hoverProvider') return Boolean(capabilities.hoverProvider);
         if (capability === 'definitionProvider') return Boolean(capabilities.definitionProvider);
+        if (capability === 'referencesProvider') return Boolean(capabilities.referencesProvider);
+        if (capability === 'renameProvider') return Boolean(capabilities.renameProvider);
         return false;
     }
 

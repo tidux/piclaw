@@ -121,6 +121,64 @@ describe("createLspClientAdapter", () => {
     await expect(pending).rejects.toThrow("LSP connection closed.");
   });
 
+  test("sends v2 references and rename requests through the websocket contract", async () => {
+    globalThis.WebSocket = FakeWebSocket as any;
+    const adapter = createLspClientAdapter({
+      path: "src/app.ts",
+      getSession: async () => ({
+        available: true,
+        ws_path: "/lsp/ws",
+        language_id: "typescript",
+      }),
+    });
+
+    await adapter.connect();
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    socket.message({
+      type: "ready",
+      capabilities: {
+        referencesProvider: true,
+        renameProvider: true,
+      },
+    });
+
+    const refsPromise = adapter.requestReferences(1, 2);
+    const refsMessage = socket.sent.at(-1);
+    expect(refsMessage).toMatchObject({
+      type: "references",
+      path: "src/app.ts",
+      line: 1,
+      character: 2,
+    });
+    socket.message({
+      type: "references_result",
+      request_id: refsMessage.request_id,
+      result: [{ path: "src/app.ts", range: { start: { line: 1, character: 2 }, end: { line: 1, character: 5 } } }],
+      error: null,
+    });
+    await expect(refsPromise).resolves.toEqual([
+      { path: "src/app.ts", range: { start: { line: 1, character: 2 }, end: { line: 1, character: 5 } } },
+    ]);
+
+    const renamePromise = adapter.requestRename(1, 2, "nextName");
+    const renameMessage = socket.sent.at(-1);
+    expect(renameMessage).toMatchObject({
+      type: "rename",
+      path: "src/app.ts",
+      line: 1,
+      character: 2,
+      new_name: "nextName",
+    });
+    socket.message({
+      type: "rename_result",
+      request_id: renameMessage.request_id,
+      result: { changes: { "src/app.ts": [{ newText: "nextName" }] } },
+      error: null,
+    });
+    await expect(renamePromise).resolves.toEqual({ changes: { "src/app.ts": [{ newText: "nextName" }] } });
+  });
+
   test("surfaces unavailable sessions without creating a websocket", async () => {
     globalThis.WebSocket = FakeWebSocket as any;
     const statuses: string[] = [];

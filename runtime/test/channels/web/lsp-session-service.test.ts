@@ -207,6 +207,86 @@ describe("LspSessionService", () => {
       }],
       error: null,
     });
+
+    service.handleMessage(wsA as any, JSON.stringify({
+      type: "references",
+      path: target.relativePath,
+      line: 0,
+      character: 0,
+      request_id: "refs-1",
+    }));
+    await flushMicrotasks();
+    const referencesRequest = decodeLastProcessPayload(fakeProcess);
+    expect(referencesRequest.method).toBe("textDocument/references");
+    fakeProcess.emit({
+      jsonrpc: "2.0",
+      id: referencesRequest.id,
+      result: [{
+        uri: `file://${target.absolutePath}`,
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 6 },
+        },
+      }],
+    });
+    expect(wsA.sent.at(-1)).toEqual({
+      type: "references_result",
+      request_id: "refs-1",
+      result: [{
+        uri: `file://${target.absolutePath}`,
+        path: target.relativePath,
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 6 },
+        },
+      }],
+      error: null,
+    });
+
+    service.handleMessage(wsA as any, JSON.stringify({
+      type: "rename",
+      path: target.relativePath,
+      line: 0,
+      character: 0,
+      new_name: "renamedAnswer",
+      request_id: "rename-1",
+    }));
+    await flushMicrotasks();
+    const renameRequest = decodeLastProcessPayload(fakeProcess);
+    expect(renameRequest.method).toBe("textDocument/rename");
+    expect(renameRequest.params.newName).toBe("renamedAnswer");
+    fakeProcess.emit({
+      jsonrpc: "2.0",
+      id: renameRequest.id,
+      result: {
+        changes: {
+          [`file://${target.absolutePath}`]: [{
+            range: {
+              start: { line: 0, character: 13 },
+              end: { line: 0, character: 19 },
+            },
+            newText: "renamedAnswer",
+          }],
+        },
+      },
+    });
+    expect(wsA.sent.at(-1)).toEqual({
+      type: "rename_result",
+      request_id: "rename-1",
+      result: {
+        changes: {
+          [target.relativePath]: [{
+            range: {
+              start: { line: 0, character: 13 },
+              end: { line: 0, character: 19 },
+            },
+            newText: "renamedAnswer",
+          }],
+        },
+        documentChanges: null,
+      },
+      error: null,
+    });
   });
 
   test("rejects requests for files outside the attached LSP session root", async () => {
