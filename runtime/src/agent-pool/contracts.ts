@@ -41,7 +41,7 @@ export interface AgentRecoveryMetadata {
 
 /** Output from an agent run: response text, status, and token usage. */
 export interface AgentOutput {
-  status: "success" | "error";
+  status: "success" | "error" | "tool_complete";
   result: string | null;
   error?: string;
   attachments?: AttachmentInfo[];

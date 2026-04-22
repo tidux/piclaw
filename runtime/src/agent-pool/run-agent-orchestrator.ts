@@ -654,11 +654,23 @@ async function runPromptAttempt(
             blankTurnDelta,
           });
         }
-        output = {
-          status: "error",
-          result: null,
-          error: `Prompt completed without emitting an assistant reply before finalization (${detail}).`,
-        };
+        // When the provider stopped cleanly after tool use with no other failure
+        // signal, this is a tool-only completion — not an error worth alarming about.
+        const isToolOnlyCompletion = hadToolActivity
+          && !hadPartialOutput
+          && !blankTurnDelta
+          && detail.includes("provider stopped after tool use");
+        output = isToolOnlyCompletion
+          ? {
+            status: "tool_complete" as const,
+            result: null,
+            error: `Prompt completed without emitting an assistant reply before finalization (${detail}).`,
+          }
+          : {
+            status: "error",
+            result: null,
+            error: `Prompt completed without emitting an assistant reply before finalization (${detail}).`,
+          };
 
         // When context usage is above 60% of the model's window, flag
         // context pressure on the snapshot so recovery compacts first

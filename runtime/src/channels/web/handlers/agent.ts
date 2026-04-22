@@ -79,7 +79,7 @@ function isQuotaError(errorText: string | null | undefined): boolean {
   return /quota|usage.*limit|out of.*usage|billing|insufficient.*funds|exceeded.*limit|credit/i.test(errorText);
 }
 
-type TurnOutcomeSeverity = "warning" | "error" | "critical";
+type TurnOutcomeSeverity = "warning" | "error" | "critical" | "info";
 
 function buildTurnOutcomeMarker(options: {
   kind: string;
@@ -1377,6 +1377,31 @@ export async function processChat(
   });
 
   lastRecoveryMeta = output.recovery || null;
+
+  if (output.status === "tool_complete") {
+    // Provider stopped cleanly after tool use with no closing text reply.
+    // This is not an error — emit a muted "done" pill and finalise normally.
+    const marker = buildTurnOutcomeMarker({
+      kind: "tool_complete",
+      label: "done",
+      title: "Completed via tools",
+      detail: "Turn finished after tool use — no closing reply was emitted.",
+      severity: "info",
+    });
+    const persisted = persistTerminalOutcome("", marker);
+    if (persisted) {
+      await finalizeSuccessfulRun();
+    } else {
+      rollbackChatRunWithError(chatJid, {
+        prevTs: prevCursor,
+        failedTs: lastMessage.timestamp,
+        messageId: lastMessage.id,
+        threadRootId: resolvedThreadRootId ?? null,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    return;
+  }
 
   if (output.status === "error") {
     if (output.error && output.error.includes("already processing")) {
