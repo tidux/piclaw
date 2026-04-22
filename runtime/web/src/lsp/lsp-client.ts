@@ -21,6 +21,8 @@ function createRequestId() {
 export function createLspClientAdapter(options = {}) {
     const path = String(options.path || '');
     const clientToken = String(options.clientToken || createClientToken());
+    const getSession = typeof options.getSession === 'function' ? options.getSession : getLspSession;
+    const baseUrl = String(options.baseUrl || (typeof window !== 'undefined' ? window.location.href : 'http://localhost/'));
     const callbacks = {
         onSession: typeof options.onSession === 'function' ? options.onSession : () => {},
         onReady: typeof options.onReady === 'function' ? options.onReady : () => {},
@@ -33,11 +35,13 @@ export function createLspClientAdapter(options = {}) {
     let sessionInfo = null;
     let documentText = null;
     let connected = false;
+    let documentOpen = false;
+    let serverCapabilities = {};
     const pending = new Map();
 
     async function connect() {
         callbacks.onStatus({ state: 'checking', detail: 'Checking LSP…' });
-        sessionInfo = await getLspSession(path, { clientToken });
+        sessionInfo = await getSession(path, { clientToken });
         callbacks.onSession(sessionInfo);
         if (!sessionInfo?.available) {
             callbacks.onStatus({ state: 'unavailable', detail: sessionInfo?.unavailable_reason || 'LSP unavailable' });
@@ -45,7 +49,7 @@ export function createLspClientAdapter(options = {}) {
         }
 
         callbacks.onStatus({ state: 'connecting', detail: `Connecting ${sessionInfo?.language_id || 'LSP'}…` });
-        const url = new URL(sessionInfo?.ws_path || '/lsp/ws', window.location.href);
+        const url = new URL(sessionInfo?.ws_path || '/lsp/ws', baseUrl);
         url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
         url.searchParams.set('path', path);
         url.searchParams.set('client', clientToken);
@@ -53,9 +57,10 @@ export function createLspClientAdapter(options = {}) {
 
         socket.addEventListener('open', () => {
             connected = true;
+            documentOpen = false;
             callbacks.onStatus({ state: 'connected', detail: 'LSP connected' });
             if (documentText != null) {
-                send({ type: 'open_document', path, text: documentText });
+                sendOpenDocument();
             }
         });
 
@@ -72,6 +77,9 @@ export function createLspClientAdapter(options = {}) {
                 return;
             }
             if (payload?.type === 'ready') {
+                serverCapabilities = payload?.capabilities && typeof payload.capabilities === 'object'
+                    ? payload.capabilities
+                    : {};
                 callbacks.onReady(payload);
                 callbacks.onStatus({ state: 'ready', detail: 'LSP connected' });
                 return;
@@ -104,7 +112,12 @@ export function createLspClientAdapter(options = {}) {
 
         socket.addEventListener('close', () => {
             connected = false;
+            documentOpen = false;
             socket = null;
+            for (const deferred of pending.values()) {
+                deferred.reject(new Error('LSP connection closed.'));
+            }
+            pending.clear();
             callbacks.onStatus({
                 state: sessionInfo?.available ? 'disconnected' : 'unavailable',
                 detail: sessionInfo?.available ? 'LSP disconnected' : 'LSP unavailable',
@@ -125,17 +138,34 @@ export function createLspClientAdapter(options = {}) {
         return true;
     }
 
+    function sendOpenDocument() {
+        if (documentText == null) return false;
+        const sent = send({ type: 'open_document', path, text: documentText });
+        if (sent) {
+            documentOpen = true;
+        }
+        return sent;
+    }
+
     function openDocument(text) {
         documentText = String(text ?? '');
         if (connected) {
-            send({ type: 'open_document', path, text: documentText });
+            if (documentOpen) {
+                send({ type: 'change_document', path, text: documentText });
+            } else {
+                sendOpenDocument();
+            }
         }
     }
 
     function changeDocument(text) {
         documentText = String(text ?? '');
         if (connected) {
-            send({ type: 'change_document', path, text: documentText });
+            if (!documentOpen) {
+                sendOpenDocument();
+            } else {
+                send({ type: 'change_document', path, text: documentText });
+            }
         }
     }
 
@@ -143,6 +173,7 @@ export function createLspClientAdapter(options = {}) {
         if (connected) {
             send({ type: 'close_document', path });
         }
+        documentOpen = false;
     }
 
     function request(type, line, character) {
@@ -210,5 +241,6 @@ export function createLspClientAdapter(options = {}) {
         isAvailable: () => Boolean(sessionInfo?.available),
         isConnected: () => connected,
         getSessionInfo: () => sessionInfo,
+        getServerCapabilities: () => serverCapabilities,
     };
 }

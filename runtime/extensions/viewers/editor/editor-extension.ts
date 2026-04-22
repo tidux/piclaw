@@ -1134,9 +1134,12 @@ export class StandaloneEditorInstance implements PaneInstance {
 
     private mapLspDiagnosticsToCodeMirror(diagnostics: any[]): any[] {
         if (!this.view || !Array.isArray(diagnostics)) return [];
+        const maxLine = Math.max(1, this.view.state.doc.lines);
         return diagnostics.map((item: any) => {
-            const fromLine = this.view!.state.doc.line(Math.max(1, Number(item?.range?.start?.line ?? 0) + 1));
-            const toLine = this.view!.state.doc.line(Math.max(1, Number(item?.range?.end?.line ?? item?.range?.start?.line ?? 0) + 1));
+            const fromLineNumber = Math.min(maxLine, Math.max(1, Number(item?.range?.start?.line ?? 0) + 1));
+            const toLineNumber = Math.min(maxLine, Math.max(1, Number(item?.range?.end?.line ?? item?.range?.start?.line ?? 0) + 1));
+            const fromLine = this.view!.state.doc.line(fromLineNumber);
+            const toLine = this.view!.state.doc.line(toLineNumber);
             const from = Math.min(fromLine.to, fromLine.from + Math.max(0, Number(item?.range?.start?.character ?? 0)));
             const to = Math.min(toLine.to, toLine.from + Math.max(0, Number(item?.range?.end?.character ?? item?.range?.start?.character ?? 0)));
             return {
@@ -1158,6 +1161,7 @@ export class StandaloneEditorInstance implements PaneInstance {
 
     private createLspCompletionSource() {
         return async (context: any) => {
+            if (!this.supportsLspCapability('completionProvider')) return null;
             if (!this.lspClient?.isConnected?.()) return null;
             const line = context.state.doc.lineAt(context.pos);
             const result = await this.lspClient.requestCompletion(line.number - 1, context.pos - line.from);
@@ -1187,6 +1191,7 @@ export class StandaloneEditorInstance implements PaneInstance {
     }
 
     private async createLspHoverTooltip(view: any, pos: number): Promise<any> {
+        if (!this.supportsLspCapability('hoverProvider')) return null;
         if (!this.lspClient?.isConnected?.()) return null;
         const line = view.state.doc.lineAt(pos);
         const result = await this.lspClient.requestHover(line.number - 1, pos - line.from);
@@ -1217,6 +1222,7 @@ export class StandaloneEditorInstance implements PaneInstance {
     }
 
     private async handleGoToDefinition(): Promise<boolean> {
+        if (!this.supportsLspCapability('definitionProvider')) return false;
         if (!this.view || !this.lspClient?.isConnected?.()) return false;
         const pos = this.view.state.selection.main.head;
         const line = this.view.state.doc.lineAt(pos);
@@ -1242,6 +1248,15 @@ export class StandaloneEditorInstance implements PaneInstance {
             },
         }));
         return true;
+    }
+
+    private supportsLspCapability(capability: 'completionProvider' | 'hoverProvider' | 'definitionProvider'): boolean {
+        const capabilities = this.lspClient?.getServerCapabilities?.();
+        if (!capabilities || typeof capabilities !== 'object') return false;
+        if (capability === 'completionProvider') return Boolean(capabilities.completionProvider);
+        if (capability === 'hoverProvider') return Boolean(capabilities.hoverProvider);
+        if (capability === 'definitionProvider') return Boolean(capabilities.definitionProvider);
+        return false;
     }
 
     private updateGutterWidth(): void {
