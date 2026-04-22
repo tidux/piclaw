@@ -470,7 +470,7 @@
 	 * Defines the strokewidth to be used for the outline rectangle
 	 * stroke width. Default is 3.
 	 */
-	OUTLINE_STROKEWIDTH: (mxClient.IS_IE) ? 2 : 3,
+	OUTLINE_STROKEWIDTH: 3,
 
 	/**
 	 * Variable: HANDLE_SIZE
@@ -1470,6 +1470,17 @@
 	STYLE_STARTSIZE: 'startSize',
 
 	/**
+	 * Variable: STYLE_FIXED_HEADER
+	 *
+	 * Defines the key for the fixedHeader style. If true, the swimlane header
+	 * is always rendered even when startSize is 0. If false, a startSize of 0
+	 * causes the shape to fall back to non-swimlane rendering (eg label bounds
+	 * from mxShape). Default is true for swimlanes, subclasses may override
+	 * via fixedHeaderDefault. Value is "fixedHeader".
+	 */
+	STYLE_FIXED_HEADER: 'fixedHeader',
+
+	/**
 	 * Variable: STYLE_SWIMLANE_LINE
 	 * 
 	 * Defines the key for the swimlaneLine style. This style specifies whether
@@ -1818,6 +1829,16 @@
 	 * <mxGraph.isCellFoldable>. Value is "foldable".
 	 */
 	STYLE_FOLDABLE: 'foldable',
+
+	/**
+	 * Variable: STYLE_GROUP_PADDING
+	 *
+	 * Defines the key for the groupPadding style. This specifies the padding
+	 * in pixels between the children of a group and the group bounds when
+	 * using extendParent or contractParent. Default is 0. Value is
+	 * "groupPadding".
+	 */
+	STYLE_GROUP_PADDING: 'groupPadding',
 
 	/**
 	 * Variable: STYLE_EDITABLE

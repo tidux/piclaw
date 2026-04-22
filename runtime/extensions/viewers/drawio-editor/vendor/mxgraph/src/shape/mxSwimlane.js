@@ -50,6 +50,15 @@ mxUtils.extend(mxSwimlane, mxShape);
 mxSwimlane.prototype.imageSize = 16;
 
 /**
+ * Variable: fixedHeaderDefault
+ *
+ * Default value for the fixedHeader style. If true, the swimlane header is
+ * always rendered even when startSize is 0. Subclasses may set this to false
+ * so that startSize of 0 falls back to non-swimlane rendering. Default is true.
+ */
+mxSwimlane.prototype.fixedHeaderDefault = true;
+
+/**
  * Function: apply
  * 
  * Extends mxShape to update the swimlane styles.
@@ -100,12 +109,20 @@ mxSwimlane.prototype.getTitleSize = function()
  */
 mxSwimlane.prototype.getLabelBounds = function(rect)
 {
+	var start = this.getTitleSize();
+	var fixedHeader = mxUtils.getValue(this.style,
+		mxConstants.STYLE_FIXED_HEADER, this.fixedHeaderDefault);
+
+	if (start == 0 && !fixedHeader)
+	{
+		return mxShape.prototype.getLabelBounds.apply(this, arguments);
+	}
+
 	var flipH = mxUtils.getValue(this.style, mxConstants.STYLE_FLIPH, 0) == 1;
 	var flipV = mxUtils.getValue(this.style, mxConstants.STYLE_FLIPV, 0) == 1;
-	var bounds = new mxRectangle(rect.x, rect.y, rect.width, rect.height);	
+	var bounds = new mxRectangle(rect.x, rect.y, rect.width, rect.height);
 	var horizontal = this.isHorizontal();
-	var start = this.getTitleSize();
-	
+
 	// East is default
 	var shapeVertical = (this.direction == mxConstants.DIRECTION_NORTH ||
 			this.direction == mxConstants.DIRECTION_SOUTH);
@@ -204,6 +221,14 @@ mxSwimlane.prototype.paintVertexShape = function(c, x, y, w, h)
 	if (!this.outline)
 	{
 		var start = this.getTitleSize();
+		var fixedHeader = mxUtils.getValue(this.style,
+			mxConstants.STYLE_FIXED_HEADER, this.fixedHeaderDefault);
+
+		if (start == 0 && !fixedHeader)
+		{
+			return;
+		}
+
 		var r = 0;
 		
 		if (this.isHorizontal())

@@ -1839,9 +1839,16 @@ mxEdgeHandler.prototype.reset = function()
 	
 	if (this.customHandles != null)
 	{
-		for (var i = 0; i < this.customHandles.length; i++)
+		// Caches handles to avoid NPE if a handle reset causes this handler
+		// to be destroyed (eg. via cellRenderer.redraw triggering selection changes)
+		var handles = this.customHandles;
+
+		for (var i = 0; i < handles.length; i++)
 		{
-			this.customHandles[i].reset();
+			if (handles[i] != null)
+			{
+				handles[i].reset();
+			}
 		}
 	}
 
@@ -2261,7 +2268,7 @@ mxEdgeHandler.prototype.redrawHandles = function()
 			this.isHandlesVisible();
 	}
 	
-	if (this.bends != null && this.bends.length > 0)
+	if (this.abspoints != null && this.bends != null && this.bends.length > 0)
 	{
 		var n = this.abspoints.length - 1;
 		
@@ -2408,12 +2415,40 @@ mxEdgeHandler.prototype.setHandlesVisible = function(visible)
 };
 
 /**
- * Function: redrawInnerBends
- * 
- * Updates and redraws the inner bends.
- * 
+ * Function: setInnerBendsOpacity
+ *
+ * Sets the opacity of inner bends to <virtualBendOpacity> if the edge
+ * has no user-defined waypoints in its geometry.
+ *
  * Parameters:
- * 
+ *
+ * bends - Array of <mxShape> bend handles.
+ * start - Start index in the bends array (inclusive).
+ * end - End index in the bends array (exclusive).
+ */
+mxEdgeHandler.prototype.setInnerBendsOpacity = function(bends, start, end)
+{
+	var geo = this.graph.getCellGeometry(this.state.cell);
+
+	if (geo != null && (geo.points == null || geo.points.length == 0))
+	{
+		for (var i = start; i < end; i++)
+		{
+			if (bends[i] != null)
+			{
+				mxUtils.setOpacity(bends[i].node, this.virtualBendOpacity);
+			}
+		}
+	}
+};
+
+/**
+ * Function: redrawInnerBends
+ *
+ * Updates and redraws the inner bends.
+ *
+ * Parameters:
+ *
  * p0 - <mxPoint> that represents the location of the first point.
  * pe - <mxPoint> that represents the location of the last point.
  */

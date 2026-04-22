@@ -520,7 +520,7 @@ mxVertexHandler.prototype.getHandleForEvent = function(me)
 {
 	// Connection highlight may consume events before they reach sizer handle
 	var tol = (!mxEvent.isMouseEvent(me.getEvent())) ? this.tolerance : 1;
-	var hit = (this.allowHandleBoundsCheck && (mxClient.IS_IE || tol > 0)) ?
+	var hit = (this.allowHandleBoundsCheck && tol > 0) ?
 		new mxRectangle(me.getGraphX() - tol, me.getGraphY() - tol, 2 * tol, 2 * tol) : null;
 
 	var checkShape = mxUtils.bind(this, function(shape)
@@ -689,11 +689,17 @@ mxVertexHandler.prototype.start = function(x, y, index)
 				
 				if (index == mxEvent.ROTATION_HANDLE)
 				{
-					this.rotationShape.node.style.display = '';
+					if (this.rotationShape != null)
+					{
+						this.rotationShape.node.style.display = '';
+					}
 				}
 				else if (index == mxEvent.LABEL_HANDLE)
 				{
-					this.labelShape.node.style.display = '';
+					if (this.labelShape != null)
+					{
+						this.labelShape.node.style.display = '';
+					}
 				}
 				else if (this.sizers != null && this.sizers[index] != null)
 				{

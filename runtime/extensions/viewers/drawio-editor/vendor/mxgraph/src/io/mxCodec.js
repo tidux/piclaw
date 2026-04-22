@@ -176,7 +176,12 @@ mxCodec.prototype.putObject = function(id, obj)
 {
 	if (this.duplicates[id] != null)
 	{
-		throw new Error(this.duplicates[id]);
+		if (window.console != null)
+		{
+			console.error(this.duplicates[id]);
+		}
+
+		return obj;
 	}
 	
 	this.objects[id] = obj;

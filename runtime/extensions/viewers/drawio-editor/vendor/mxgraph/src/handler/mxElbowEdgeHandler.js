@@ -232,7 +232,9 @@ mxElbowEdgeHandler.prototype.redrawInnerBends = function(p0, pe)
 
 	this.bends[1].bounds = bounds;
 	this.bends[1].redraw();
-	
+
+	this.setInnerBendsOpacity(this.bends, 1, 2);
+
 	if (this.manageLabelHandle)
 	{
 		this.checkLabelHandle(this.bends[1].bounds);

@@ -549,34 +549,7 @@ mxGraphView.prototype.validate = function(cell)
 		this.updatingDocumentResource;
 	
 	this.resetValidationState();
-	
-	// Improves IE rendering speed by minimizing reflows
-	var prevDisplay = null;
-	
-	if (this.canvas != null && this.textDiv == null &&
-		(document.documentMode == 8 && !mxClient.IS_EM))
-	{
-		// Placeholder keeps scrollbar positions when canvas is hidden
-		this.placeholder = document.createElement('div');
-		this.placeholder.style.position = 'absolute';
-		this.placeholder.style.width = this.canvas.clientWidth + 'px';
-		this.placeholder.style.height = this.canvas.clientHeight + 'px';
-		this.canvas.parentNode.appendChild(this.placeholder);
 
-		prevDisplay = this.drawPane.style.display;
-		this.canvas.style.display = 'none';
-		
-		// Creates temporary DIV used for text measuring in mxText.updateBoundingBox
-		this.textDiv = document.createElement('div');
-		this.textDiv.style.position = 'absolute';
-		this.textDiv.style.whiteSpace = 'nowrap';
-		this.textDiv.style.visibility = 'hidden';
-		this.textDiv.style.display = 'inline-block';
-		this.textDiv.style.zoom = '1';
-		
-		document.body.appendChild(this.textDiv);
-	}
-	
 	var cell = (cell != null) ? cell : ((this.currentRoot != null) ?
 		this.currentRoot : this.graph.getModel().getRoot());
 	var state = this.validateCellState(this.validateCell(cell));
@@ -584,21 +557,7 @@ mxGraphView.prototype.validate = function(cell)
 	this.setGraphBounds((graphBounds != null) ?
 		graphBounds : this.getEmptyBounds());
 	this.validateBackground();
-	
-	if (prevDisplay != null)
-	{
-		this.canvas.style.display = prevDisplay;
-		this.textDiv.parentNode.removeChild(this.textDiv);
-		
-		if (this.placeholder != null)
-		{
-			this.placeholder.parentNode.removeChild(this.placeholder);
-		}
-				
-		// Textdiv cannot be reused
-		this.textDiv = null;
-	}
-	
+
 	this.resetValidationState();
 	
 	window.status = mxResources.get(this.doneResource) ||
@@ -1183,14 +1142,15 @@ mxGraphView.prototype.updateEdgeState = function(state, geo)
 {
 	var source = state.getVisibleTerminalState(true);
 	var target = state.getVisibleTerminalState(false);
-	
+	var hasGtp = typeof geo.getTerminalPoint === 'function';
+
 	// This will remove edges with no terminals and no terminal points
 	// as such edges are invalid and produce NPEs in the edge styles.
 	// Also removes connected edges that have no visible terminals.
 	if ((this.graph.model.getTerminal(state.cell, true) != null && source == null) ||
-		(source == null && geo.getTerminalPoint(true) == null) ||
+		(source == null && (!hasGtp || geo.getTerminalPoint(true) == null)) ||
 		(this.graph.model.getTerminal(state.cell, false) != null && target == null) ||
-		(target == null && geo.getTerminalPoint(false) == null))
+		(target == null && (!hasGtp || geo.getTerminalPoint(false) == null)))
 	{
 		this.clear(state.cell, true);
 	}
@@ -1421,14 +1381,20 @@ mxGraphView.prototype.getFixedTerminalPoint = function(edge, terminal, source, c
 mxGraphView.prototype.updateBoundsFromStencil = function(state)
 {
 	var previous = null;
-	
+
 	if (state != null && state.shape != null && state.shape.stencil != null && state.shape.stencil.aspect == 'fixed')
 	{
 		previous = mxRectangle.fromRectangle(state);
-		var asp = state.shape.stencil.computeAspect(state.style, state.x, state.y, state.width, state.height);
-		state.setRect(asp.x, asp.y, state.shape.stencil.w0 * asp.width, state.shape.stencil.h0 * asp.height);
+		var direction = state.style[mxConstants.STYLE_DIRECTION];
+		var inverse = (direction == mxConstants.DIRECTION_NORTH || direction == mxConstants.DIRECTION_SOUTH);
+		var sw = inverse ? state.shape.stencil.h0 : state.shape.stencil.w0;
+		var sh = inverse ? state.shape.stencil.w0 : state.shape.stencil.h0;
+		var s = Math.min(state.width / sw, state.height / sh);
+
+		state.setRect(state.x + (state.width - sw * s) / 2,
+			state.y + (state.height - sh * s) / 2, sw * s, sh * s);
 	}
-	
+
 	return previous;
 };
 
@@ -1461,19 +1427,24 @@ mxGraphView.prototype.updatePoints = function(edge, points, source, target)
 			
 			// Uses the stencil bounds for routing and restores after routing
 			var srcBounds = this.updateBoundsFromStencil(src);
-			var trgBounds = this.updateBoundsFromStencil(trg);
+			var trgBounds = (src != trg) ? this.updateBoundsFromStencil(trg) : null;
 
-			edgeStyle(edge, src, trg, points, pts);
-			
-			// Restores previous bounds
-			if (srcBounds != null)
+			try
 			{
-				src.setRect(srcBounds.x, srcBounds.y, srcBounds.width, srcBounds.height);
+				edgeStyle(edge, src, trg, points, pts);
 			}
-			
-			if (trgBounds != null)
+			finally
 			{
-				trg.setRect(trgBounds.x, trgBounds.y, trgBounds.width, trgBounds.height);
+				// Restores previous bounds
+				if (srcBounds != null)
+				{
+					src.setRect(srcBounds.x, srcBounds.y, srcBounds.width, srcBounds.height);
+				}
+
+				if (trgBounds != null)
+				{
+					trg.setRect(trgBounds.x, trgBounds.y, trgBounds.width, trgBounds.height);
+				}
 			}
 		}
 		else if (points != null)
@@ -2622,8 +2593,8 @@ mxGraphView.prototype.installListeners = function()
 		mxEvent.addGestureListeners(container, mxUtils.bind(this, function(evt)
 		{
 			// Condition to avoid scrollbar events starting a rubberband selection
-			if (this.isContainerEvent(evt) &&  ((!mxClient.IS_IE && !mxClient.IS_IE11 &&
-				!mxClient.IS_GC && !mxClient.IS_OP && !mxClient.IS_SF) ||
+			if (this.isContainerEvent(evt) && ((!mxClient.IS_GC &&
+				!mxClient.IS_OP && !mxClient.IS_SF) ||
 				!this.isScrollEvent(evt)))
 			{
 				graph.fireMouseEvent(mxEvent.MOUSE_DOWN, new mxMouseEvent(evt));
@@ -2848,12 +2819,6 @@ mxGraphView.prototype.createSvg = function()
 	root.style.display = 'block';
 	root.appendChild(this.canvas);
 	
-	// Workaround for scrollbars in IE11 and below
-	if (mxClient.IS_IE || mxClient.IS_IE11)
-	{
-		root.style.overflow = 'hidden';
-	}
-
 	if (container != null)
 	{
 		container.appendChild(root);

@@ -203,13 +203,12 @@ function mxObjectCodec(template, exclude, idrefs, mapping)
 	
 	this.exclude = (exclude != null) ? exclude : [];
 	this.idrefs = (idrefs != null) ? idrefs : [];
-	this.mapping = (mapping != null) ? mapping : [];
-	
+	this.mapping = (mapping != null) ? mapping : new Object();
 	this.reverse = new Object();
 	
-	for (var i in this.mapping)
+	for (var key in this.mapping)
 	{
-		this.reverse[this.mapping[i]] = i;
+		this.reverse[this.mapping[key]] = key;
 	}
 };
 
@@ -985,8 +984,11 @@ mxObjectCodec.prototype.decodeChild = function(dec, child, obj)
 		}
 		catch (e)
 		{
-			throw new Error(e.message + ' ' + child.nodeName +
-				((fieldname != null) ? ' as ' + fieldname : ''));
+			if (window.console != null)
+			{
+				console.error(e.message + ' ' + child.nodeName +
+					((fieldname != null) ? ' as ' + fieldname : ''));
+			}
 		}
 	}
 };

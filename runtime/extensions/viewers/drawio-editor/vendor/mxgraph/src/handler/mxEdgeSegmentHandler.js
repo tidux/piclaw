@@ -409,6 +409,10 @@ mxEdgeSegmentHandler.prototype.redrawInnerBends = function(p0, pe)
 				mxUtils.setOpacity(this.bends[1].node, this.virtualBendOpacity);
 				mxUtils.setOpacity(this.bends[3].node, this.virtualBendOpacity);
 			}
+			else
+			{
+				this.setInnerBendsOpacity(this.bends, 1, pts.length);
+			}
 		}
 	}
 };

@@ -25,47 +25,11 @@ var mxClient =
 	VERSION: '@MXGRAPH-VERSION@',
 
 	/**
-	 * Variable: IS_IE
-	 *
-	 * True if the current browser is Internet Explorer 10 or below. Use <mxClient.IS_IE11>
-	 * to detect IE 11.
-	 */
-	IS_IE: navigator.userAgent != null && navigator.userAgent.indexOf('MSIE') >= 0,
-
-	/**
-	 * Variable: IS_IE11
-	 *
-	 * True if the current browser is Internet Explorer 11.x.
-	 */
-	IS_IE11: navigator.userAgent != null && !!navigator.userAgent.match(/Trident\/7\./),
-
-	/**
 	 * Variable: IS_EDGE
 	 *
 	 * True if the current browser is Microsoft Edge.
 	 */
 	IS_EDGE: navigator.userAgent != null && !!navigator.userAgent.match(/Edge\//),
-
-	/**
-	 * Variable: IS_EM
-	 * 
-	 * True if the browser is IE11 in enterprise mode (IE8 standards mode).
-	 */
-	IS_EM: 'spellcheck' in document.createElement('textarea') && document.documentMode == 8,
-
-	/**
-	 * Variable: VML_PREFIX
-	 * 
-	 * Prefix for VML namespace in node names. Default is 'v'.
-	 */
-	VML_PREFIX: 'v',
-
-	/**
-	 * Variable: OFFICE_PREFIX
-	 * 
-	 * Prefix for VML office namespace in node names. Default is 'o'.
-	 */
-	OFFICE_PREFIX: 'o',
 
 	/**
 	 * Variable: IS_NS
@@ -525,7 +489,7 @@ if (typeof(mxLanguage) != 'undefined' && mxLanguage != null)
 }
 else
 {
-	mxClient.language = (mxClient.IS_IE) ? navigator.userLanguage : navigator.language;
+	mxClient.language = navigator.language;
 }
 
 /**

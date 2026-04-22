@@ -177,25 +177,12 @@ var mxUtils =
 	 * 
 	 * element - DOM node whose current style should be returned.
 	 */
-	getCurrentStyle: function()
+	getCurrentStyle: function(element)
 	{
-		if (mxClient.IS_IE && (document.documentMode == null || document.documentMode < 9))
-		{
-			return function(element)
-			{
-				return (element != null) ? element.currentStyle : null;
-			};
-		}
-		else
-		{
-			return function(element)
-			{
-				return (element != null) ?
-					window.getComputedStyle(element, '') :
-					null;
-			};
-		}
-	}(),
+		return (element != null) ?
+			window.getComputedStyle(element, '') :
+			null;
+	},
 		
 	/**
 	 * Function: getCssFontFamily
@@ -324,11 +311,6 @@ var mxUtils =
 		{
 			prefix = 'Moz';
 		}
-		else if (mxClient.IS_IE && document.documentMode >= 9 && document.documentMode < 10)
-		{
-			prefix = 'ms';
-		}
-
 		return function(style, name, value)
 		{
 			style[name] = value;
@@ -792,14 +774,7 @@ var mxUtils =
 	 */
 	importNode: function(doc, node, allChildren)
 	{
-		if (mxClient.IS_IE && (document.documentMode == null || document.documentMode < 10))
-		{
-			return mxUtils.importNodeImplementation(doc, node, allChildren);
-		}
-		else
-		{
-			return doc.importNode(node, allChildren);
-		}
+		return doc.importNode(node, allChildren);
 	},
 
 	/**
@@ -1073,28 +1048,12 @@ var mxUtils =
 	 */
 	getXml: function(node, linefeed)
 	{
-		var xml = '';
-		
-		if (mxClient.IS_IE || mxClient.IS_IE11)
-		{
-			xml = mxUtils.getPrettyXml(node, '', '', '');
-		}
-		else if (window.XMLSerializer != null)
-		{
-			var xmlSerializer = new XMLSerializer();
-			xml = xmlSerializer.serializeToString(node);
-		}
-		else if (node.xml != null)
-		{
-			xml = node.xml.replace(/\r\n\t[\t]*/g, '').
-				replace(/>\r\n/g, '>').
-				replace(/\r\n/g, '\n');
-		}
+		var xml = new XMLSerializer().serializeToString(node);
 
 		// Replaces linefeeds with HTML Entities.
 		linefeed = linefeed || '&#xa;';
 		xml = xml.replace(/\n/g, linefeed);
-		  
+
 		return xml;
 	},
 	
@@ -1381,34 +1340,16 @@ var mxUtils =
 	 * 
 	 * node - DOM node to return the inner HTML for.
 	 */
-	getInnerHtml: function()
+	getInnerHtml: function(node)
 	{
-		if (mxClient.IS_IE)
+		if (node != null)
 		{
-			return function(node)
-			{
-				if (node != null)
-				{
-					return node.innerHTML;
-				}
-				
-				return '';
-			};
+			var serializer = new XMLSerializer();
+			return serializer.serializeToString(node);
 		}
-		else
-		{
-			return function(node)
-			{
-				if (node != null)
-				{
-					var serializer = new XMLSerializer();
-					return serializer.serializeToString(node);
-				}
-				
-				return '';
-			};
-		}
-	}(),
+
+		return '';
+	},
 
 	/**
 	 * Function: getOuterHtml
@@ -1421,74 +1362,16 @@ var mxUtils =
 	 * 
 	 * node - DOM node to return the outer HTML for.
 	 */
-	getOuterHtml: function()
+	getOuterHtml: function(node)
 	{
-		if (mxClient.IS_IE)
+		if (node != null)
 		{
-			return function(node)
-			{
-				if (node != null)
-				{
-					if (node.outerHTML != null)
-					{
-						return node.outerHTML;
-					}
-					else
-					{
-						var tmp = [];
-						tmp.push('<'+node.nodeName);
-						
-						var attrs = node.attributes;
-						
-						if (attrs != null)
-						{
-							for (var i = 0; i < attrs.length; i++)
-							{
-								var value = attrs[i].value;
-								
-								if (value != null && value.length > 0)
-								{
-									tmp.push(' ');
-									tmp.push(attrs[i].nodeName);
-									tmp.push('="');
-									tmp.push(value);
-									tmp.push('"');
-								}
-							}
-						}
-						
-						if (node.innerHTML.length == 0)
-						{
-							tmp.push('/>');
-						}
-						else
-						{
-							tmp.push('>');
-							tmp.push(node.innerHTML);
-							tmp.push('</'+node.nodeName+'>');
-						}
-						
-						return tmp.join('');
-					}
-				}
-				
-				return '';
-			};
+			var serializer = new XMLSerializer();
+			return serializer.serializeToString(node);
 		}
-		else
-		{
-			return function(node)
-			{
-				if (node != null)
-				{
-					var serializer = new XMLSerializer();
-					return serializer.serializeToString(node);
-				}
-				
-				return '';
-			};
-		}
-	}(),
+
+		return '';
+	},
 	
 	/**
 	 * Function: write
@@ -2008,21 +1891,7 @@ var mxUtils =
 	 */
 	loadInto: function(url, doc, onload)
 	{
-		if (mxClient.IS_IE)
-		{
-			doc.onreadystatechange = function ()
-			{
-				if (doc.readyState == 4)
-				{
-					onload();
-				}
-			};
-		}
-		else
-		{
-			doc.addEventListener('load', onload, false);
-		}
-		
+		doc.addEventListener('load', onload, false);
 		doc.load(url);
 	},
 	
@@ -3896,21 +3765,7 @@ var mxUtils =
 	 */
 	setOpacity: function(node, value)
 	{
-		if (mxClient.IS_IE && (typeof(document.documentMode) === 'undefined' || document.documentMode < 9))
-	    {
-	    	if (value >= 100)
-	    	{
-	    		node.style.filter = '';
-	    	}
-	    	else
-	    	{
-			    node.style.filter = 'alpha(opacity=' + value + ')';
-	    	}
-		}
-		else
-		{
-		    node.style.opacity = (value / 100);
-		}
+		node.style.opacity = (value / 100);
 	},
 
 	/**
@@ -4402,7 +4257,12 @@ var mxUtils =
 	setStyle: function(style, key, value)
 	{
 		var isValue = value != null && (typeof(value.length) == 'undefined' || value.length > 0);
-		
+
+		if (style != null && typeof style !== 'string')
+		{
+			style = '' + style;
+		}
+
 		if (style == null || style.length == 0)
 		{
 			if (isValue)
@@ -4522,7 +4382,7 @@ var mxUtils =
 	 */
 	setStyleFlag: function(style, key, flag, value)
 	{
-		if (style == null || style.length == 0)
+		if (style == null || typeof style !== 'string' || style.length == 0)
 		{
 			if (value || value == null)
 			{
@@ -4646,75 +4506,116 @@ var mxUtils =
 	 * textWidth - Optional width for text wrapping.
 	 * fontStyle - Optional font style.
 	 */
+	/**
+	 * Persistent div and state for getSizeForString. Lazy-initialized
+	 * on first call. Property values are tracked to skip DOM mutations
+	 * when inputs haven't changed, avoiding unnecessary reflows.
+	 */
+	_measureDiv: null,
+	_measureCache: null,
+
 	getSizeForString: function(text, fontSize, fontFamily, textWidth, fontStyle)
 	{
 		fontSize = (fontSize != null) ? fontSize : mxConstants.DEFAULT_FONTSIZE;
 		fontFamily = (fontFamily != null) ? fontFamily : mxConstants.DEFAULT_FONTFAMILY;
-		var div = document.createElement('div');
-		
-		// Sets the font size and family
-		div.style.fontFamily = fontFamily;
-		div.style.fontSize = Math.round(fontSize) + 'px';
-		div.style.lineHeight = (mxConstants.ABSOLUTE_LINE_HEIGHT) ?
+		fontStyle = (fontStyle != null) ? fontStyle : 0;
+
+		// Lazy-initialize persistent measurement div
+		if (mxUtils._measureDiv == null)
+		{
+			var div = document.createElement('div');
+			div.style.position = 'absolute';
+			div.style.visibility = 'hidden';
+			div.style.display = 'inline-block';
+			div.style.zoom = '1';
+			document.body.appendChild(div);
+			mxUtils._measureDiv = div;
+			mxUtils._measureCache = {};
+		}
+
+		var div = mxUtils._measureDiv;
+		var cache = mxUtils._measureCache;
+
+		// Compute derived values
+		var fontSizePx = Math.round(fontSize) + 'px';
+		var lineHeight = (mxConstants.ABSOLUTE_LINE_HEIGHT) ?
 			(fontSize * mxConstants.LINE_HEIGHT) + 'px' :
 			(mxConstants.LINE_HEIGHT * mxSvgCanvas2D.prototype.lineHeightCorrection);
-		
-		// Sets the font style
-		if (fontStyle != null)
+		var fontWeight = ((fontStyle & mxConstants.FONT_BOLD) == mxConstants.FONT_BOLD) ? 'bold' : '';
+		var fontStyleCss = ((fontStyle & mxConstants.FONT_ITALIC) == mxConstants.FONT_ITALIC) ? 'italic' : '';
+
+		var txtDecor = '';
+
+		if ((fontStyle & mxConstants.FONT_UNDERLINE) == mxConstants.FONT_UNDERLINE)
 		{
-			if ((fontStyle & mxConstants.FONT_BOLD) == mxConstants.FONT_BOLD)
-			{
-				div.style.fontWeight = 'bold';
-			}
-			
-			if ((fontStyle & mxConstants.FONT_ITALIC) == mxConstants.FONT_ITALIC)
-			{
-				div.style.fontStyle = 'italic';
-			}
-			
-			var txtDecor = [];
-			
-			if ((fontStyle & mxConstants.FONT_UNDERLINE) == mxConstants.FONT_UNDERLINE)
-			{
-				txtDecor.push('underline');
-			}
-			
-			if ((fontStyle & mxConstants.FONT_STRIKETHROUGH) == mxConstants.FONT_STRIKETHROUGH)
-			{
-				txtDecor.push('line-through');
-			}
-			
-			if (txtDecor.length > 0)
-			{
-				div.style.textDecoration = txtDecor.join(' ');
-			}
+			txtDecor = 'underline';
 		}
-		
-		// Disables block layout and outside wrapping and hides the div
-		div.style.position = 'absolute';
-		div.style.visibility = 'hidden';
-		div.style.display = 'inline-block';
-		div.style.zoom = '1';
-		
-		if (textWidth != null)
+
+		if ((fontStyle & mxConstants.FONT_STRIKETHROUGH) == mxConstants.FONT_STRIKETHROUGH)
 		{
-			div.style.width = textWidth + 'px';
-			div.style.whiteSpace = 'normal';
+			txtDecor = (txtDecor.length > 0) ? txtDecor + ' line-through' : 'line-through';
 		}
-		else
+
+		var whiteSpace = (textWidth != null) ? 'normal' : 'nowrap';
+		var widthPx = (textWidth != null) ? textWidth + 'px' : '';
+
+		// Only mutate DOM properties that have changed
+		if (cache.fontFamily !== fontFamily)
 		{
-			div.style.whiteSpace = 'nowrap';
+			div.style.fontFamily = fontFamily;
+			cache.fontFamily = fontFamily;
 		}
-		
-		// Adds the text and inserts into DOM for updating of size
-		div.innerHTML = text;
-		document.body.appendChild(div);
-		
-		// Gets the size and removes from DOM
-		var size = new mxRectangle(0, 0, div.offsetWidth, div.offsetHeight);
-		document.body.removeChild(div);
-		
-		return size;
+
+		if (cache.fontSizePx !== fontSizePx)
+		{
+			div.style.fontSize = fontSizePx;
+			cache.fontSizePx = fontSizePx;
+		}
+
+		if (cache.lineHeight !== lineHeight)
+		{
+			div.style.lineHeight = lineHeight;
+			cache.lineHeight = lineHeight;
+		}
+
+		if (cache.fontWeight !== fontWeight)
+		{
+			div.style.fontWeight = fontWeight;
+			cache.fontWeight = fontWeight;
+		}
+
+		if (cache.fontStyleCss !== fontStyleCss)
+		{
+			div.style.fontStyle = fontStyleCss;
+			cache.fontStyleCss = fontStyleCss;
+		}
+
+		if (cache.txtDecor !== txtDecor)
+		{
+			div.style.textDecoration = txtDecor;
+			cache.txtDecor = txtDecor;
+		}
+
+		if (cache.whiteSpace !== whiteSpace)
+		{
+			div.style.whiteSpace = whiteSpace;
+			cache.whiteSpace = whiteSpace;
+		}
+
+		if (cache.widthPx !== widthPx)
+		{
+			div.style.width = widthPx;
+			cache.widthPx = widthPx;
+		}
+
+		// innerHTML assignment always dirties the element, so compare first
+		if (cache.text !== text)
+		{
+			div.innerHTML = text;
+			cache.text = text;
+		}
+
+		return new mxRectangle(0, 0, div.offsetWidth, div.offsetHeight);
 	},
 	
 	/**
@@ -4964,12 +4865,6 @@ var mxUtils =
 			doc.open();
 		}
 
-		// Workaround for missing print output in IE9 standards
-		if (document.documentMode == 9)
-		{
-			doc.writeln('<!--[if IE]><meta http-equiv="X-UA-Compatible" content="IE=9"><![endif]-->');
-		}
-		
 		var bounds = graph.getGraphBounds();
 		var dx = Math.ceil(x0 - bounds.x);
 		var dy = Math.ceil(y0 - bounds.y);
@@ -4984,119 +4879,76 @@ var mxUtils =
 			h = Math.ceil(bounds.height + y0) + Math.ceil(Math.ceil(bounds.y) - bounds.y);
 		}
 		
-		// Needs a special way of creating the page so that no click is required
-		// to refresh the contents after the external CSS styles have been loaded.
-		// To avoid a click or programmatic refresh, the styleSheets[].cssText
-		// property is copied over from the original document.
-		if (mxClient.IS_IE || document.documentMode == 11)
+		doc.writeln('<html><head>');
+
+		var base = document.getElementsByTagName('base');
+
+		for (var i = 0; i < base.length; i++)
 		{
-			var html = '<html><head>';
-
-			var base = document.getElementsByTagName('base');
-			
-			for (var i = 0; i < base.length; i++)
-			{
-				html += base[i].outerHTML;
-			}
-
-			html += '<style>';
-
-			// Copies the stylesheets without having to load them again
-			for (var i = 0; i < document.styleSheets.length; i++)
-			{
-				try
-				{
-					html += document.styleSheets[i].cssText;
-				}
-				catch (e)
-				{
-					// ignore security exception
-				}
-			}
-
-			html += '</style></head><body style="margin:0px;">';
-			
-			// Copies the contents of the graph container
-			html += '<div style="position:absolute;overflow:hidden;width:' + w + 'px;height:' + h + 'px;"><div style="position:relative;left:' + dx + 'px;top:' + dy + 'px;">';
-			html += graph.container.innerHTML;
-			html += '</div></div></body><html>';
-
-			doc.writeln(html);
-			doc.close();
+			doc.writeln(mxUtils.getOuterHtml(base[i]));
 		}
-		else
+
+		var links = document.getElementsByTagName('link');
+
+		for (var i = 0; i < links.length; i++)
 		{
-			doc.writeln('<html><head>');
-			
-			var base = document.getElementsByTagName('base');
-			
-			for (var i = 0; i < base.length; i++)
+			doc.writeln(mxUtils.getOuterHtml(links[i]));
+		}
+
+		var styles = document.getElementsByTagName('style');
+
+		for (var i = 0; i < styles.length; i++)
+		{
+			doc.writeln(mxUtils.getOuterHtml(styles[i]));
+		}
+
+		doc.writeln('</head><body style="margin:0px;"></body></html>');
+		doc.close();
+
+		var outer = doc.createElement('div');
+		outer.position = 'absolute';
+		outer.overflow = 'hidden';
+		outer.style.width = w + 'px';
+		outer.style.height = h + 'px';
+
+		// Required for HTML labels if foreignObjects are disabled
+		var div = doc.createElement('div');
+		div.style.position = 'absolute';
+		div.style.left = dx + 'px';
+		div.style.top = dy + 'px';
+
+		var node = graph.container.firstChild;
+		var svg = null;
+
+		while (node != null)
+		{
+			var clone = node.cloneNode(true);
+
+			if (node == graph.view.drawPane.ownerSVGElement)
 			{
-				doc.writeln(mxUtils.getOuterHtml(base[i]));
+				outer.appendChild(clone);
+				svg = clone;
 			}
-			
-			var links = document.getElementsByTagName('link');
-			
-			for (var i = 0; i < links.length; i++)
+			else
 			{
-				doc.writeln(mxUtils.getOuterHtml(links[i]));
-			}
-	
-			var styles = document.getElementsByTagName('style');
-			
-			for (var i = 0; i < styles.length; i++)
-			{
-				doc.writeln(mxUtils.getOuterHtml(styles[i]));
+				div.appendChild(clone);
 			}
 
-			doc.writeln('</head><body style="margin:0px;"></body></html>');
-			doc.close();
+			node = node.nextSibling;
+		}
 
-			var outer = doc.createElement('div');
-			outer.position = 'absolute';
-			outer.overflow = 'hidden';
-			outer.style.width = w + 'px';
-			outer.style.height = h + 'px';
+		doc.body.appendChild(outer);
 
-			// Required for HTML labels if foreignObjects are disabled
-			var div = doc.createElement('div');
-			div.style.position = 'absolute';
-			div.style.left = dx + 'px';
-			div.style.top = dy + 'px';
+		if (div.firstChild != null)
+		{
+			doc.body.appendChild(div);
+		}
 
-			var node = graph.container.firstChild;
-			var svg = null;
-			
-			while (node != null)
-			{
-				var clone = node.cloneNode(true);
-				
-				if (node == graph.view.drawPane.ownerSVGElement)
-				{
-					outer.appendChild(clone);
-					svg = clone;
-				}
-				else
-				{
-					div.appendChild(clone);
-				}
-				
-				node = node.nextSibling;
-			}
-
-			doc.body.appendChild(outer);
-			
-			if (div.firstChild != null)
-			{
-				doc.body.appendChild(div);
-			}
-						
-			if (svg != null)
-			{
-				svg.style.minWidth = '';
-				svg.style.minHeight = '';
-				svg.firstChild.setAttribute('transform', 'translate(' + dx + ',' + dy + ')');
-			}
+		if (svg != null)
+		{
+			svg.style.minWidth = '';
+			svg.style.minHeight = '';
+			svg.firstChild.setAttribute('transform', 'translate(' + dx + ',' + dy + ')');
 		}
 		
 		mxUtils.removeCursors(doc.body);
@@ -5287,14 +5139,7 @@ var mxUtils =
 			var tmp = document.createElement('p');
 			var button = document.createElement('button');
 
-			if (mxClient.IS_IE)
-			{
-				button.style.cssText = 'float:right';
-			}
-			else
-			{
-				button.setAttribute('style', 'float:right');
-			}
+			button.setAttribute('style', 'float:right');
 
 			mxEvent.addListener(button, 'click', function(evt)
 			{

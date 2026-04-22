@@ -98,7 +98,7 @@ mxOutline.prototype.border = 14;
 /**
  * Variable: opacity
  */
-mxOutline.prototype.opacity = (mxClient.IS_IE11) ? 0.9 : 0.7;
+mxOutline.prototype.opacity = 0.7;
 
 /**
  * Function: init
@@ -393,7 +393,7 @@ mxOutline.prototype.updateDrawPane = function()
  */
 mxOutline.prototype.processSvg = function(svg)
 {
-	var s = (mxClient.IS_IE11) ? Math.max(1, this.source.view.scale) : this.source.view.scale;
+	var s = this.source.view.scale;
 	
 	Array.prototype.slice.call(svg.getElementsByTagName('*')).forEach(
 	  mxUtils.bind(this, function(item) {
@@ -409,7 +409,7 @@ mxOutline.prototype.processSvg = function(svg)
 			
 			if (!isNaN(sw))
 			{
-				item.setAttribute('stroke-width', Math.max((mxClient.IS_IE11) ? 4 : 1, sw / (5 * s)));
+				item.setAttribute('stroke-width', Math.max(1, sw / (5 * s)));
 			}
 			
 			item.setAttribute('vector-effect', 'non-scaling-stroke');
@@ -457,7 +457,7 @@ mxOutline.prototype.updateViewport = function()
 mxOutline.prototype.createViewport = function()
 {
 	var v = this.svg.ownerDocument.createElementNS(mxConstants.NS_SVG, 'rect');
-	v.setAttribute('stroke-width', (mxClient.IS_IE11) ? '12' : '3');
+	v.setAttribute('stroke-width', '3');
 	v.setAttribute('stroke', HoverIcons.prototype.arrowFill);
 	v.setAttribute('fill', HoverIcons.prototype.arrowFill);
 	v.setAttribute('vector-effect', 'non-scaling-stroke');
@@ -509,6 +509,12 @@ mxOutline.prototype.update = function(fullUpdate)
  */
 mxOutline.prototype.destroy = function()
 {
+	if (this.thread != null)
+	{
+		window.clearTimeout(this.thread);
+		this.thread = null;
+	}
+
 	if (this.svg != null)
 	{
 		this.svg.parentNode.removeChild(this.svg);
