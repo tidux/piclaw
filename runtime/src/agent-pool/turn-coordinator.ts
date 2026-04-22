@@ -238,7 +238,13 @@ export class AgentTurnCoordinator {
             currentTurnText = extracted.text;
           }
           currentTurnPhase = extracted.phase;
-          if (currentTurnPhase === "commentary") {
+          if (hadToolCallContent) {
+            // Assistant text that ships in the same message as a tool call is
+            // scratchpad/planning text for the tool-use step, not a user-visible
+            // completed reply. Never surface or persist it as a chat turn.
+            currentTurnPhase = "commentary";
+            currentTurnText = "";
+          } else if (currentTurnPhase === "commentary") {
             currentTurnText = "";
           }
 
