@@ -1054,6 +1054,11 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                 <div class="post-meta">
                     <span class="post-author">${displayName}</span>
                     ${showSearchChatAgentTag && html`<span class="post-chat-agent-tag" title=${`Chat: ${searchChatAgentName}`}>@${searchChatAgentName}</span>`}
+                    <a class="post-time" href=${`#msg-${post.id}`} onClick=${(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (onMessageRef) onMessageRef(post.id);
+                    }}>${formatTime(post.timestamp)}</a>
                     ${recoveryMarker && html`
                         <span
                             class="post-recovery-chip"
@@ -1078,11 +1083,6 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                             ${String(outcomeMarker.label || outcomeMarker.kind || 'issue')}
                         </span>
                     `}
-                    <a class="post-time" href=${`#msg-${post.id}`} onClick=${(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (onMessageRef) onMessageRef(post.id);
-                    }}>${formatTime(post.timestamp)}</a>
                 </div>
                 ${isHardTruncated && truncatedInfo && html`
                     <div class="post-content truncated">
