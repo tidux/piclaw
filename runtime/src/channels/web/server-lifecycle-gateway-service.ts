@@ -5,6 +5,7 @@ import { purgeExpiredLinkPreviewImageCache } from "../../db.js";
 import { createLogger } from "../../utils/logger.js";
 import { startWorkspaceWatcher, type WorkspaceWatcherChannel } from "./handlers/workspace.js";
 import { checkCsrfOrigin } from "./http/security.js";
+import type { LspSocketData } from "./lsp/lsp-session-service.js";
 import type { TerminalSocketData } from "./terminal/terminal-session-service.js";
 import type { VncSocketData } from "./vnc/vnc-session-service.js";
 
@@ -13,7 +14,7 @@ const LINK_PREVIEW_CACHE_PURGE_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const MAX_BIND_ATTEMPTS = 5;
 const BIND_RETRY_MS = 1500;
 
-export type WebSocketSessionData = TerminalSocketData | VncSocketData;
+export type WebSocketSessionData = TerminalSocketData | LspSocketData | VncSocketData;
 
 interface JsonResponder {
   json(payload: unknown, status?: number): Response;
@@ -29,6 +30,14 @@ interface TerminalServiceLike {
   attachClient(ws: ServerWebSocket<TerminalSocketData>): void;
   handleMessage(ws: ServerWebSocket<TerminalSocketData>, message: string | Buffer | Uint8Array): void;
   detachClient(ws: ServerWebSocket<TerminalSocketData>): void;
+  shutdown(): void;
+}
+
+interface LspServiceLike {
+  resolveSocketDataFromRequest(req: Request, allowUnauthenticated?: boolean): LspSocketData | null;
+  attachClient(ws: ServerWebSocket<LspSocketData>): void;
+  handleMessage(ws: ServerWebSocket<LspSocketData>, message: string | Buffer | Uint8Array): void;
+  detachClient(ws: ServerWebSocket<LspSocketData>): void;
   shutdown(): void;
 }
 
@@ -78,6 +87,7 @@ export interface WebServerLifecycleGatewayDeps extends JsonResponder {
   purgeExpiredLinkPreviewImageCache(nowIso: string, limit: number): { purgedEntries: number; purgedMedia: number };
   authGateway: AuthGatewayLike;
   terminalService: TerminalServiceLike;
+  lspService: LspServiceLike;
   vncService: VncServiceLike;
   uiBridge: UiBridgeLike;
   sse: SseHubLike;
@@ -95,6 +105,7 @@ export interface WebServerLifecycleGatewayChannel extends JsonResponder, Workspa
   handleRequest(req: Request): Promise<Response>;
   authGateway: AuthGatewayLike;
   terminalService: TerminalServiceLike;
+  lspService: LspServiceLike;
   vncService: VncServiceLike;
   uiBridge: UiBridgeLike;
   sse: SseHubLike;
@@ -116,6 +127,7 @@ export function createWebServerLifecycleGateway(
     purgeExpiredLinkPreviewImageCache: (nowIso, limit) => purgeExpiredLinkPreviewImageCache(nowIso, limit),
     authGateway: channel.authGateway,
     terminalService: channel.terminalService,
+    lspService: channel.lspService,
     vncService: channel.vncService,
     uiBridge: channel.uiBridge,
     sse: channel.sse,
@@ -160,6 +172,10 @@ export class WebServerLifecycleGatewayService {
                 this.deps.vncService.attachClient(ws as ServerWebSocket<VncSocketData>);
                 return;
               }
+              if (ws.data?.kind === "lsp") {
+                this.deps.lspService.attachClient(ws as ServerWebSocket<LspSocketData>);
+                return;
+              }
               this.deps.terminalService.attachClient(ws as ServerWebSocket<TerminalSocketData>);
             },
             message: (ws, message) => {
@@ -167,11 +183,19 @@ export class WebServerLifecycleGatewayService {
                 this.deps.vncService.handleMessage(ws as ServerWebSocket<VncSocketData>, message as any);
                 return;
               }
+              if (ws.data?.kind === "lsp") {
+                this.deps.lspService.handleMessage(ws as ServerWebSocket<LspSocketData>, message as any);
+                return;
+              }
               this.deps.terminalService.handleMessage(ws as ServerWebSocket<TerminalSocketData>, message as any);
             },
             close: (ws) => {
               if (ws.data?.kind === "vnc") {
                 this.deps.vncService.detachClient(ws as ServerWebSocket<VncSocketData>);
+                return;
+              }
+              if (ws.data?.kind === "lsp") {
+                this.deps.lspService.detachClient(ws as ServerWebSocket<LspSocketData>);
                 return;
               }
               this.deps.terminalService.detachClient(ws as ServerWebSocket<TerminalSocketData>);
@@ -226,6 +250,7 @@ export class WebServerLifecycleGatewayService {
     this.deps.sse.closeAll();
     this.deps.uiBridge.stop();
     this.deps.terminalService.shutdown();
+    this.deps.lspService.shutdown();
     this.deps.vncService.shutdown();
     if (this.linkPreviewCachePurgeTimer) {
       this.clearInterval(this.linkPreviewCachePurgeTimer);
@@ -245,6 +270,9 @@ export class WebServerLifecycleGatewayService {
     const pathname = new URL(req.url).pathname;
     if (pathname === "/terminal/ws") {
       return this.handleTerminalWebSocketUpgrade(req, server);
+    }
+    if (pathname === "/lsp/ws") {
+      return this.handleLspWebSocketUpgrade(req, server);
     }
     if (pathname === "/vnc/ws") {
       return this.handleVncWebSocketUpgrade(req, server);
@@ -271,6 +299,24 @@ export class WebServerLifecycleGatewayService {
     }
     owner.handoffToken = handoffToken || null;
     if (!server?.upgrade(req, { data: owner })) {
+      return this.deps.json({ error: "WebSocket upgrade failed" }, 400);
+    }
+    return undefined;
+  }
+
+  handleLspWebSocketUpgrade(req: Request, server?: Bun.Server<WebSocketSessionData>): Response | undefined {
+    const authEnabled = this.deps.authGateway.isAuthEnabled();
+    if (authEnabled && !this.deps.authGateway.isAuthenticated(req)) {
+      return this.deps.json({ error: "Unauthorized" }, 401);
+    }
+    if (!checkCsrfOrigin(req)) {
+      return this.deps.json({ error: "Origin not allowed" }, 403);
+    }
+    const data = this.deps.lspService.resolveSocketDataFromRequest(req, !authEnabled);
+    if (!data) {
+      return this.deps.json({ error: "Unauthorized or unsupported LSP file." }, 401);
+    }
+    if (!server?.upgrade(req, { data })) {
       return this.deps.json({ error: "WebSocket upgrade failed" }, 400);
     }
     return undefined;

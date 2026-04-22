@@ -649,6 +649,22 @@ export async function updateWorkspaceFile(path, content) {
     });
 }
 
+export async function getLspSession(path, options = {}) {
+    const params = new URLSearchParams();
+    params.set('path', path || '');
+    if (options?.clientToken) params.set('client', String(options.clientToken));
+    return request(`/lsp/session?${params.toString()}`);
+}
+
+export async function requestLspHandoff(path, options = {}) {
+    const params = new URLSearchParams();
+    params.set('path', path || '');
+    if (options?.clientToken) params.set('client', String(options.clientToken));
+    return request(`/lsp/handoff?${params.toString()}`, {
+        method: 'POST',
+    });
+}
+
 /**
  * Create a download attachment for a workspace file
  */

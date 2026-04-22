@@ -23,11 +23,13 @@ import {
     scrollPastEnd,
     showPanel,
     javascript,
+    cpp,
     python,
     markdown,
     markdownLanguage,
     go,
     json,
+    rust,
     css,
     html as htmlLang,
     yaml,
@@ -48,8 +50,12 @@ import {
     highlightSelectionMatches,
     autocompletion,
     completionKeymap,
+    startCompletion,
     closeBrackets,
     closeBracketsKeymap,
+    hoverTooltip,
+    lintGutter,
+    setDiagnostics,
     vim,
     indentationMarkers,
     githubLight,
@@ -59,6 +65,7 @@ import {
 import { getWorkspaceBranch, getWorkspaceFile, getWorkspaceFileStat, updateWorkspaceFile } from '../../../web/src/api.js';
 import { createFileConflictMonitor, type FileConflictMonitor } from '../../../web/src/panes/file-conflict-monitor.js';
 import type { WebPaneExtension, PaneContext, PaneInstance, PaneCapability, PaneHostAttachContext, PaneHostDetachContext } from '../../../web/src/panes/pane-types.js';
+import { createLspClientAdapter } from '../../../web/src/lsp/lsp-client.js';
 import { frontmatterExtension } from './markdown/frontmatter.js';
 import { footnoteExtension } from './markdown/footnote.js';
 import { hashtagExtension } from './markdown/tag.js';
@@ -140,6 +147,8 @@ function normalizeEditorHostTransferState(value: unknown): EditorHostTransferSta
 function languageForPath(path: string) {
     const lower = String(path || '').toLowerCase();
     if (lower.endsWith('.py')) return python();
+    if (lower.endsWith('.rs')) return rust();
+    if (lower.endsWith('.c') || lower.endsWith('.cc') || lower.endsWith('.cpp') || lower.endsWith('.cxx') || lower.endsWith('.h') || lower.endsWith('.hh') || lower.endsWith('.hpp') || lower.endsWith('.hxx')) return cpp();
     if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return javascript({ typescript: true, jsx: lower.endsWith('.tsx') });
     if (lower.endsWith('.js') || lower.endsWith('.jsx')) return javascript({ jsx: lower.endsWith('.jsx') });
     if (lower.endsWith('.md') || lower.endsWith('.markdown')) return markdown({
@@ -252,6 +261,10 @@ export class StandaloneEditorInstance implements PaneInstance {
 
     // External change detection
     private conflictMonitor: FileConflictMonitor | null = null;
+    private lspClient: any = null;
+    private lspStatus: 'idle' | 'checking' | 'connecting' | 'connected' | 'ready' | 'unavailable' | 'disconnected' | 'error' = 'idle';
+    private lspStatusDetail = 'LSP off';
+    private lspDiagnostics: any[] = [];
 
     constructor(container: HTMLElement, context: PaneContext) {
         this.container = container;
@@ -374,8 +387,15 @@ export class StandaloneEditorInstance implements PaneInstance {
         text.textContent = 'Ready';
         this._statusText = text;
 
+        const lsp = this.ownerDocument.createElement('span');
+        lsp.className = 'editor-lsp-hint';
+        lsp.textContent = 'LSP: off';
+        lsp.title = 'Language server status';
+        this._lspHint = lsp;
+
         meta.appendChild(branch);
         meta.appendChild(text);
+        meta.appendChild(lsp);
 
         const actionsDiv = this.ownerDocument.createElement('div');
         actionsDiv.className = 'editor-status-actions';
@@ -422,6 +442,7 @@ export class StandaloneEditorInstance implements PaneInstance {
     private _branchHint: HTMLElement | null = null;
     private _branchLabel: HTMLElement | null = null;
     private _statusText: HTMLElement | null = null;
+    private _lspHint: HTMLElement | null = null;
     private _wsBtn: HTMLButtonElement | null = null;
     private _lpBtn: HTMLButtonElement | null = null;
     private _vimBtn: HTMLButtonElement | null = null;
@@ -497,6 +518,7 @@ export class StandaloneEditorInstance implements PaneInstance {
         this.currentMtime = mtime || null;
         this.setLoadingUI(false);
         this.renderEditorSurface(content, this.diffMode === 'saved' ? 'saved' : null, null);
+        this.initLsp();
         this.setDirty(false);
         this.updateLivePreviewControlState();
         this.updateWhitespaceControlState();
@@ -558,12 +580,17 @@ export class StandaloneEditorInstance implements PaneInstance {
             ...(options.scrollPastEnd === false ? [] : [scrollPastEnd()]),
             indentOnInput(),
             closeBrackets(),
-            autocompletion(),
+            autocompletion({
+                override: [this.createLspCompletionSource()],
+                activateOnTyping: true,
+            }),
             highlightSelectionMatches(),
+            lintGutter(),
             indentationMarkers(),
             syntaxHighlighting(headingStyle),
             syntaxHighlighting(classHighlighter),
             search(),
+            hoverTooltip((view, pos, side) => this.createLspHoverTooltip(view, pos, side)),
             this.vimCompartment.of(this.vimEnabled ? vim() : []),
             this.themeCompartment.of(isDark ? githubDark : githubLight),
             this.accentCompartment.of(this.buildAccentTheme()),
@@ -574,9 +601,14 @@ export class StandaloneEditorInstance implements PaneInstance {
                 ...closeBracketsKeymap,
                 indentWithTab,
                 { key: 'Mod-s', run: () => { this.handleSave(); return true; } },
+                { key: 'F12', run: () => this.handleGoToDefinition() },
+                { key: 'Mod-.', run: () => this.handleGoToDefinition() },
             ]),
             EditorView.updateListener.of((update: any) => {
                 if (update.docChanged) this.checkDirty();
+                if (update.docChanged && this.lspClient) {
+                    this.lspClient.changeDocument(update.state.doc.toString());
+                }
                 if ((update.selectionSet || update.docChanged) && this.viewStateChangeCb) {
                     const pos = update.state.selection.main.head;
                     const line = update.state.doc.lineAt(pos);
@@ -618,6 +650,7 @@ export class StandaloneEditorInstance implements PaneInstance {
             extensions: this.buildEditableEditorExtensions({ scrollPastEnd: true }),
         });
         this.view = new EditorView({ state, parent: this.cmHost });
+        this.applyLspDiagnostics();
         if (viewState) requestAnimationFrame(() => this.restoreViewState(viewState));
         if (this.supportsMarkdownLivePreview() && this.livePreviewEnabled) {
             void this.applyLivePreview(true);
@@ -647,6 +680,7 @@ export class StandaloneEditorInstance implements PaneInstance {
         });
         this.baselineView = this.mergeView.a;
         this.view = this.mergeView.b;
+        this.applyLspDiagnostics();
         if (viewState) requestAnimationFrame(() => this.restoreViewState(viewState));
     }
 
@@ -1020,6 +1054,196 @@ export class StandaloneEditorInstance implements PaneInstance {
         if (this._statusText) this._statusText.textContent = text;
     }
 
+    private updateLspStatus(state: typeof this.lspStatus, detail: string): void {
+        this.lspStatus = state;
+        this.lspStatusDetail = detail || 'LSP';
+        if (!this._lspHint) return;
+        const shortLabel = state === 'ready' || state === 'connected'
+            ? 'connected'
+            : state === 'unavailable'
+                ? 'unavailable'
+                : state === 'error'
+                    ? 'error'
+                    : state === 'checking'
+                        ? 'checking'
+                        : state === 'connecting'
+                            ? 'connecting'
+                            : state === 'disconnected'
+                                ? 'disconnected'
+                                : 'off';
+        this._lspHint.textContent = `LSP: ${shortLabel}`;
+        this._lspHint.title = detail || `LSP: ${shortLabel}`;
+        this._lspHint.dataset.state = state;
+    }
+
+    private initLsp(): void {
+        this.disposeLsp();
+        this.lspDiagnostics = [];
+        this.applyLspDiagnostics();
+        if (!this.path || !this.view) {
+            this.updateLspStatus('idle', 'LSP off');
+            return;
+        }
+        this.lspClient = createLspClientAdapter({
+            path: this.path,
+            onStatus: (status: any) => this.updateLspStatus(status?.state || 'idle', status?.detail || 'LSP'),
+            onSession: (session: any) => {
+                if (session?.available === false) {
+                    this.updateLspStatus('unavailable', session?.unavailable_reason || 'LSP unavailable');
+                }
+            },
+            onReady: () => {
+                this.updateLspStatus('ready', 'LSP connected');
+                this.syncLspDocument();
+            },
+            onDiagnostics: (payload: any) => {
+                if (payload?.path && payload.path !== this.path) return;
+                this.lspDiagnostics = Array.isArray(payload?.diagnostics) ? payload.diagnostics : [];
+                this.applyLspDiagnostics();
+            },
+            onError: (error: any) => {
+                const message = typeof error?.error === 'string'
+                    ? error.error
+                    : (error instanceof Error ? error.message : 'LSP error');
+                this.updateLspStatus('error', message);
+            },
+        });
+        void this.lspClient.connect().then(() => this.syncLspDocument()).catch((error: any) => {
+            this.updateLspStatus('error', error?.message || 'Failed to connect LSP');
+        });
+    }
+
+    private syncLspDocument(): void {
+        if (!this.lspClient || !this.view) return;
+        this.lspClient.openDocument(this.view.state.doc.toString());
+    }
+
+    private disposeLsp(): void {
+        if (!this.lspClient) return;
+        this.lspClient.dispose();
+        this.lspClient = null;
+    }
+
+    private applyLspDiagnostics(): void {
+        if (!this.view) return;
+        const diagnostics = this.mapLspDiagnosticsToCodeMirror(this.lspDiagnostics);
+        try {
+            this.view.dispatch(setDiagnostics(this.view.state, diagnostics));
+        } catch {}
+    }
+
+    private mapLspDiagnosticsToCodeMirror(diagnostics: any[]): any[] {
+        if (!this.view || !Array.isArray(diagnostics)) return [];
+        return diagnostics.map((item: any) => {
+            const fromLine = this.view!.state.doc.line(Math.max(1, Number(item?.range?.start?.line ?? 0) + 1));
+            const toLine = this.view!.state.doc.line(Math.max(1, Number(item?.range?.end?.line ?? item?.range?.start?.line ?? 0) + 1));
+            const from = Math.min(fromLine.to, fromLine.from + Math.max(0, Number(item?.range?.start?.character ?? 0)));
+            const to = Math.min(toLine.to, toLine.from + Math.max(0, Number(item?.range?.end?.character ?? item?.range?.start?.character ?? 0)));
+            return {
+                from,
+                to: Math.max(from, to),
+                severity: this.mapLspSeverity(item?.severity),
+                message: String(item?.message || 'Language server diagnostic'),
+                source: item?.source ? String(item.source) : undefined,
+            };
+        });
+    }
+
+    private mapLspSeverity(value: unknown): 'error' | 'warning' | 'info' {
+        const severity = Number(value || 0);
+        if (severity === 1) return 'error';
+        if (severity === 2) return 'warning';
+        return 'info';
+    }
+
+    private createLspCompletionSource() {
+        return async (context: any) => {
+            if (!this.lspClient?.isConnected?.()) return null;
+            const line = context.state.doc.lineAt(context.pos);
+            const result = await this.lspClient.requestCompletion(line.number - 1, context.pos - line.from);
+            const rawItems = Array.isArray(result) ? result : (Array.isArray(result?.items) ? result.items : []);
+            if (!rawItems.length) return null;
+            return {
+                from: context.pos,
+                options: rawItems.map((item: any) => ({
+                    label: String(item?.label || ''),
+                    type: this.mapCompletionKind(item?.kind),
+                    detail: item?.detail ? String(item.detail) : undefined,
+                    info: item?.documentation ? this.stringifyHoverContents(item.documentation) : undefined,
+                    apply: item?.insertText || item?.label || '',
+                })).filter((item: any) => item.label),
+            };
+        };
+    }
+
+    private mapCompletionKind(kind: unknown): string {
+        const value = Number(kind || 0);
+        if (value === 2) return 'method';
+        if (value === 3) return 'function';
+        if (value === 6) return 'variable';
+        if (value === 7) return 'class';
+        if (value === 9) return 'module';
+        return 'text';
+    }
+
+    private async createLspHoverTooltip(view: any, pos: number): Promise<any> {
+        if (!this.lspClient?.isConnected?.()) return null;
+        const line = view.state.doc.lineAt(pos);
+        const result = await this.lspClient.requestHover(line.number - 1, pos - line.from);
+        const text = this.stringifyHoverContents(result?.contents);
+        if (!text) return null;
+        return {
+            pos,
+            above: true,
+            create: () => {
+                const dom = this.ownerDocument.createElement('div');
+                dom.className = 'cm-tooltip-lsp';
+                dom.textContent = text;
+                return { dom };
+            },
+        };
+    }
+
+    private stringifyHoverContents(contents: any): string {
+        if (!contents) return '';
+        if (typeof contents === 'string') return contents;
+        if (Array.isArray(contents)) {
+            return contents.map((item) => this.stringifyHoverContents(item)).filter(Boolean).join('\n\n');
+        }
+        if (typeof contents?.value === 'string') return contents.value;
+        if (typeof contents?.language === 'string' && typeof contents?.value === 'string') return contents.value;
+        if (typeof contents?.kind === 'string' && typeof contents?.value === 'string') return contents.value;
+        return '';
+    }
+
+    private async handleGoToDefinition(): Promise<boolean> {
+        if (!this.view || !this.lspClient?.isConnected?.()) return false;
+        const pos = this.view.state.selection.main.head;
+        const line = this.view.state.doc.lineAt(pos);
+        const result = await this.lspClient.requestDefinition(line.number - 1, pos - line.from);
+        const target = Array.isArray(result) ? result[0] : result;
+        const range = target?.targetSelectionRange || target?.targetRange || target?.range;
+        const targetPath = String(target?.path || '').trim();
+        if (!targetPath || !range) return false;
+        const viewState = {
+            cursorLine: Number(range?.start?.line ?? 0) + 1,
+            cursorCol: Number(range?.start?.character ?? 0) + 1,
+        };
+        if (targetPath === this.path) {
+            this.restoreViewState(viewState);
+            this.focus();
+            return true;
+        }
+        this.ownerDocument.dispatchEvent(new CustomEvent('editor:open-tab', {
+            detail: {
+                path: targetPath,
+                label: targetPath.split('/').pop() || targetPath,
+                viewState,
+            },
+        }));
+        return true;
+    }
+
     private updateGutterWidth(): void {
         if (!this.view) return;
         const gutters = this.view.dom.querySelector('.cm-gutters');
@@ -1047,6 +1271,7 @@ export class StandaloneEditorInstance implements PaneInstance {
         this.initialContent = content;
         this.currentMtime = mtime;
         this.renderEditorSurface(content, this.diffMode, viewState);
+        this.syncLspDocument();
         this.setDirty(false);
     }
 
@@ -1066,6 +1291,7 @@ export class StandaloneEditorInstance implements PaneInstance {
         this.conflictMonitor?.dispose();
         this.unbindHostListeners();
         this.destroyEditorViews();
+        this.disposeLsp();
         this.container.innerHTML = '';
         this.dirtyChangeCb = null;
         this.saveRequestCb = null;
@@ -1160,6 +1386,7 @@ export class StandaloneEditorInstance implements PaneInstance {
         }
         this.updateLivePreviewControlState();
         this.updateWhitespaceControlState();
+        this.initLsp();
         void this.refreshBranchHint();
     }
 

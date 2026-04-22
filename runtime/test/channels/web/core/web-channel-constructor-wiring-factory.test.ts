@@ -89,6 +89,10 @@ describe("web channel constructor wiring factory", () => {
       handleVncSession: (_req: Request) => new Response("vnc-session"),
       handleVncHandoff: async (_req: Request) => new Response("vnc-handoff"),
     } as unknown as ReturnType<WebChannelConstructorFactoryDeps["createTerminalVncHttpService"]>;
+    const lspHttpService = {
+      handleLspSession: (_req: Request) => new Response("lsp-session"),
+      handleLspHandoff: async (_req: Request) => new Response("lsp-handoff"),
+    } as unknown as ReturnType<WebChannelConstructorFactoryDeps["createLspHttpService"]>;
     const adaptiveCardSidePromptService = sentinel<ReturnType<WebChannelConstructorFactoryDeps["createAdaptiveCardSidePromptService"]>>(
       "adaptive-card-side-prompt",
     );
@@ -123,6 +127,7 @@ describe("web channel constructor wiring factory", () => {
         },
       } as unknown as WebChannelConstructorFactoryChannel["queuedFollowupLifecycle"],
       terminalService: sentinel<WebChannelConstructorFactoryChannel["terminalService"]>("terminal-service"),
+      lspService: sentinel<WebChannelConstructorFactoryChannel["lspService"]>("lsp-service"),
       vncService: sentinel<WebChannelConstructorFactoryChannel["vncService"]>("vnc-service"),
       webauthnChallenges: sentinel<WebChannelConstructorFactoryChannel["webauthnChallenges"]>("webauthn-challenges"),
       totpFailureTracker: sentinel<WebChannelConstructorFactoryChannel["totpFailureTracker"]>("totp-failure-tracker"),
@@ -246,6 +251,7 @@ describe("web channel constructor wiring factory", () => {
         creationOrder.push("serverLifecycleGateway");
         expect(seenChannel.authGateway).toBe(authGateway);
         expect(seenChannel.terminalService).toBe(channel.terminalService);
+        expect(seenChannel.lspService).toBe(channel.lspService);
         expect(seenChannel.vncService).toBe(channel.vncService);
         expect(seenChannel.uiBridge).toBe(sessionBroadcast.uiBridge);
         expect(seenChannel.sse).toBe(sessionBroadcast.sse);
@@ -262,6 +268,12 @@ describe("web channel constructor wiring factory", () => {
         expect(seenChannel.vncService).toBe(channel.vncService);
         expect(configs).toEqual({ webRuntimeConfig: options.webRuntimeConfig });
         return terminalVncHttpService;
+      },
+      createLspHttpService: (seenChannel) => {
+        creationOrder.push("lspHttpService");
+        expect(seenChannel.authGateway).toBe(authGateway);
+        expect(seenChannel.lspService).toBe(channel.lspService);
+        return lspHttpService;
       },
       createAdaptiveCardSidePromptService: (serviceOptions) => {
         creationOrder.push("adaptiveCardSidePromptService");
@@ -337,6 +349,7 @@ describe("web channel constructor wiring factory", () => {
     expect(result.controlPlaneService).toBe(controlPlaneService);
     expect(result.serverLifecycleGateway).toBe(serverLifecycleGateway);
     expect(result.terminalVncHttpService).not.toBe(terminalVncHttpService);
+    expect(result.lspHttpService).not.toBe(lspHttpService);
     expect(result.adaptiveCardSidePromptService).toBe(adaptiveCardSidePromptService);
     expect(result.peerMessageRelayService).toBe(peerMessageRelayService);
 
@@ -423,6 +436,10 @@ describe("web channel constructor wiring factory", () => {
     expect(creationOrder).not.toContain("terminalVncHttpService");
     expect(await result.terminalVncHttpService.handleTerminalSession(new Request("https://example.com/terminal/session")).text()).toBe("terminal-session");
     expect(creationOrder.filter((entry) => entry === "terminalVncHttpService")).toEqual(["terminalVncHttpService"]);
+
+    expect(creationOrder).not.toContain("lspHttpService");
+    expect(await result.lspHttpService.handleLspSession(new Request("https://example.com/lsp/session?path=src/app.ts")).text()).toBe("lsp-session");
+    expect(creationOrder.filter((entry) => entry === "lspHttpService")).toEqual(["lspHttpService"]);
 
     expect(creationOrder).not.toContain("remoteInterop");
     expect(await (await result.remoteInterop.handleRequest(new Request("https://example.com/api/remote/ping"))).text()).toBe("remote-interop");

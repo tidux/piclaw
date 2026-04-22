@@ -28,15 +28,18 @@ export {
   highlightWhitespace,
   scrollPastEnd,
   showPanel,
+  hoverTooltip,
   Decoration,
   ViewPlugin,
   WidgetType,
 } from "@codemirror/view";
 export { javascript } from "@codemirror/lang-javascript";
+export { cpp } from "@codemirror/lang-cpp";
 export { python } from "@codemirror/lang-python";
 export { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 export { go } from "@codemirror/lang-go";
 export { json } from "@codemirror/lang-json";
+export { rust } from "@codemirror/lang-rust";
 export { css } from "@codemirror/lang-css";
 export { html } from "@codemirror/lang-html";
 export { yaml } from "@codemirror/lang-yaml";
@@ -47,8 +50,8 @@ export { tags, classHighlighter } from "@lezer/highlight";
 export { shell } from "@codemirror/legacy-modes/mode/shell";
 export { indentWithTab } from "@codemirror/commands";
 export { search, openSearchPanel, closeSearchPanel, searchKeymap, highlightSelectionMatches } from "@codemirror/search";
-export { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-export { lintGutter } from "@codemirror/lint";
+export { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, startCompletion } from "@codemirror/autocomplete";
+export { lintGutter, setDiagnostics } from "@codemirror/lint";
 export { vim } from "@replit/codemirror-vim";
 export { indentationMarkers } from "@replit/codemirror-indentation-markers";
 export { githubLight, githubDark } from "@uiw/codemirror-theme-github";
@@ -56,9 +59,11 @@ export { MergeView } from "@codemirror/merge";
 
 // Additional exports for shared vendor usage by app-side syntax highlighting.
 export { javascriptLanguage, jsxLanguage, tsxLanguage, typescriptLanguage } from "@codemirror/lang-javascript";
+export { cppLanguage } from "@codemirror/lang-cpp";
 export { pythonLanguage } from "@codemirror/lang-python";
 export { goLanguage } from "@codemirror/lang-go";
 export { jsonLanguage } from "@codemirror/lang-json";
+export { rustLanguage } from "@codemirror/lang-rust";
 export { cssLanguage } from "@codemirror/lang-css";
 export { htmlLanguage } from "@codemirror/lang-html";
 export { yamlLanguage } from "@codemirror/lang-yaml";
@@ -68,7 +73,6 @@ export { highlightTree } from "@lezer/highlight";
 export { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
 export { powerShell } from "@codemirror/legacy-modes/mode/powershell";
 export { ruby } from "@codemirror/legacy-modes/mode/ruby";
-export { rust } from "@codemirror/legacy-modes/mode/rust";
 export { swift } from "@codemirror/legacy-modes/mode/swift";
 export { toml } from "@codemirror/legacy-modes/mode/toml";
 

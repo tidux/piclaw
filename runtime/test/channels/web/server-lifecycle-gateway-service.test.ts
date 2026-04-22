@@ -54,6 +54,7 @@ function createFixture(overrides: Partial<WebServerLifecycleGatewayDeps> = {}) {
 
   const terminalOwner = { kind: "terminal" as const, token: "terminal-token", userId: "user-1" };
   const vncOwner = { kind: "vnc" as const, token: "vnc-token", userId: "user-1", targetRef: "target-a" };
+  const lspOwner = { kind: "lsp" as const, token: "lsp-token", userId: "user-1", path: "src/app.ts", target: {} as any };
   const watcher = {
     close: async () => {
       state.watcherCloseCalls += 1;
@@ -121,6 +122,13 @@ function createFixture(overrides: Partial<WebServerLifecycleGatewayDeps> = {}) {
       shutdown: () => {
         state.terminalShutdownCalls += 1;
       },
+    },
+    lspService: {
+      resolveSocketDataFromRequest: (_req, _allowUnauthenticated = false) => lspOwner,
+      attachClient: () => {},
+      handleMessage: () => {},
+      detachClient: () => {},
+      shutdown: () => {},
     },
     vncService: {
       resolveOwnerFromRequest: (_req, targetId, allowUnauthenticated = false) => {
@@ -199,10 +207,15 @@ describe("web server lifecycle gateway service", () => {
     expect(terminalResponse).toBeUndefined();
     expect(fixture.state.upgradeCalls[0]?.data).toEqual(fixture.terminalOwner);
 
+    const lspReq = createRequest("/lsp/ws?path=src/app.ts");
+    const lspResponse = await service.handleFetch(lspReq, fixture.server);
+    expect(lspResponse).toBeUndefined();
+    expect(fixture.state.upgradeCalls[1]?.data).toEqual(expect.objectContaining({ kind: "lsp", token: "lsp-token" }));
+
     const vncReq = createRequest("/vnc/ws?target=desktop-a&handoff=handoff-1");
     const vncResponse = await service.handleFetch(vncReq, fixture.server);
     expect(vncResponse).toBeUndefined();
-    expect(fixture.state.upgradeCalls[1]?.data).toEqual({
+    expect(fixture.state.upgradeCalls[2]?.data).toEqual({
       ...fixture.vncOwner,
       targetRef: "desktop-a",
       handoffToken: "handoff-1",

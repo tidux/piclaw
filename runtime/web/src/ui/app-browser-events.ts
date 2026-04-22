@@ -20,7 +20,7 @@ interface RuntimeLike {
 }
 
 export interface PaneOpenEventCallbacks {
-  openTab?: (path: string, label?: string) => void;
+  openTab?: (path: string, label?: string, viewState?: Record<string, unknown> | null) => void;
   editSource?: (path: string, label?: string) => void;
   popOutPane?: (path: string, label?: string) => void;
 }
@@ -34,11 +34,12 @@ export function watchPaneOpenEvents(callbacks: PaneOpenEventCallbacks, runtime: 
   const editSource = callbacks?.editSource;
   const popOutPane = callbacks?.popOutPane;
 
-  const openTabHandler = (event: { detail?: { path?: string; label?: string } }) => {
+  const openTabHandler = (event: { detail?: { path?: string; label?: string; viewState?: Record<string, unknown> | null } }) => {
     const path = event?.detail?.path;
     const label = typeof event?.detail?.label === 'string' && event.detail.label.trim() ? event.detail.label.trim() : undefined;
+    const viewState = event?.detail?.viewState && typeof event.detail.viewState === 'object' ? event.detail.viewState : null;
     if (path) {
-      openTab?.(path, label);
+      openTab?.(path, label, viewState);
     }
   };
 
@@ -69,6 +70,7 @@ export function watchPaneOpenEvents(callbacks: PaneOpenEventCallbacks, runtime: 
     'mindmap:open-tab',
     'kanban:open-tab',
     'vnc:open-tab',
+    'editor:open-tab',
   ];
 
   openTabEvents.forEach((type) => doc.addEventListener(type, openTabHandler));

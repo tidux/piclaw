@@ -6,6 +6,7 @@ import type { RequestRouterService } from "../request-router-service.js";
 import type { WebServerLifecycleGatewayService, WebSocketSessionData } from "../server-lifecycle-gateway-service.js";
 import type { WebSessionBroadcastService } from "../sse/session-broadcast-service.js";
 import type { WebTerminalVncHttpService } from "../terminal-vnc-http-service.js";
+import type { WebLspHttpService } from "../lsp-http-service.js";
 
 type WebChannelHttpSurfaceEndpointFacade = Pick<
   WebChannelEndpointFacadeService,
@@ -69,6 +70,7 @@ export interface WebChannelHttpSurfaceChannel {
     WebTerminalVncHttpService,
     "handleTerminalSession" | "handleTerminalHandoff" | "handleVncSession" | "handleVncHandoff"
   >;
+  lspHttpService: Pick<WebLspHttpService, "handleLspSession" | "handleLspHandoff">;
   sessionBroadcast: Pick<WebSessionBroadcastService, "handleSse">;
   remoteInterop: Pick<RemoteInteropService, "handleRequest">;
   responses: WebChannelHttpSurfaceResponses;
@@ -158,6 +160,14 @@ export class WebChannelHttpSurfaceService {
 
   handleTerminalHandoff(req: Request): Promise<Response> {
     return this.channel.terminalVncHttpService.handleTerminalHandoff(req);
+  }
+
+  handleLspSession(req: Request): Response {
+    return this.channel.lspHttpService.handleLspSession(req);
+  }
+
+  handleLspHandoff(req: Request): Promise<Response> {
+    return this.channel.lspHttpService.handleLspHandoff(req);
   }
 
   handleVncSession(req: Request): Response {

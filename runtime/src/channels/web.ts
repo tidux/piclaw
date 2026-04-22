@@ -54,12 +54,15 @@ import {
 } from "./web/core/web-channel-prototype.js";
 import { TerminalSessionService } from "./web/terminal/terminal-session-service.js";
 import type { TerminalSocketData } from "./web/terminal/terminal-session-service.js";
+import { LspSessionService } from "./web/lsp/lsp-session-service.js";
+import type { LspSocketData } from "./web/lsp/lsp-session-service.js";
 import { VncSessionService } from "./web/vnc/vnc-session-service.js";
 import type { VncSocketData } from "./web/vnc/vnc-session-service.js";
 import type { RemoteInteropService } from "../remote/service.js";
 import type { WebMessageProcessingStorageService } from "./web/messaging/message-processing-storage-service.js";
 import type { WebChannelRuntimeFollowupFacadeService } from "./web/runtime/runtime-followup-facade-service.js";
 import { initializeWebChannelConstructor } from "./web/core/web-channel-constructor-factory.js";
+import type { WebLspHttpServiceSurface } from "./web/lsp-http-service.js";
 
 const DEFAULT_CHAT_JID = "web:default";
 const DEFAULT_AGENT_ID = "default";
@@ -130,6 +133,40 @@ function createLazyVncService(factory: () => VncSessionService): VncSessionServi
   } as unknown as VncSessionService;
 }
 
+function createLazyLspService(factory: () => LspSessionService): LspSessionService {
+  let instance: LspSessionService | null = null;
+  const get = (): LspSessionService => {
+    instance ??= factory();
+    return instance;
+  };
+  return {
+    resolveOwnerFromRequest(req: Request, allowUnauthenticated = false) {
+      return get().resolveOwnerFromRequest(req, allowUnauthenticated);
+    },
+    resolveSocketDataFromRequest(req: Request, allowUnauthenticated = false) {
+      return get().resolveSocketDataFromRequest(req, allowUnauthenticated);
+    },
+    getSessionInfo(owner: { token: string; userId: string }, inputPath: string | null | undefined) {
+      return get().getSessionInfo(owner, inputPath);
+    },
+    attachClient(ws: Bun.ServerWebSocket<LspSocketData>) {
+      return get().attachClient(ws);
+    },
+    handleMessage(ws: Bun.ServerWebSocket<LspSocketData>, rawMessage: string | Buffer | Uint8Array) {
+      return get().handleMessage(ws, rawMessage);
+    },
+    detachClient(ws: Bun.ServerWebSocket<LspSocketData>) {
+      return get().detachClient(ws);
+    },
+    createHandoffFromRequest(req: Request, allowUnauthenticated = false) {
+      return get().createHandoffFromRequest(req, allowUnauthenticated);
+    },
+    shutdown() {
+      return get().shutdown();
+    },
+  } as unknown as LspSessionService;
+}
+
 /** Construction options for WebChannel: queue and agentPool references. */
 export interface WebChannelOpts {
   queue: AgentQueue;
@@ -140,6 +177,7 @@ export interface WebChannelOpts {
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class WebChannel implements WebChannelLike {
   private _terminalService: TerminalSessionService | null = null;
+  private _lspService: LspSessionService | null = null;
   private _vncService: VncSessionService | null = null;
 
   queue!: AgentQueue;
@@ -161,6 +199,10 @@ export class WebChannel implements WebChannelLike {
     this._terminalService ??= new TerminalSessionService();
     return this._terminalService;
   });
+  lspService = createLazyLspService(() => {
+    this._lspService ??= new LspSessionService();
+    return this._lspService;
+  });
   vncService = createLazyVncService(() => {
     this._vncService ??= new VncSessionService();
     return this._vncService;
@@ -169,6 +211,7 @@ export class WebChannel implements WebChannelLike {
   private readonly runtimeState!: WebChannelRuntimeStateService;
   private readonly serverLifecycleGateway!: WebServerLifecycleGatewayService;
   private readonly terminalVncHttpService!: WebTerminalVncHttpServiceSurface;
+  private readonly lspHttpService!: WebLspHttpServiceSurface;
   private readonly adaptiveCardSidePromptService!: WebAdaptiveCardSidePromptService;
   private readonly peerMessageRelayService!: WebAgentPeerMessageRelayService;
   private readonly httpSurfaceService!: WebChannelHttpSurfaceService;

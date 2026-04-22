@@ -430,7 +430,10 @@ export function watchPaneOpenEventBridge(options: WatchPaneOpenEventBridgeOption
   } = options;
 
   return watchPaneOpenEventsImpl({
-    openTab: (path, label) => openEditor(path, label ? { label } : undefined),
+    openTab: (path, label, viewState) => openEditor(path, {
+      ...(label ? { label } : {}),
+      ...(viewState ? { viewState } : {}),
+    }),
     editSource: (path, label) => openEditor(path, {
       ...(label ? { label } : {}),
       paneOverrideId: 'editor',

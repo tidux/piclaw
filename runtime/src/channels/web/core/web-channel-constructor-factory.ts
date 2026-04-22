@@ -62,8 +62,15 @@ import {
   type WebTerminalVncHttpService,
   type WebTerminalVncHttpServiceSurface,
 } from "../terminal-vnc-http-service.js";
+import {
+  createWebLspHttpService,
+  type WebLspHttpChannel,
+  type WebLspHttpService,
+  type WebLspHttpServiceSurface,
+} from "../lsp-http-service.js";
 import { TotpFailureTracker } from "../auth/totp-failure-tracker.js";
 import { VncSessionService } from "../vnc/vnc-session-service.js";
+import { LspSessionService } from "../lsp/lsp-session-service.js";
 import type { WebChannelLike } from "./web-channel-contracts.js";
 import { WebauthnChallengeTracker } from "../auth/webauthn-challenges.js";
 
@@ -79,6 +86,7 @@ export interface WebChannelConstructorFactoryChannel {
   queuedFollowupLifecycle: QueuedFollowupLifecycleService;
   terminalService: TerminalSessionService;
   vncService: VncSessionService;
+  lspService: LspSessionService;
   workspaceVisible: boolean;
   workspaceShowHidden: boolean;
   webauthnChallenges: WebauthnChallengeTracker;
@@ -148,6 +156,7 @@ export interface WebChannelConstructorFactoryResult {
   controlPlaneService: WebAgentControlPlaneService;
   serverLifecycleGateway: WebServerLifecycleGatewayService;
   terminalVncHttpService: WebTerminalVncHttpServiceSurface;
+  lspHttpService: WebLspHttpServiceSurface;
   adaptiveCardSidePromptService: WebAdaptiveCardSidePromptService;
   peerMessageRelayService: WebAgentPeerMessageRelayService;
 }
@@ -196,6 +205,7 @@ export interface WebChannelConstructorFactoryDeps {
     channel: WebTerminalVncHttpChannel,
     configs: { webRuntimeConfig: WebChannelConstructorFactoryOptions["webRuntimeConfig"] },
   ): WebTerminalVncHttpService;
+  createLspHttpService(channel: WebLspHttpChannel): WebLspHttpService;
   createAdaptiveCardSidePromptService(options: WebAdaptiveCardSidePromptServiceOptions): WebAdaptiveCardSidePromptService;
   createPeerMessageRelayService(
     channel: WebChannelConstructorFactoryChannel,
@@ -233,6 +243,7 @@ const defaultDeps: WebChannelConstructorFactoryDeps = {
     createWebAgentControlPlaneService(channel as unknown as Parameters<typeof createWebAgentControlPlaneService>[0], defaults),
   createServerLifecycleGateway: (channel, configs) => createWebServerLifecycleGateway(channel, configs),
   createTerminalVncHttpService: (channel, configs) => createWebTerminalVncHttpService(channel, configs),
+  createLspHttpService: (channel) => createWebLspHttpService(channel),
   createAdaptiveCardSidePromptService: (options) => new WebAdaptiveCardSidePromptService(options),
   createPeerMessageRelayService: (channel, defaults) =>
     createWebAgentPeerMessageRelayService(channel as unknown as WebAgentPeerMessageRelayChannelLike, defaults),
@@ -391,6 +402,7 @@ export function createWebChannelConstructorFactory(
       handleRequest: (req) => channel.handleRequest(req),
       authGateway,
       terminalService: channel.terminalService,
+      lspService: channel.lspService,
       vncService: channel.vncService,
       get workspaceVisible() {
         return channel.workspaceVisible;
@@ -439,6 +451,25 @@ export function createWebChannelConstructorFactory(
     },
   };
 
+  let lspHttpServiceInstance: WebLspHttpService | null = null;
+  const getLspHttpService = (): WebLspHttpService => {
+    lspHttpServiceInstance ??= deps.createLspHttpService({
+      json: (payload, status = 200) => channel.json(payload, status),
+      authGateway,
+      lspService: channel.lspService,
+    });
+    return lspHttpServiceInstance;
+  };
+
+  const lspHttpService: WebLspHttpServiceSurface = {
+    handleLspSession(req: Request): Response {
+      return getLspHttpService().handleLspSession(req);
+    },
+    async handleLspHandoff(req: Request): Promise<Response> {
+      return await getLspHttpService().handleLspHandoff(req);
+    },
+  };
+
   const adaptiveCardSidePromptService = deps.createAdaptiveCardSidePromptService({
     defaultChatJid: options.defaultChatJid,
     defaultAgentId: options.defaultAgentId,
@@ -480,6 +511,7 @@ export function createWebChannelConstructorFactory(
     controlPlaneService,
     serverLifecycleGateway,
     terminalVncHttpService,
+    lspHttpService,
     adaptiveCardSidePromptService,
     peerMessageRelayService,
   };
