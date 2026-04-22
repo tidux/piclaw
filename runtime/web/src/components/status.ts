@@ -781,15 +781,6 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
                 totalLines: planInfo.totalLines,
                 panelKey: 'plan',
             })}
-            ${showCorePanels && hasThought && renderThinkingPanel({
-                panelTitle: panelTitle('Thoughts'),
-                text: thoughtInfo.text,
-                fullText: thoughtInfo.fullText,
-                totalLines: thoughtInfo.totalLines,
-                maxLines: THOUGHT_MAX_LINES,
-                titleClass: 'thought',
-                panelKey: 'thought',
-            })}
             ${showCorePanels && hasDraft && renderThinkingPanel({
                 panelTitle: panelTitle('Draft'),
                 text: draftInfo.text,
@@ -798,6 +789,15 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
                 maxLines: DRAFT_MAX_LINES,
                 titleClass: 'thought',
                 panelKey: 'draft',
+            })}
+            ${showCorePanels && hasThought && renderThinkingPanel({
+                panelTitle: panelTitle('Thoughts'),
+                text: thoughtInfo.text,
+                fullText: thoughtInfo.fullText,
+                totalLines: thoughtInfo.totalLines,
+                maxLines: THOUGHT_MAX_LINES,
+                titleClass: 'thought',
+                panelKey: 'thought',
             })}
             ${showCorePanels && status && status?.type !== 'intent' && html`
                 <div class=${`agent-status${isLastActivity ? ' agent-status-last-activity' : ''}${status?.type === 'error' ? ' agent-status-error' : ''}${toolRepoLabel || statusHints.length > 0 || statusActivityAgeLabel ? ' agent-status-multiline' : ''}`} aria-live="polite" style=${turnColor ? `--turn-color: ${turnColor};` : ''}>

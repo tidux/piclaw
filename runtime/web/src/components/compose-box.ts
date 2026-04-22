@@ -851,6 +851,22 @@ export function ComposeBox({
         return chats;
     }, [activeChatAgents, currentChatJid]);
     const hasSwitchableChatAgents = switchableChatAgents.length > 0;
+    const visibleSessionPickerChats = useMemo(() => {
+        const items = [];
+        const seen = new Set();
+        const pushChat = (chat) => {
+            const chatJid = typeof chat?.chat_jid === 'string' ? chat.chat_jid.trim() : '';
+            if (!chatJid || seen.has(chatJid) || chat?.archived_at) return;
+            seen.add(chatJid);
+            items.push(chat);
+        };
+        pushChat(currentSessionAgent);
+        for (const chat of switchableChatAgents) pushChat(chat);
+        return items;
+    }, [currentSessionAgent, switchableChatAgents]);
+    const currentSessionLabel = currentSessionAgent?.agent_name
+        ? `@${String(currentSessionAgent.agent_name).trim()}`
+        : String(currentChatJid || 'web:default').trim();
     const canSwitchSession = hasSwitchableChatAgents && typeof onSwitchChat === 'function';
     const canRestoreSession = hasSwitchableChatAgents && typeof onRestoreSession === 'function';
     const renameInProgress = Boolean(isRenameSessionInProgress || renameSessionInProgressRef.current);
@@ -2246,6 +2262,25 @@ export function ComposeBox({
                     </div>
                     `}
                     <div class="compose-actions ${searchMode ? 'search-mode' : ''}">
+                    ${!searchMode && currentSessionLabel && html`
+                        <div class="compose-session-inline" title=${currentSessionAgent?.chat_jid || currentChatJid}>
+                            <span class="compose-current-agent-label active">${currentSessionLabel}</span>
+                            ${visibleSessionPickerChats.length > 1 && canSwitchSession && html`
+                                <select
+                                    class="compose-session-picker"
+                                    value=${currentChatJid}
+                                    onChange=${(event) => onSwitchChat?.(event.currentTarget.value)}
+                                    aria-label="Switch chat"
+                                >
+                                    ${visibleSessionPickerChats.map((chat) => html`
+                                        <option key=${chat.chat_jid} value=${chat.chat_jid}>
+                                            ${formatBranchPickerLabel(chat, { currentChatJid })}
+                                        </option>
+                                    `)}
+                                </select>
+                            `}
+                        </div>
+                    `}
                     ${searchMode && html`
                         <label class="compose-search-scope-wrap" title="Search scope">
                             <span class="compose-search-scope-label">Scope</span>
