@@ -2,22 +2,20 @@
 
 ![PiClaw](docs/icon-256.png)
 
-PiClaw packages the [Pi Coding Agent](https://github.com/badlogic/pi-mono) into a self-hosted workspace with a streaming web UI, multi-provider LLM support, persistent state, and a growing collection of built-in tools — code editor, terminal, VNC client, document viewers, kanban boards, and autonomous experiment loops.
+PiClaw packages the [Pi Coding Agent](https://github.com/badlogic/pi-mono) into a self-hosted workspace with a streaming web UI, persistent state, multi-provider LLM support, and a practical built-in toolset.
 
-It is built for people who want a practical, stateful agent they can run locally or in a container without stitching together half a dozen separate services.
+It is for people who want one stateful agent workspace they can run locally or in a container without stitching together half a dozen separate services.
 
 ## Why PiClaw
 
 ![Demo Animation](docs/demo.gif)
 
-- **Streaming web UI** — real-time chat with Markdown, KaTeX, Mermaid, and Adaptive Cards
-- **Persistent agent state** — SQLite-backed messages, media, tasks, token usage, encrypted keychain, and session-scoped SSH / Proxmox / Portainer profiles
-- **Workspace-native workflow** — browse files, preview documents, upload attachments, drag files into the workspace explorer with progress feedback and a client-side size guard, edit code, reference files in prompts, and optionally flip core tools to a remote SSH host for the current session
-- **Built-in tools** — Ghostty-based terminal, code editor, Office/PDF/CSV/image/video viewers, draw.io, kanban board and mindmap editors, VNC client, browser automation, sharp-backed image processing, bundled MCP access via `pi-mcp-adapter`, and agent-only infrastructure tools for SSH, Proxmox, and Portainer
-- **Visual artifact generation** — agent-driven HTML pages, architecture diagrams, data tables, diff reviews, slide decks, and draw.io files using vendored Mermaid, ECharts, D3, and KaTeX libraries with a consistent visual-design profile (adapted from [nicobailon/visual-explainer](https://github.com/nicobailon/visual-explainer))
-- **Agent control features** — steering, queued follow-ups, threading, side prompts, autoresearch experiment loops, and scheduled tasks
-- **Context conservation by default** — small always-active tool baseline, staged tool/script discovery via `list_tools` / `list_scripts` (filtered or intent-guided discovery → compact summary → on-demand detail → activate/use), lazy activation for non-default tools, and opt-in examples for higher-detail workflow help
-- **Optional auth and channels** — passkeys/TOTP for the web UI, plus optional WhatsApp integration
+- **One workspace, one app** — chat, editor, terminal, viewers, boards, uploads, and automation in the same web UI
+- **Persistent state** — SQLite-backed messages, media, tasks, token usage, encrypted keychain, and session-scoped SSH / Proxmox / Portainer profiles
+- **Practical built-ins** — code editing, Office/PDF/CSV/image/video viewing, draw.io, VNC, browser automation, image processing, MCP, and infra tools
+- **Agent-first workflows** — steering, queued follow-ups, side prompts, autoresearch loops, scheduled tasks, and visual artifact generation
+- **Context conservation** — small always-active tool baseline with staged discovery via `list_tools` / `list_scripts`
+- **Optional auth/channels** — passkeys/TOTP for the web UI, plus optional WhatsApp integration
 
 ## Quick start
 
@@ -64,64 +62,25 @@ Open `http://localhost:8080` and type `/login` to configure your LLM provider, i
 > [!NOTE]
 > Power users can place workspace-scoped shell environment overrides in `/workspace/.env.sh`. PiClaw sources that file for the embedded terminal and on runtime startup, which is useful for things like `PATH` tweaks or persisting `gh auth login` with `GH_CONFIG_DIR=/workspace/.config/gh`. This hook is user-controlled: if its contents break PiClaw startup, shell behavior, or tool resolution, that breakage is the user's responsibility.
 
-## Web UI
+## Web UI at a glance
 
 PiClaw is single-user, mobile-friendly, and streams updates over SSE.
 
-### Chat
+| Area | Highlights |
+|---|---|
+| Chat | Thought/draft panels, steering, queued follow-ups, Adaptive Cards, `/btw`, link previews, threaded turns, recovery/timeout chips |
+| Status UX | Tool/intended status stays visible during silence probing, recent activity restores useful context, and tool rows can show compact `x ago` hints in the meta row |
+| Workspace | Sidebar browser, drag-and-drop uploads, file-reference pills, explorer search/reindex status |
+| Editor | CodeMirror 6, search/replace, dirty-state tracking, syntax highlighting, lazy local bundle |
+| Terminal | Ghostty-based web terminal as dock or tab; detachable popouts |
+| Viewers | Draw.io, Office docs, CSV/TSV, PDF, images, video, code previews, kanban boards, mindmaps, VNC |
+| Automation | `/image`, `/flux`, `image_process`, `cdp_browser`, `mcp`, experimental `m365`, Windows-only `win_*` tools |
 
-- Thought and draft panels during streaming
-- Live steering and queued follow-ups
-- Adaptive Cards with persisted submissions
-- `/btw` side conversations
-- File attachments, link previews, threaded turns, and syntax-highlighted previews for common text/code attachments
-- Themes and tinting via `/theme` and `/tint`
-- Mobile-friendly layout with webapp manifest
-
-### Workspace
-
-- Sidebar file browser with auto-refresh, drag-and-drop upload progress, and a client-side 256 MB upload guard before the request even starts
-- File-reference pills in prompts
-- Folder sizes in the starburst explorer
-- Workspace search index status with one-click reindex from the explorer header
-
-### Editor
-
-- CodeMirror 6 with syntax highlighting for JS/TS, Python, Go, JSON, CSS, HTML, YAML, SQL, XML/SVG, Markdown, and Shell
-- Search and replace, dirty-state tracking, line wrapping
-- Lazy-loaded local bundle — no CDN dependency
-
-### Terminal
-
-- Ghostty-based web terminal — a real shell in the browser, not a simulation
-- Runs as a dock panel or a standalone tab
-- Detachable into popout windows with live session transfer
-- Enabled by default on Linux and macOS; disable with `PICLAW_WEB_TERMINAL_ENABLED=0`
-- Still disabled by default on Windows
-
-### Viewers
-
-- **Draw.io** — self-hosted editor with SVG/PNG/XML export back to workspace
-- **Office documents** — `.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`
-- **CSV/TSV** — dedicated table viewer
-- **PDF, images, video** — inline viewers
-- **Text/code attachments** — syntax-highlighted timeline preview modal for common code/config formats
-- **Kanban boards** — `*.kanban.md` in a drag-and-drop board editor (Obsidian Kanban compatible)
-- **Mindmaps** — `*.mindmap.yaml` in a D3/SVG visual editor
-- **VNC remote display** — connect to allowlisted targets from a tab, with direct-connect enabled by default on Linux, macOS, and Windows (experimental); disable with `PICLAW_WEB_VNC_ALLOW_DIRECT=0`
-
-### Automation
-
-- **`/image` and `/flux`** — workspace-backed image generation commands for Azure OpenAI / Foundry; `/image` now supports `--transparent` for transparent PNG output when the Azure OpenAI model supports it
-- **`image_process`** — sharp-backed workspace image manipulation for resize/crop/convert/optimise, metadata inspection, text/SVG/composite operations, and animated GIF frame/spritesheet workflows
-- **`cdp_browser`** — Chromium/Edge/Chrome automation via CDP for navigation, JS evaluation, DOM clicking, and screenshots
-- **`mcp` via `pi-mcp-adapter`** — token-efficient access to external MCP servers configured through `.pi/mcp.json`
-- **Experimental `m365` extension** — opt-in Microsoft 365 automation bundle for Teams, Graph, OneDrive, SharePoint, and calendar flows; enable with `PICLAW_ENABLE_M365_EXPERIMENTAL=1` (primarily validated on Windows with YOLO mode, with Edge → Chrome → Chromium browser lookup across Windows/macOS/Linux). Graph-backed consumer-account support now exists; Teams chat flows still require a work/school tenant, and the auth/browser reuse path now follows the current Teams web-app entry instead of the stale legacy route.
-- **`win_*` tools** — Windows-only desktop automation via Win32 FFI for window enumeration, screenshots, element inspection, clicking, typing, and process management. No-ops on non-Windows platforms.
+For the full feature tour, see [docs/web-ui.md](docs/web-ui.md).
 
 ## Configuration
 
-Key environment variables:
+Most users only need a few environment variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -135,7 +94,7 @@ Key environment variables:
 | `PICLAW_KEYCHAIN_KEY` | _(empty)_ | Master key for encrypted secret storage |
 | `PICLAW_TRUST_PROXY` | `0` | Enable when behind a reverse proxy or tunnel |
 
-For the full list, auth setup (TOTP/passkeys), session-scoped SSH-backed remote tools, reverse proxy configuration, and SSHFS/FUSE support, see [docs/configuration.md](docs/configuration.md).
+For the full list, auth setup (TOTP/passkeys), session-scoped SSH-backed remote tools, reverse proxy configuration, SSHFS/FUSE support, and the workspace environment hook, see [docs/configuration.md](docs/configuration.md).
 
 ## Other install methods
 
@@ -155,41 +114,15 @@ See [docs/development.md](docs/development.md).
 
 ## Documentation
 
-**Setup & operations**
-
-- [Configuration](docs/configuration.md) — environment variables, auth, reverse proxy, SSHFS
-- [Install from repo](docs/install-from-repo.md) — Bun-based Docker-free install
-- [Azure VM deployment](docs/azure/README.md) — provisioning, systemd service, Caddy reverse proxy, managed-identity
-- [Reverse proxy](docs/reverse-proxy.md) — Caddy, nginx, Cloudflare Tunnel, and trusted-proxy config
-- [Release process](docs/release.md) — versioning, tagging, publishing
-
-**Architecture & internals**
-
-- [Architecture](docs/architecture.md)
-- [Runtime flows](docs/runtime-flows.md)
-- [Storage model](docs/storage.md)
-- [Web pane extensions](docs/web-pane-extensions.md)
-- [Extension UI contract](docs/extension-ui-contract.md)
-- [Vendored widget libraries](docs/vendored-widget-libraries.md) — Babylon.js, ECharts, D3, Mermaid, fonts, and the widget post-processing helpers
-- [Visual artifact generator](docs/visual-artifact-generator.md) — skill for generating polished HTML pages, diagrams, tables, slide decks, and draw.io files from vendored libraries
-- [Dream memory system](docs/dream-memory.md) — nightly memory consolidation and daily note maintenance
-- [Web notification delivery policy](docs/web-notification-delivery-policy.md)
-- [iOS PWA reference](docs/PWA.md) — viewport, safe area, and standalone-mode quirks
-
-**Reference**
-
-- [Tools and skills](docs/tools-and-skills.md) — includes the uniform `ssh` / `proxmox` / `portainer` control surface (`discover`, `capabilities`, `recommend`, `request`, `workflow`) and the context-conserving discovery flow
-- [Keychain](docs/keychain.md)
-- [WhatsApp](docs/whatsapp.md)
-- [Cross-instance interop](docs/cross-instance-ipc.md)
-- [MCP via pi-mcp-adapter](docs/mcp.md)
-- [Azure OpenAI extension](docs/azure/azure-openai-extension.md) — managed-identity provider notes plus `/image` and `/flux` behaviour
-- [Experimental M365 extension](docs/m365-experimental-extension.md) — Microsoft 365 browser-auth automation, including current consumer-account support boundaries
-- [Development](docs/development.md)
-
-**Platform studies**
-
-- [Azure Functions feasibility study](docs/azure/azure-functions-feasibility-study-2026-04-17.md) — detailed analysis of running Piclaw entirely on Azure Functions (verdict: not recommended)
+| Area | Docs |
+|---|---|
+| Getting started | [Configuration](docs/configuration.md), [Web UI](docs/web-ui.md), [Install from repo](docs/install-from-repo.md) |
+| Operations | [Azure VM deployment](docs/azure/README.md), [Reverse proxy](docs/reverse-proxy.md), [Release process](docs/release.md) |
+| Runtime internals | [Architecture](docs/architecture.md), [Runtime flows](docs/runtime-flows.md), [Storage model](docs/storage.md) |
+| UI extension model | [Web pane extensions](docs/web-pane-extensions.md), [Extension UI contract](docs/extension-ui-contract.md), [Vendored widget libraries](docs/vendored-widget-libraries.md) |
+| Agent capabilities | [Tools and skills](docs/tools-and-skills.md), [Visual artifact generator](docs/visual-artifact-generator.md), [MCP via pi-mcp-adapter](docs/mcp.md), [Keychain](docs/keychain.md) |
+| Other references | [Dream memory system](docs/dream-memory.md), [Web notification delivery policy](docs/web-notification-delivery-policy.md), [iOS PWA reference](docs/PWA.md), [WhatsApp](docs/whatsapp.md), [Cross-instance interop](docs/cross-instance-ipc.md), [Experimental M365 extension](docs/m365-experimental-extension.md), [Development](docs/development.md) |
+| Platform study | [Azure Functions feasibility study](docs/azure/azure-functions-feasibility-study-2026-04-17.md) |
 
 ## Credits
 

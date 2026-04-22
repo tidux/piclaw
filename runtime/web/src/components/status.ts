@@ -81,12 +81,17 @@ export function formatAgentStatusGitLabel(repoPath, branch) {
     return [repoName, normalizedBranch].filter(Boolean).join(' • ');
 }
 
-export function resolveStatusActivityAgeLabel(status, nowMs = Date.now()) {
-    if (!status || typeof status !== 'object') return null;
+export function shouldTickStatusActivityAge(status) {
+    if (!status || typeof status !== 'object') return false;
     const type = typeof status.type === 'string' ? status.type : '';
     const isLastActivity = Boolean(status.last_activity || status.lastActivity);
     const isToolStatus = type === 'tool_call' || type === 'tool_status' || Boolean(status.tool_name || status.tool_args);
-    if (!isLastActivity && !isToolStatus) return null;
+    if (!isLastActivity && !isToolStatus) return false;
+    return parseStatusLastEventAt(status) !== null;
+}
+
+export function resolveStatusActivityAgeLabel(status, nowMs = Date.now()) {
+    if (!shouldTickStatusActivityAge(status)) return null;
     const lastEventAtMs = parseStatusLastEventAt(status);
     if (lastEventAtMs === null) return null;
     const ageLabel = formatElapsed(new Date(lastEventAtMs).toISOString(), nowMs);
@@ -252,6 +257,10 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
 
     const statusIsCompaction = isCompactionStatus(status);
     const isLastActivity = Boolean(status?.last_activity || status?.lastActivity);
+    const shouldTickActivityAge = useMemo(
+        () => shouldTickStatusActivityAge(status),
+        [status],
+    );
     const toolContextPath = useMemo(
         () => extractToolContextPath(status?.tool_name, status?.tool_args),
         [status?.tool_name, status?.tool_args],
@@ -272,11 +281,11 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
     }, [status?.retry_at, status?.retryAt]);
 
     useEffect(() => {
-        if (!isLastActivity) return;
+        if (!shouldTickActivityAge) return;
         setNowMs(Date.now());
         const timer = setInterval(() => setNowMs(Date.now()), 1000);
         return () => clearInterval(timer);
-    }, [isLastActivity]);
+    }, [shouldTickActivityAge, status?.last_event_at, status?.lastEventAt, status?.started_at, status?.startedAt, status?.type, status?.tool_name, status?.tool_args]);
 
     useEffect(() => {
         const isToolStatus = status?.type === 'tool_call' || status?.type === 'tool_status';
@@ -808,7 +817,6 @@ export function AgentStatus({ status, draft, plan, thought, pendingRequest, inte
                                     </span>
                                 `)}
                                 ${statusActivityAgeLabel && html`
-                                    ${(toolRepoLabel || orderedStatusHints.length > 0) && html`<span class="agent-status-meta-separator" aria-hidden="true">•</span>`}
                                     <span class="agent-status-hint-row agent-status-activity-row" title=${`${isLastActivity ? 'Recent activity' : 'Last event'} ${statusActivityAgeLabel}`}>
                                         <span class="agent-status-hint-icon">${CLOCK_ICON_SVG}</span>
                                         <span class="agent-status-hint-label">${statusActivityAgeLabel}</span>

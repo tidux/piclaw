@@ -490,6 +490,7 @@ Each skill keeps its script alongside its `SKILL.md` for portability. Current se
 | `send-message` | Send chat messages immediately via IPC (supports optional `media` attachments via `media` array) |
 | `token-chart` | Generate token usage charts (from `token_usage`); supports `--mode provider-model` for per-provider/model breakdowns |
 | `graphite-power-chart` | Generate Zigbee/Graphite charts for the web timeline |
+| `graph-design` | Design, audit, and redraw inline SVG architecture/flow diagrams with source verification and orthogonal rounded-arrow conventions |
 | `web-search` | Search the web via SearXNG and convert pages to Markdown |
 | `web-search-summary` | Search via SearXNG with auto-summarised results |
 | `twitter-summary` | Fetch a user's recent tweets via Playwright + Nitter |

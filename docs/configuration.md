@@ -153,7 +153,13 @@ Once enabled:
 
 PiClaw supports a workspace-scoped shell hook at `/workspace/.env.sh`.
 
-This is a **power-user feature** for intentionally customizing the environment seen by:
+For managed non-secret variables, prefer the built-in `env` tool first. It
+writes a managed block into `/workspace/.env.sh`, persists the source of truth
+under `/workspace/.piclaw/env-tool.json`, and updates `process.env`
+immediately for later tool calls in the same runtime.
+
+This file is still a **power-user feature** for intentionally customizing the
+environment seen by:
 
 - the embedded web terminal
 - interactive shells in the container/workspace
@@ -164,6 +170,7 @@ Typical uses include:
 - extending `PATH` for workspace-local binaries
 - redirecting tool config into the mounted workspace
 - persisting GitHub CLI auth/config across container recreation
+- keeping deliberate non-secret workspace defaults via the `env` tool
 
 Example:
 
@@ -198,6 +205,7 @@ That helper installs the latest GitHub CLI release into `/workspace/.local/bin/g
 - missing `/workspace/.env.sh` is a no-op
 - new containers pick it up automatically on startup
 - existing containers may need a one-time `.bashrc` regeneration if they were initialized before this feature existed
+- the `env` tool manages only its own marked block inside `/workspace/.env.sh`
 - the default workspace skeleton ignores `.env.sh` so local secrets and machine-specific paths are less likely to be committed accidentally
 
 ### Responsibility boundary
