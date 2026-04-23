@@ -80,7 +80,7 @@
     "check:hook-tdz": "bun run runtime/scripts/check-hook-tdz.ts",
     "check:silent-swallows": "bun run runtime/scripts/silent-swallow-metrics.ts --check",
     "check:structured-logging": "bun run runtime/scripts/structured-logging-scope-metrics.ts --check",
-    "ci:fast": "bun run check:silent-swallows && bun run check:structured-logging && cd runtime && PICLAW_DB_IN_MEMORY=1 bun test test/channels/web/tool-status-hints.test.ts test/web/status-hints.test.ts && cd .. && make build-web",
+    "ci:fast": "bun run check:silent-swallows && bun run check:structured-logging && cd runtime && PICLAW_DB_IN_MEMORY=1 bun test test/agent-pool/tool-factory.test.ts test/extensions/extensions-tool-activation.test.ts test/channels/web/tool-status-hints.test.ts test/web/status-hints.test.ts && cd .. && make build-web",
     "ci:publish-smoke": "./scripts/docker/publish-smoke-test.sh \"$IMAGE_REF\" \"$PLATFORM\" \"$EXPECTED_BUN_VERSION\" \"$EXPECTED_RESTIC_VERSION\"",
     "quality": "bun run lint && bun run typecheck && bun run test && bun run check:pack-hygiene && bun run check:stale-dist && bun run check:import-boundaries && bun run check:unused-exports && bun run check:hook-tdz && bun run check:silent-swallows && bun run check:structured-logging",
     "audit:baseline-quality-deterministic": "./scripts/audit-baseline-quality-deterministic.sh",
