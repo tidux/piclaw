@@ -7,6 +7,9 @@ import {
   getCuratedLanguageServerProfiles,
   type CuratedLanguageServerProfile,
 } from "./curated-language-servers.js";
+import { createLogger, debugSuppressedError } from "../../../utils/logger.js";
+
+const log = createLogger("web.lsp-server-registry");
 
 export interface LspServerCommandSpec {
   command: string;
@@ -84,7 +87,12 @@ export function findProjectRoot(absPath: string, markers: string[]): string | nu
       try {
         accessSync(path.join(current, marker), constants.F_OK);
         return current;
-      } catch {}
+      } catch (error) {
+        debugSuppressedError(log, "Project root marker was not present while resolving LSP root.", error, {
+          marker,
+          directory: current,
+        });
+      }
     }
     if (current === workspaceRoot) break;
     const parent = path.dirname(current);
@@ -125,7 +133,9 @@ export function findExecutable(command: string, rootPath?: string | null): strin
     try {
       accessSync(candidate, constants.X_OK);
       return candidate;
-    } catch {}
+    } catch (error) {
+      debugSuppressedError(log, "LSP executable candidate was not available.", error, { candidate, command });
+    }
   }
   return null;
 }

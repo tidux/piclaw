@@ -1135,7 +1135,9 @@ export class StandaloneEditorInstance implements PaneInstance {
         const diagnostics = this.mapLspDiagnosticsToCodeMirror(this.lspDiagnostics);
         try {
             this.view.dispatch(setDiagnostics(this.view.state, diagnostics));
-        } catch {}
+        } catch (error) {
+            console.debug('[editor] Failed to apply LSP diagnostics; keeping editor usable.', error);
+        }
     }
 
     private mapLspDiagnosticsToCodeMirror(diagnostics: any[]): any[] {

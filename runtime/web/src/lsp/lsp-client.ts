@@ -260,7 +260,11 @@ export function createLspClientAdapter(options = {}) {
         }
         pending.clear();
         if (socket) {
-            try { socket.close(); } catch {}
+            try {
+                socket.close();
+            } catch (error) {
+                console.debug('[lsp-client] WebSocket was already closing during dispose.', error);
+            }
             socket = null;
         }
         connected = false;
