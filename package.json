@@ -21,6 +21,7 @@
   "files": [
     "scripts/postinstall.ts",
     "runtime/src",
+    "runtime/config",
     "runtime/extensions",
     "runtime/skills",
     "runtime/web/static",

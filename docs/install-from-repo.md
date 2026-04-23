@@ -71,6 +71,27 @@ That tradeoff favors reliable shell output on Windows over strict parity with Un
 
 It is **not** the same as a development/source install flow.
 
+## Curated Language Servers
+
+Docker images now preinstall the curated language servers declared in
+`runtime/config/language-servers.json` into `/workspace/.local/bin`.
+
+The current curated set is:
+
+- `typescript-language-server`
+- `pyright-langserver`
+- `gopls`
+- `rust-analyzer`
+
+That keeps PiClaw aligned with the workspace-installed-server model: the editor
+and future agent integrations still discover binaries from the workspace first,
+but the Docker image can seed those binaries predictably at container build
+time.
+
+Outside Docker, install the same binaries manually if you want LSP
+auto-activation to work in a direct repo install or other non-container
+workspace.
+
 ## What you should get
 
 After install, the goal is that:
@@ -87,6 +108,33 @@ After install, the goal is that:
 - if the core Dream memory files are missing, first startup also queues a silent Dream bootstrap so `notes/memory/` and daily summaries are populated instead of staying at placeholder state
 - Dream/AutoDream workspace bootstrap files are present for direct Bun installs as well as container installs
 - out-of-band Dream runs use a temporary `dream:` channel/session and clean it up after the cycle, so direct installs do not accumulate visible Dream chats
+
+## Curated Language Servers
+
+PiClaw's Docker images preinstall the curated language-server set declared in
+`runtime/config/language-servers.json` into `/workspace/.local/bin` during the
+image build. That curated set currently covers:
+
+- `typescript-language-server`
+- `pyright-langserver`
+- `gopls`
+- `rust-analyzer`
+
+Those Docker preinstalls are meant to make editor and agent LSP features work
+out of the box in the container image without extra workspace bootstrapping.
+
+For this Bun repo-install path outside Docker, PiClaw still expects those
+language-server binaries to be installed separately on the host if you want LSP
+support to auto-activate. Repo installs do not provision the curated language
+servers for you.
+
+For the current curated set, the matching manual host installs are expected to
+line up with the Docker manifest:
+
+- TypeScript: `typescript-language-server` plus `typescript`
+- Python: `pyright` / `pyright-langserver`
+- Go: `gopls`
+- Rust: `rust-analyzer`
 
 ## Notes
 

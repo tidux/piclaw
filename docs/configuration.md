@@ -659,7 +659,9 @@ Or in `.piclaw/config.json` under the `pushover` key:
 
 ## Using an external workspace
 
-By default, `docker-compose.yml` bind-mounts `./workspace`. To use a different path, set `WORKSPACE_PATH` in `.env`:
+By default, `docker-compose.yml` bind-mounts `./workspace` and uses a managed
+Docker volume for `/config`. To use a different workspace path, set
+`WORKSPACE_PATH` in `.env`:
 
 ```bash
 echo 'WORKSPACE_PATH=/mnt/data/piclaw-workspace' >> .env
@@ -670,6 +672,13 @@ Or override directly:
 
 ```bash
 WORKSPACE_PATH=/mnt/data/piclaw-workspace docker compose up -d
+```
+
+If you want Pi home state under a host directory instead of the default managed
+Docker volume, set `CONFIG_PATH`:
+
+```bash
+CONFIG_PATH=./home docker compose up -d
 ```
 
 ## Container UID/GID remapping

@@ -20,12 +20,13 @@ services:
           cpus: '${CPU_LIMITS:-2}'
           memory: '${MEMORY_LIMITS:-4G}'
     volumes:
-      - ./home:/config          # canonical persisted agent-home backing store; /home/agent/.pi maps here via the entrypoint symlink setup
+      - ${CONFIG_PATH:-pibox-config}:/config  # named volume by default; set CONFIG_PATH=./home to use a host bind mount instead
       - workspace:/workspace    # workspace + piclaw state (SQLite, sessions, IPC)
     networks:
       - pibox
 
 volumes:
+  pibox-config:
   workspace:
     driver: local
     driver_opts:

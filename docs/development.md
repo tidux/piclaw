@@ -9,6 +9,14 @@ make build
 make up
 ```
 
+The compose stack now uses a managed Docker volume for `/config` by default,
+which avoids host bind-mount ownership problems on macOS/Colima. If you want a
+host-visible Pi home directory instead, opt in explicitly:
+
+```bash
+CONFIG_PATH=./home make up
+```
+
 The compose stack passes `PUID` / `PGID` by default (`1000:1000`). To match the container `agent` user/group to your host user:
 
 ```bash

@@ -8,7 +8,7 @@ set -euo pipefail
 export HOME="/home/agent"
 export BUN_INSTALL="${BUN_INSTALL:-/usr/local/lib/bun}"
 export TMPDIR="${TMPDIR:-/tmp}"
-export PATH="$BUN_INSTALL/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:$PATH"
+export PATH="/workspace/.local/bin:$BUN_INSTALL/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:$PATH"
 
 # Ensure login environment matches interactive shell
 if [ -f "$HOME/.bashrc" ]; then

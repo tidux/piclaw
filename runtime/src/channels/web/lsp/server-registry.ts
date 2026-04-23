@@ -3,6 +3,10 @@ import path from "node:path";
 
 import { WORKSPACE_DIR } from "../../../core/config.js";
 import { resolveWorkspacePath, toRelativePath } from "../workspace/paths.js";
+import {
+  getCuratedLanguageServerProfiles,
+  type CuratedLanguageServerProfile,
+} from "./curated-language-servers.js";
 
 export interface LspServerCommandSpec {
   command: string;
@@ -17,6 +21,8 @@ export interface LspServerProfile {
   rootMarkers: string[];
   singleFile: boolean;
   command: LspServerCommandSpec;
+  install: CuratedLanguageServerProfile["install"];
+  activation: CuratedLanguageServerProfile["activation"];
   initializationOptions?: Record<string, unknown>;
 }
 
@@ -31,56 +37,25 @@ export interface ResolvedLspTarget {
   unavailableReason: string | null;
 }
 
-const PROFILES: LspServerProfile[] = [
-  {
-    id: "typescript",
-    languageId: "typescript",
-    label: "TypeScript",
-    extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
-    rootMarkers: ["tsconfig.json", "jsconfig.json", "package.json", "deno.json", "deno.jsonc"],
-    singleFile: true,
+function cloneProfile(profile: CuratedLanguageServerProfile): LspServerProfile {
+  return {
+    ...profile,
+    extensions: [...profile.extensions],
+    rootMarkers: [...profile.rootMarkers],
     command: {
-      command: "typescript-language-server",
-      args: ["--stdio"],
+      ...profile.command,
+      args: [...profile.command.args],
     },
-  },
-  {
-    id: "python",
-    languageId: "python",
-    label: "Python",
-    extensions: [".py"],
-    rootMarkers: ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", ".git"],
-    singleFile: true,
-    command: {
-      command: "pyright-langserver",
-      args: ["--stdio"],
+    install: {
+      ...profile.install,
+      packages: [...profile.install.packages],
     },
-  },
-  {
-    id: "go",
-    languageId: "go",
-    label: "Go",
-    extensions: [".go"],
-    rootMarkers: ["go.mod", "go.work", ".git"],
-    singleFile: false,
-    command: {
-      command: "gopls",
-      args: [],
+    activation: {
+      ...profile.activation,
     },
-  },
-  {
-    id: "rust",
-    languageId: "rust",
-    label: "Rust",
-    extensions: [".rs"],
-    rootMarkers: ["Cargo.toml", "rust-project.json", ".git"],
-    singleFile: false,
-    command: {
-      command: "rust-analyzer",
-      args: [],
-    },
-  },
-];
+    initializationOptions: profile.initializationOptions ? { ...profile.initializationOptions } : undefined,
+  };
+}
 
 const WINDOWS_EXECUTABLE_EXTS = [".exe", ".cmd", ".bat"];
 
@@ -92,13 +67,13 @@ function getExecutableCandidates(command: string): string[] {
 }
 
 export function listLspServerProfiles(): LspServerProfile[] {
-  return PROFILES.slice();
+  return getCuratedLanguageServerProfiles().map((profile) => cloneProfile(profile));
 }
 
 export function findLspProfileForPath(inputPath: string | null | undefined): LspServerProfile | null {
   const ext = path.extname(String(inputPath || "")).toLowerCase();
   if (!ext) return null;
-  return PROFILES.find((profile) => profile.extensions.includes(ext)) || null;
+  return listLspServerProfiles().find((profile) => profile.extensions.includes(ext)) || null;
 }
 
 export function findProjectRoot(absPath: string, markers: string[]): string | null {

@@ -15,3 +15,9 @@ test("Dockerfile pins and verifies the Tailscale install artifact", () => {
   expect(dockerfile).toContain('/usr/local/bin/tailscaled');
   expect(dockerfile).not.toContain('https://tailscale.com/install.sh | sh');
 });
+
+test("Dockerfile exposes Bun for Node-based language server wrappers", () => {
+  const dockerfile = readFileSync(DOCKERFILE, "utf8");
+
+  expect(dockerfile).toContain("ln -sf /usr/local/lib/bun/bin/bun /usr/local/bin/node");
+});

@@ -347,8 +347,8 @@ function mergeOverridesWithStaleLanguages(
   staleLanguages: Record<string, unknown>,
 ): LspRuntimePolicyUpdate {
   const knownLanguages = overrides.agents?.editor?.languages || {};
-  const mergedLanguages = Object.keys(staleLanguages).length > 0
-    ? { ...staleLanguages, ...knownLanguages }
+  const mergedLanguages: Record<string, Partial<LspLanguageRuntimePolicy>> = Object.keys(staleLanguages).length > 0
+    ? { ...(staleLanguages as Record<string, Partial<LspLanguageRuntimePolicy>>), ...knownLanguages }
     : knownLanguages;
 
   return {

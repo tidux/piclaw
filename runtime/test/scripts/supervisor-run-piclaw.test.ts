@@ -65,3 +65,11 @@ test("supervisor config stops and kills the full process group", () => {
   expect(conf).toContain("stopasgroup=true");
   expect(conf).toContain("killasgroup=true");
 });
+
+test("supervisor launcher keeps workspace language servers on PATH", () => {
+  const runScript = readFileSync(RUN_SCRIPT, "utf8");
+  const conf = readFileSync(SUPERVISOR_CONF, "utf8");
+
+  expect(runScript).toContain("/workspace/.local/bin");
+  expect(conf).toContain("/workspace/.local/bin");
+});

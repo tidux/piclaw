@@ -47,6 +47,7 @@ RUN apt-get update && \
 RUN useradd -m -s /bin/bash -G sudo agent && \
     echo 'agent:agent' | chpasswd && \
     echo 'agent ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+RUN mkdir -p /workspace/.local/bin && chown -R agent:agent /workspace
 
 COPY scripts/docker/install-agent-runtime.sh /tmp/install-agent-runtime.sh
 COPY scripts/docker/install-restic-release.sh /tmp/install-restic-release.sh
@@ -63,8 +64,15 @@ RUN /tmp/install-agent-runtime.sh
 
 COPY --chown=agent:agent package.json bun.lock README.md LICENSE BUN_VERSION RESTIC_VERSION /home/agent/piclaw/
 COPY --chown=agent:agent scripts/postinstall.ts /home/agent/piclaw/scripts/postinstall.ts
+COPY --chown=agent:agent scripts/docker/install-language-servers.sh /home/agent/piclaw/scripts/docker/install-language-servers.sh
 COPY --chown=agent:agent docs/install-from-repo.md /home/agent/piclaw/docs/install-from-repo.md
 COPY --chown=agent:agent runtime/ /home/agent/piclaw/runtime/
+RUN chmod +x /home/agent/piclaw/scripts/docker/install-language-servers.sh && \
+    WORKSPACE_DIR=/workspace \
+    WORKSPACE_LOCAL_DIR=/workspace/.local \
+    WORKSPACE_BIN_DIR=/workspace/.local/bin \
+    /home/agent/piclaw/scripts/docker/install-language-servers.sh \
+    /home/agent/piclaw/runtime/config/language-servers.json
 RUN /tmp/build-piclaw-package.sh
 RUN PI_CLI="$(readlink -f /usr/local/lib/bun/bin/pi)" && \
     sudo -n sed -i '1s/env node/env bun/' "$PI_CLI" && \
@@ -108,7 +116,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     BUN_INSTALL=/usr/local/lib/bun \
     BUN_VERSION=${BUN_VERSION} \
     BUN_PREFER_BASELINE=${BUN_PREFER_BASELINE} \
-    PATH=/usr/local/lib/bun/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    PATH=/workspace/.local/bin:/usr/local/lib/bun/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 WORKDIR /tmp
 
@@ -163,8 +171,10 @@ COPY --from=installed-runtime --chown=agent:agent /home/linuxbrew/.linuxbrew /ho
 COPY --from=installed-runtime /etc/skel.agent/.bashrc /etc/skel.agent/.bashrc
 COPY --from=installed-runtime /etc/skel.agent/.profile /etc/skel.agent/.profile
 COPY --chown=agent:agent skel/ /usr/local/share/piclaw/workspace-skel/
+COPY --from=builder --chown=agent:agent /workspace/.local /usr/local/share/piclaw/workspace-skel/.local
 COPY --chown=agent:agent runtime/skills/ /usr/local/share/piclaw/agent-skills/
 RUN ln -sf /usr/local/lib/bun/bin/bun /usr/local/bin/bun && \
+    ln -sf /usr/local/lib/bun/bin/bun /usr/local/bin/node && \
     if [ -f /usr/local/lib/bun/bin/bunx ]; then ln -sf /usr/local/lib/bun/bin/bunx /usr/local/bin/bunx; else ln -sf /usr/local/lib/bun/bin/bun /usr/local/bin/bunx; fi && \
     ln -sf /usr/local/lib/bun/bin/pi /usr/local/bin/pi && \
     ln -sf /usr/local/lib/bun/bin/piclaw /usr/local/bin/piclaw && \

@@ -1,0 +1,104 @@
+{
+  "servers": [
+    {
+      "id": "typescript",
+      "languageId": "typescript",
+      "label": "TypeScript",
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+      "rootMarkers": ["tsconfig.json", "jsconfig.json", "package.json", "deno.json", "deno.jsonc"],
+      "singleFile": true,
+      "command": {
+        "command": "typescript-language-server",
+        "args": ["--stdio"]
+      },
+      "install": {
+        "strategy": "npm-global",
+        "brewFormula": "typescript-language-server",
+        "packages": ["typescript-language-server@4.4.0", "typescript@5.9.3"],
+        "binary": "typescript-language-server",
+        "workspaceBinDir": "/workspace/.local/bin"
+      },
+      "activation": {
+        "editor": true,
+        "agentRead": true,
+        "agentWritePreview": true,
+        "autoActivate": true
+      }
+    },
+    {
+      "id": "python",
+      "languageId": "python",
+      "label": "Python",
+      "extensions": [".py"],
+      "rootMarkers": ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", ".git"],
+      "singleFile": true,
+      "command": {
+        "command": "pyright-langserver",
+        "args": ["--stdio"]
+      },
+      "install": {
+        "strategy": "npm-global",
+        "brewFormula": "pyright",
+        "packages": ["pyright@1.1.398"],
+        "binary": "pyright-langserver",
+        "workspaceBinDir": "/workspace/.local/bin"
+      },
+      "activation": {
+        "editor": true,
+        "agentRead": true,
+        "agentWritePreview": true,
+        "autoActivate": true
+      }
+    },
+    {
+      "id": "go",
+      "languageId": "go",
+      "label": "Go",
+      "extensions": [".go"],
+      "rootMarkers": ["go.mod", "go.work", ".git"],
+      "singleFile": false,
+      "command": {
+        "command": "gopls",
+        "args": []
+      },
+      "install": {
+        "strategy": "go-install",
+        "brewFormula": "gopls",
+        "packages": ["golang.org/x/tools/gopls@v0.16.2"],
+        "binary": "gopls",
+        "workspaceBinDir": "/workspace/.local/bin"
+      },
+      "activation": {
+        "editor": true,
+        "agentRead": true,
+        "agentWritePreview": true,
+        "autoActivate": true
+      }
+    },
+    {
+      "id": "rust",
+      "languageId": "rust",
+      "label": "Rust",
+      "extensions": [".rs"],
+      "rootMarkers": ["Cargo.toml", "rust-project.json", ".git"],
+      "singleFile": false,
+      "command": {
+        "command": "rust-analyzer",
+        "args": []
+      },
+      "install": {
+        "strategy": "system-copy",
+        "brewFormula": "rust-analyzer",
+        "packages": ["rust-analyzer"],
+        "binary": "rust-analyzer",
+        "workspaceBinDir": "/workspace/.local/bin"
+      },
+      "activation": {
+        "editor": true,
+        "agentRead": true,
+        "agentWritePreview": true,
+        "autoActivate": true
+      }
+    }
+  ]
+}

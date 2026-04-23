@@ -146,8 +146,17 @@ function createLazyLspService(factory: () => LspSessionService): LspSessionServi
     resolveSocketDataFromRequest(req: Request, allowUnauthenticated = false) {
       return get().resolveSocketDataFromRequest(req, allowUnauthenticated);
     },
+    resolveSocketDataRequest(req: Request, allowUnauthenticated = false) {
+      return get().resolveSocketDataRequest(req, allowUnauthenticated);
+    },
     getSessionInfo(owner: { token: string; userId: string }, inputPath: string | null | undefined) {
       return get().getSessionInfo(owner, inputPath);
+    },
+    getRuntimePolicySettings() {
+      return get().getRuntimePolicySettings();
+    },
+    updateRuntimePolicySettings(update: unknown) {
+      return get().updateRuntimePolicySettings(update);
     },
     attachClient(ws: Bun.ServerWebSocket<LspSocketData>) {
       return get().attachClient(ws);
@@ -160,6 +169,9 @@ function createLazyLspService(factory: () => LspSessionService): LspSessionServi
     },
     createHandoffFromRequest(req: Request, allowUnauthenticated = false) {
       return get().createHandoffFromRequest(req, allowUnauthenticated);
+    },
+    createHandoffRequest(req: Request, allowUnauthenticated = false) {
+      return get().createHandoffRequest(req, allowUnauthenticated);
     },
     shutdown() {
       return get().shutdown();

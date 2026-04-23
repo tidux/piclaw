@@ -20,7 +20,7 @@ It is for people who want one stateful agent workspace they can run locally or i
 ## Quick start
 
 ```bash
-mkdir -p ./home ./workspace
+mkdir -p ./workspace
 
 docker run -d \
   --init \
@@ -28,7 +28,7 @@ docker run -d \
   --restart unless-stopped \
   -p 8080:8080 \
   -e PICLAW_WEB_PORT=8080 \
-  -v "$(pwd)/home:/config" \
+  -v piclaw-config:/config \
   -v "$(pwd)/workspace:/workspace" \
   ghcr.io/rcarmo/piclaw:latest
 ```
@@ -44,14 +44,14 @@ Open `http://localhost:8080` and type `/login` to configure your LLM provider, i
 | Workspace | `/workspace` | Projects, notes, and piclaw state |
 
 > [!NOTE]
-> In the container image, `/home/agent/.pi` is backed by `/config/.pi`. With the stock `docker run` / `docker-compose.yml` examples above, Pi home state therefore persists on the host under `./home/.pi/agent/`.
+> In the container image, `/home/agent/.pi` is backed by `/config/.pi`. The default examples now use a managed Docker volume for `/config`, which is more reliable on macOS/Colima than bind-mounting a host `./home` directory.
 >
 > That means provider login state and model metadata should survive rebuilds/recreates when stored under files such as:
 >
-> - `./home/.pi/agent/auth.json`
-> - `./home/.pi/agent/models.json`
+> - `/config/.pi/agent/auth.json`
+> - `/config/.pi/agent/models.json`
 >
-> Mounting directly to `/home/agent` or `/home/agent/.pi/agent` can also work, but `/config` is the canonical documented persistence path for the container image.
+> If you want host-visible Pi home files instead, bind-mount a local path explicitly, for example `-v "$(pwd)/home:/config"` with `docker run` or `CONFIG_PATH=./home docker compose up -d`. Mounting directly to `/home/agent` or `/home/agent/.pi/agent` can also work, but `/config` is the canonical documented persistence path for the container image.
 
 > [!WARNING]
 > Never delete `/workspace/.piclaw/store/messages.db`. It contains chat history, media, and task state.

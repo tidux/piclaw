@@ -189,6 +189,7 @@ apply_puid_pgid_remap() {
     chown_if_exists /var/log/piclaw
     chown_if_exists /workspace/.piclaw
     chown_if_exists /workspace/.pi
+    chown_if_exists /workspace/.local
     chown_if_exists /workspace/AGENTS.md
 
     record_runtime_ids
@@ -394,6 +395,19 @@ if [ -d "/workspace" ] && [ ! -d "/workspace/.pi/skills" ]; then
         cp -a "$WORKSPACE_SKEL_DIR/.pi/skills" /workspace/.pi/skills
         chown -R agent:agent /workspace/.pi
     fi
+fi
+
+if [ -d "/workspace" ] && [ ! -d "/workspace/.local/bin" ]; then
+    if [ -d "$WORKSPACE_SKEL_DIR/.local" ]; then
+        mkdir -p /workspace/.local
+        cp -a "$WORKSPACE_SKEL_DIR/.local/." /workspace/.local/
+        chown -R agent:agent /workspace/.local
+    fi
+fi
+
+if [ -d "/workspace/.local" ]; then
+    chown -R agent:agent /workspace/.local 2>/dev/null || true
+    chmod -R a+rX /workspace/.local 2>/dev/null || true
 fi
 
 if [ -d "/workspace" ] && [ ! -d "/workspace/notes" ]; then
