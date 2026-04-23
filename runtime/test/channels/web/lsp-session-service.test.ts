@@ -2,11 +2,17 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { LspSessionService } from "../../../src/channels/web/lsp/lsp-session-service.js";
-import { LspRuntimePolicy } from "../../../src/channels/web/lsp/lsp-runtime-policy.js";
-import { resolveLspTargetForPath } from "../../../src/channels/web/lsp/server-registry.js";
+const DEFAULT_TEST_WORKSPACE_ROOT = path.join(process.cwd(), ".tmp", "lsp-session-service-workspace");
+process.env.PICLAW_WORKSPACE ??= DEFAULT_TEST_WORKSPACE_ROOT;
+process.env.PICLAW_STORE ??= path.join(process.env.PICLAW_WORKSPACE, ".piclaw", "store");
+process.env.PICLAW_DATA ??= path.join(process.env.PICLAW_WORKSPACE, ".piclaw", "data");
 
-const TEST_WORKSPACE_ROOT = process.env.PICLAW_WORKSPACE || process.cwd();
+const { LspSessionService } = await import("../../../src/channels/web/lsp/lsp-session-service.js");
+const { LspRuntimePolicy } = await import("../../../src/channels/web/lsp/lsp-runtime-policy.js");
+const { resolveLspTargetForPath } = await import("../../../src/channels/web/lsp/server-registry.js");
+const { WORKSPACE_DIR } = await import("../../../src/core/config.js");
+
+const TEST_WORKSPACE_ROOT = WORKSPACE_DIR;
 
 class FakeLspProcess {
   stdinWrites: string[] = [];
