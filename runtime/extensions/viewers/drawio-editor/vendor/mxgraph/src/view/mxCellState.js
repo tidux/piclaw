@@ -187,12 +187,16 @@ mxCellState.prototype.getPerimeterBounds = function(border, bounds)
 	
 	if (this.shape != null && this.shape.stencil != null && this.shape.stencil.aspect == 'fixed')
 	{
-		var aspect = this.shape.stencil.computeAspect(this.style, bounds.x, bounds.y, bounds.width, bounds.height);
-		
-		bounds.x = aspect.x;
-		bounds.y = aspect.y;
-		bounds.width = this.shape.stencil.w0 * aspect.width;
-		bounds.height = this.shape.stencil.h0 * aspect.height;
+		var direction = this.style[mxConstants.STYLE_DIRECTION];
+		var inverse = (direction == mxConstants.DIRECTION_NORTH || direction == mxConstants.DIRECTION_SOUTH);
+		var sw = inverse ? this.shape.stencil.h0 : this.shape.stencil.w0;
+		var sh = inverse ? this.shape.stencil.w0 : this.shape.stencil.h0;
+		var s = Math.min(bounds.width / sw, bounds.height / sh);
+
+		bounds.x += (bounds.width - sw * s) / 2;
+		bounds.y += (bounds.height - sh * s) / 2;
+		bounds.width = sw * s;
+		bounds.height = sh * s;
 	}
 	
 	if (border != 0)
@@ -430,7 +434,8 @@ mxCellState.prototype.clone = function()
 		
 		for (var i = 0; i < this.absolutePoints.length; i++)
 		{
-			clone.absolutePoints[i] = this.absolutePoints[i].clone();
+			clone.absolutePoints[i] = this.absolutePoints[i] != null ?
+					this.absolutePoints[i].clone() : null;
 		}
 	}
 

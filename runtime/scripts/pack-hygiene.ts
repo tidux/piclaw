@@ -15,6 +15,7 @@ export const REQUIRED_PACK_ENTRIES = [
   "runtime/src/extensions/workspace-memory-bootstrap.ts",
   "runtime/docs/dream-memory.md",
   "skel/AGENTS.md",
+  "skel/.mcp.json.example",
   "skel/.piclaw/README.md",
   "skel/.piclaw/config.json.example",
   "skel/notes/index.md",

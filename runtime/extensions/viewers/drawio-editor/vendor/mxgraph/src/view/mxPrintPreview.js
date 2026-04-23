@@ -211,8 +211,7 @@ mxPrintPreview.prototype.defaultCss =
 	'@media screen {\n' +
 	'  body {\n' +
 	'    background: gray;\n' +
-	'    transform: scale(0.7);\n' +
-	'    transform-origin: 0 0;\n' +
+	'    zoom: 0.7;\n' +
 	'  }\n' +
 	'  body > div {\n' +
 	'    margin-bottom: 20px;\n' +

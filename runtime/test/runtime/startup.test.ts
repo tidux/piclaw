@@ -33,6 +33,7 @@ describe("runtime startup helpers", () => {
       expect(existsSync(join(ws.workspace, "AGENTS.md"))).toBe(true);
       expect(existsSync(join(ws.workspace, ".piclaw", "README.md"))).toBe(true);
       expect(existsSync(join(ws.workspace, ".piclaw", "config.json.example"))).toBe(true);
+      expect(existsSync(join(ws.workspace, ".mcp.json.example"))).toBe(true);
       expect(existsSync(join(ws.workspace, ".pi", "mcp.json.example"))).toBe(true);
       expect(existsSync(join(ws.workspace, "notes", "index.md"))).toBe(true);
       expect(existsSync(join(ws.workspace, "notes", "memory", "README.md"))).toBe(true);

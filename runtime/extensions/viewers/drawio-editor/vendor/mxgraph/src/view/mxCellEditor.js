@@ -453,12 +453,12 @@ mxCellEditor.prototype.installListeners = function(elt)
 		}
 	});
 
-	mxEvent.addListener(elt, (!mxClient.IS_IE11 && !mxClient.IS_IE) ? 'input' : 'keyup', keyupHandler);
+	mxEvent.addListener(elt, 'input', keyupHandler);
 	mxEvent.addListener(elt, 'cut', keyupHandler);
 	mxEvent.addListener(elt, 'paste', keyupHandler);
 	
 	// Adds automatic resizing of the textbox while typing using input, keyup and/or DOM change events
-	var evtName = (!mxClient.IS_IE11 && !mxClient.IS_IE) ? 'input' : 'keydown';
+	var evtName = 'input';
 	
 	var resizeHandler = mxUtils.bind(this, function(evt)
 	{
@@ -474,7 +474,11 @@ mxCellEditor.prototype.installListeners = function(elt)
 			this.resizeThread = window.setTimeout(mxUtils.bind(this, function()
 			{
 				this.resizeThread = null;
-				this.resize();
+
+				if (document.body != null)
+				{
+					this.resize();
+				}
 			}), 0);
 		}
 	});
@@ -569,9 +573,12 @@ mxCellEditor.prototype.resize = function()
 	 	{
 			// Needed for word wrap inside text blocks with oversize lines to match the final result where
 	 		// the width of the longest line is used as the reference for text alignment in the cell
+			var svgWrap = mxUtils.getValue(state.style, 'convertToSvg', '0') == '1' &&
+				state.style['svgWhiteSpace'] == 'wrap';
+
 			if (this.graph.isWrapping(state.cell) &&
 				(this.bounds.width >= 2 || this.bounds.height >= 2) &&
-				(state.text == null || state.text.node == null ||
+				(svgWrap || state.text == null || state.text.node == null ||
 				state.text.node.getElementsByTagName('text').length == 0))
 			{
 				var dir = mxUtils.getValue(state.style, mxConstants.STYLE_TEXT_DIRECTION,

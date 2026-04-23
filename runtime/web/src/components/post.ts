@@ -117,8 +117,11 @@ export function formatTimeoutChipTooltip(marker) {
 export function formatOutcomeChipTooltip(marker) {
     const title = typeof marker?.title === 'string' ? marker.title.trim() : '';
     const detail = typeof marker?.detail === 'string' ? marker.detail.trim() : '';
+    const action = typeof marker?.tool_action_summary === 'string' ? marker.tool_action_summary.trim() : '';
     const recoveredDraft = marker?.draft_recovered ? ' Showing recovered draft.' : '';
-    return [title, detail].filter(Boolean).join(' — ') + recoveredDraft;
+    const parts = [title, detail];
+    if (action) parts.push(`Last action: ${action}`);
+    return parts.filter(Boolean).join(' — ') + recoveredDraft;
 }
 
 function AttachmentPill({ attachment, onPreview }) {
@@ -1077,7 +1080,7 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                     `}
                     ${outcomeMarker && html`
                         <span
-                            class=${`post-recovery-chip post-outcome-chip post-outcome-chip-${String(outcomeMarker.severity || 'warning')}`}
+                            class=${`post-recovery-chip post-outcome-chip post-outcome-chip-${String(outcomeMarker.severity || 'warning')}${outcomeMarker.kind === 'tool_budget' ? ' post-outcome-chip-tool-budget' : ''}`}
                             title=${formatOutcomeChipTooltip(outcomeMarker)}
                         >
                             ${String(outcomeMarker.label || outcomeMarker.kind || 'issue')}

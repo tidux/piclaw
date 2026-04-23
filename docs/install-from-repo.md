@@ -138,7 +138,7 @@ line up with the Docker manifest:
 
 ## Notes
 
-- PiClaw now ships `pi-mcp-adapter` as a bundled dependency. Configure it with `.pi/mcp.json` (project-local) or `~/.pi/agent/mcp.json` (global Pi home; in the container image this typically maps to `/config/.pi/agent/mcp.json`). A starter example is seeded at `.pi/mcp.json.example`.
+- PiClaw now ships `pi-mcp-adapter` as a bundled dependency. Prefer shared MCP config in `.mcp.json` (project-local) or `~/.config/mcp/mcp.json` (shared global MCP config), and use `.pi/mcp.json` / `~/.pi/agent/mcp.json` for Pi-specific overrides. Starter examples are seeded at `.mcp.json.example` and `.pi/mcp.json.example`.
 - `pi-mcp-adapter` does not require `mcp-cli`, and it brings its own `mcp` / `/mcp` / `/mcp-auth` surfaces once loaded.
 - This path is Bun-first. npm parity is not part of the initial scope.
 - The published GHCR image remains the main documented production runtime.

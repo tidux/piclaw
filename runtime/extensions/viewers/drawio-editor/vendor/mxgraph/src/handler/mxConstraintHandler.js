@@ -362,20 +362,27 @@ mxConstraintHandler.prototype.redraw = function()
 	if (this.currentFocus != null && this.constraints != null && this.focusIcons != null)
 	{
 		var state = this.graph.view.getState(this.currentFocus.cell);
-		this.currentFocus = state;
-		this.currentFocusArea = new mxRectangle(state.x, state.y, state.width, state.height);
-		
-		for (var i = 0; i < this.constraints.length; i++)
-		{
-			var cp = this.graph.getConnectionPoint(state, this.constraints[i]);
-			var img = this.getImageForConstraint(state, this.constraints[i], cp);
 
-			var bounds = new mxRectangle(Math.round(cp.x - img.width / 2),
-				Math.round(cp.y - img.height / 2), img.width, img.height);
-			this.focusIcons[i].bounds = bounds;
-			this.focusIcons[i].redraw();
-			this.currentFocusArea.add(this.focusIcons[i].bounds);
-			this.focusPoints[i] = cp;
+		if (state != null)
+		{
+			this.currentFocus = state;
+			this.currentFocusArea = new mxRectangle(state.x, state.y, state.width, state.height);
+
+			for (var i = 0; i < this.constraints.length; i++)
+			{
+				if (this.focusIcons[i] != null)
+				{
+					var cp = this.graph.getConnectionPoint(state, this.constraints[i]);
+					var img = this.getImageForConstraint(state, this.constraints[i], cp);
+
+					var bounds = new mxRectangle(Math.round(cp.x - img.width / 2),
+						Math.round(cp.y - img.height / 2), img.width, img.height);
+					this.focusIcons[i].bounds = bounds;
+					this.focusIcons[i].redraw();
+					this.currentFocusArea.add(this.focusIcons[i].bounds);
+					this.focusPoints[i] = cp;
+				}
+			}
 		}
 	}	
 };

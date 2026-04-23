@@ -1396,6 +1396,30 @@ mxGraph.prototype.extendParentsOnAdd = true;
 mxGraph.prototype.extendParentsOnMove = false;
 
 /**
+ * Variable: contractParents
+ *
+ * Specifies if a parent should be contracted to fit its child bounds after
+ * a resize, move, or collapse of the child. Default is false.
+ */
+mxGraph.prototype.contractParents = false;
+
+/**
+ * Variable: contractParentsOnRemove
+ *
+ * Specifies if parents should be contracted according to the <contractParents>
+ * switch if cells are removed. Default is true.
+ */
+mxGraph.prototype.contractParentsOnRemove = true;
+
+/**
+ * Variable: contractParentsOnMove
+ *
+ * Specifies if parents should be contracted according to the <contractParents>
+ * switch if cells are moved. Default is false for backwards compatibility.
+ */
+mxGraph.prototype.contractParentsOnMove = false;
+
+/**
  * Variable: recursiveResize
  * 
  * Specifies the return value for <isRecursiveResize>. Default is
@@ -1685,22 +1709,6 @@ mxGraph.prototype.init = function(container)
 		}
 	}));
 
-	// Automatic deallocation of memory
-	if (mxClient.IS_IE)
-	{
-		mxEvent.addListener(window, 'unload', mxUtils.bind(this, function()
-		{
-			this.destroy();
-		}));
-		
-		// Disable shift-click for text
-		mxEvent.addListener(container, 'selectstart',
-			mxUtils.bind(this, function(evt)
-			{
-				return this.isEditing() || (!this.isMouseDown && !mxEvent.isShiftDown(evt));
-			})
-		);
-	}
 };
 
 /**
@@ -2101,7 +2109,8 @@ mxGraph.prototype.processChange = function(change)
 	{
 		// Checks if the geometry has changed to avoid unnessecary revalidation
 		if (change instanceof mxTerminalChange || ((change.previous == null && change.geometry != null) ||
-			(change.previous != null && !change.previous.equals(change.geometry))))
+			(change.previous != null && (change.previous.equals == null ||
+			!change.previous.equals(change.geometry)))))
 		{
 			this.view.invalidate(change.cell);
 		}
@@ -3154,7 +3163,7 @@ mxGraph.prototype.sizeDidChange = function()
 			this.doResizeContainer(width, height);
 		}
 
-		if (this.preferPageSize || (!mxClient.IS_IE && this.pageVisible))
+		if (this.preferPageSize || this.pageVisible)
 		{
 			var size = this.getPreferredPageSize(bounds, Math.max(1, width), Math.max(1, height));
 			
@@ -3276,20 +3285,25 @@ mxGraph.prototype.updatePageBreaks = function(visible, width, height)
 			        [new mxPoint(Math.round(bounds.x + i * bounds.width), Math.round(bounds.y)),
 			         new mxPoint(Math.round(bounds.x + i * bounds.width), Math.round(bounds.y + bottom))];
 
-				if (breaks[i] != null)
+				if (breaks[i] != null && breaks[i].node != null)
 				{
 					breaks[i].points = pts;
 					breaks[i].redraw();
 				}
 				else
 				{
+					if (breaks[i] != null)
+					{
+						breaks[i].destroy();
+					}
+
 					var pageBreak = new mxPolyline(pts, this.pageBreakColor);
 					pageBreak.dialect = this.dialect;
 					pageBreak.pointerEvents = false;
 					pageBreak.isDashed = this.pageBreakDashed;
 					pageBreak.init(this.view.backgroundPane);
 					pageBreak.redraw();
-					
+
 					breaks[i] = pageBreak;
 				}
 			}
@@ -4920,7 +4934,7 @@ mxGraph.prototype.cellsAdded = function(cells, parent, index, source, target, ab
 					{
 						this.extendParent(cells[i]);
 					}
-					
+
 					// Additionally constrains the child after extending the parent
 					if (constrain == null || constrain)
 					{
@@ -5076,17 +5090,38 @@ mxGraph.prototype.cellsRemoved = function(cells)
 		{
 			// Creates hashtable for faster lookup
 			var dict = new mxDictionary();
-			
+
 			for (var i = 0; i < cells.length; i++)
 			{
 				dict.put(cells[i], true);
 			}
-			
+
+			// Collect unique parents for contraction after removal
+			var contractParents = null;
+
+			if (this.isContractParentsOnRemove())
+			{
+				contractParents = [];
+				var seen = new mxDictionary();
+
+				for (var i = 0; i < cells.length; i++)
+				{
+					var parent = this.model.getParent(cells[i]);
+
+					if (parent != null && !dict.get(parent) &&
+						!seen.get(parent) && this.isContractParent(cells[i]))
+					{
+						seen.put(parent, true);
+						contractParents.push(parent);
+					}
+				}
+			}
+
 			for (var i = 0; i < cells.length; i++)
 			{
 				// Disconnects edges which are not being removed
 				var edges = this.getAllEdges([cells[i]]);
-				
+
 				var disconnectTerminal = mxUtils.bind(this, function(edge, source)
 				{
 					var geo = this.model.getGeometry(edge);
@@ -5097,7 +5132,7 @@ mxGraph.prototype.cellsRemoved = function(cells)
 						var terminal = this.model.getTerminal(edge, source);
 						var connected = false;
 						var tmp = terminal;
-						
+
 						while (tmp != null)
 						{
 							if (cells[i] == tmp)
@@ -5105,38 +5140,42 @@ mxGraph.prototype.cellsRemoved = function(cells)
 								connected = true;
 								break;
 							}
-							
+
 							tmp = this.model.getParent(tmp);
 						}
 
 						if (connected)
 						{
 							geo = geo.clone();
-							var state = this.view.getState(edge);
 
-							if (state != null && state.absolutePoints != null)
+							if (geo.setTerminalPoint != null)
 							{
-								var pts = state.absolutePoints;
-								var n = (source) ? 0 : pts.length - 1;
+								var state = this.view.getState(edge);
 
-								geo.setTerminalPoint(new mxPoint(
-									pts[n].x / scale - tr.x - state.origin.x,
-									pts[n].y / scale - tr.y - state.origin.y), source);
-							}
-							else
-							{
-								// Fallback to center of terminal if routing
-								// points are not available to add new point
-								// KNOWN: Should recurse to find parent offset
-								// of edge for nested groups but invisible edges
-								// should be removed in removeCells step
-								var tstate = this.view.getState(terminal);
-								
-								if (tstate != null)
+								if (state != null && state.absolutePoints != null)
 								{
+									var pts = state.absolutePoints;
+									var n = (source) ? 0 : pts.length - 1;
+
 									geo.setTerminalPoint(new mxPoint(
-										tstate.getCenterX() / scale - tr.x,
-										tstate.getCenterY() / scale - tr.y), source);
+										pts[n].x / scale - tr.x - state.origin.x,
+										pts[n].y / scale - tr.y - state.origin.y), source);
+								}
+								else
+								{
+									// Fallback to center of terminal if routing
+									// points are not available to add new point
+									// KNOWN: Should recurse to find parent offset
+									// of edge for nested groups but invisible edges
+									// should be removed in removeCells step
+									var tstate = this.view.getState(terminal);
+
+									if (tstate != null)
+									{
+										geo.setTerminalPoint(new mxPoint(
+											tstate.getCenterX() / scale - tr.x,
+											tstate.getCenterY() / scale - tr.y), source);
+									}
 								}
 							}
 
@@ -5145,7 +5184,7 @@ mxGraph.prototype.cellsRemoved = function(cells)
 						}
 					}
 				});
-				
+
 				for (var j = 0; j < edges.length; j++)
 				{
 					if (!dict.get(edges[j]))
@@ -5158,7 +5197,20 @@ mxGraph.prototype.cellsRemoved = function(cells)
 
 				this.model.remove(cells[i]);
 			}
-			
+
+			// Contracts parents after all removals
+			if (contractParents != null)
+			{
+				for (var i = 0; i < contractParents.length; i++)
+				{
+					if (this.model.getChildCount(contractParents[i]) > 0)
+					{
+						this.contractParent(
+							this.model.getChildAt(contractParents[i], 0));
+					}
+				}
+			}
+
 			this.fireEvent(new mxEventObject(mxEvent.CELLS_REMOVED, 'cells', cells));
 		}
 		finally
@@ -5402,6 +5454,11 @@ mxGraph.prototype.cellsFolded = function(cells, collapse, recurse, checkFoldable
 					if (this.isExtendParent(cells[i]))
 					{
 						this.extendParent(cells[i]);
+					}
+
+					if (this.isContractParent(cells[i]))
+					{
+						this.contractParent(cells[i]);
 					}
 
 					if (recurse)
@@ -5999,7 +6056,12 @@ mxGraph.prototype.cellsResized = function(cells, bounds, recurse)
 				{
 					this.extendParent(cells[i]);
 				}
-				
+
+				if (this.isContractParent(cells[i]))
+				{
+					this.contractParent(cells[i]);
+				}
+
 				this.constrainChild(cells[i]);
 			}
 
@@ -6221,21 +6283,86 @@ mxGraph.prototype.extendParent = function(cell)
 	{
 		var parent = this.model.getParent(cell);
 		var p = this.getCellGeometry(parent);
-		
+
 		if (parent != null && p != null && !this.isCellCollapsed(parent))
 		{
 			var geo = this.getCellGeometry(cell);
-			
-			if (geo != null && !geo.relative &&
-				(p.width < geo.x + geo.width ||
-				p.height < geo.y + geo.height))
+
+			if (geo != null && !geo.relative)
 			{
-				p = p.clone();
-				
-				p.width = Math.max(p.width, geo.x + geo.width);
-				p.height = Math.max(p.height, geo.y + geo.height);
-				
-				this.cellsResized([parent], [p], false);
+				var style = this.getCurrentCellStyle(parent);
+				var padding = parseFloat(mxUtils.getValue(style,
+					mxConstants.STYLE_GROUP_PADDING, 0));
+
+				if (p.width < geo.x + geo.width + padding ||
+					p.height < geo.y + geo.height + padding)
+				{
+					p = p.clone();
+
+					p.width = Math.max(p.width, geo.x + geo.width + padding);
+					p.height = Math.max(p.height, geo.y + geo.height + padding);
+
+					this.cellsResized([parent], [p], false);
+				}
+			}
+		}
+	}
+};
+
+/**
+ * Function: contractParent
+ *
+ * Contracts the parent to fit its children, using <STYLE_GROUP_PADDING>
+ * for padding. This is the complement of <extendParent>.
+ *
+ * Parameters:
+ *
+ * cell - <mxCell> whose parent should be contracted.
+ */
+mxGraph.prototype.contractParent = function(cell)
+{
+	if (cell != null)
+	{
+		var parent = this.model.getParent(cell);
+		var pgeo = this.getCellGeometry(parent);
+
+		if (parent != null && pgeo != null && !this.isCellCollapsed(parent))
+		{
+			var style = this.getCurrentCellStyle(parent);
+			var padding = parseFloat(mxUtils.getValue(style,
+				mxConstants.STYLE_GROUP_PADDING, 0));
+			var maxX = 0;
+			var maxY = 0;
+			var childCount = this.model.getChildCount(parent);
+
+			for (var i = 0; i < childCount; i++)
+			{
+				var child = this.model.getChildAt(parent, i);
+				var geo = this.getCellGeometry(child);
+
+				if (geo != null && !geo.relative &&
+					this.model.isVertex(child))
+				{
+					maxX = Math.max(maxX, geo.x + geo.width);
+					maxY = Math.max(maxY, geo.y + geo.height);
+				}
+			}
+
+			maxX += padding;
+			maxY += padding;
+
+			if (maxX > 0 && maxY > 0 &&
+				(pgeo.width > maxX || pgeo.height > maxY))
+			{
+				pgeo = pgeo.clone();
+				pgeo.width = Math.min(pgeo.width, maxX);
+				pgeo.height = Math.min(pgeo.height, maxY);
+				this.model.setGeometry(parent, pgeo);
+
+				if (this.isContractParent(parent))
+				{
+					this.contractParent(parent);
+				}
 			}
 		}
 	}
@@ -6435,7 +6562,7 @@ mxGraph.prototype.cellsMoved = function(cells, dx, dy, disconnect, constrain, ex
 			for (var i = 0; i < cells.length; i++)
 			{
 				this.translateCell(cells[i], dx, dy);
-				
+
 				if (extend && this.isExtendParent(cells[i]))
 				{
 					this.extendParent(cells[i]);
@@ -6443,6 +6570,12 @@ mxGraph.prototype.cellsMoved = function(cells, dx, dy, disconnect, constrain, ex
 				else if (constrain)
 				{
 					this.constrainChild(cells[i]);
+				}
+
+				if (this.isContractParentsOnMove() &&
+					this.isContractParent(cells[i]))
+				{
+					this.contractParent(cells[i]);
 				}
 			}
 
@@ -6471,7 +6604,7 @@ mxGraph.prototype.translateCell = function(cell, dx, dy)
 {
 	var geo = this.model.getGeometry(cell);
 
-	if (geo != null)
+	if (geo != null && typeof geo.translate === 'function')
 	{
 		dx = parseFloat(dx);
 		dy = parseFloat(dy);
@@ -7344,7 +7477,7 @@ mxGraph.prototype.disconnectGraph = function(cells)
 									src = this.model.getParent(src);
 								}
 								
-								if (src == null)
+								if (src == null && geo.setTerminalPoint != null)
 								{
 									geo.setTerminalPoint(
 										new mxPoint(pts[0].x / scale - tr.x + dx,
@@ -7362,7 +7495,7 @@ mxGraph.prototype.disconnectGraph = function(cells)
 									trg = this.model.getParent(trg);
 								}
 								
-								if (trg == null)
+								if (trg == null && geo.setTerminalPoint != null)
 								{
 									var n = pts.length - 1;
 									geo.setTerminalPoint(
@@ -8024,15 +8157,7 @@ mxGraph.prototype.panGraph = function(dx, dy)
 			// can be moved without changing the state of the container
 			if (dx == 0 && dy == 0)
 			{
-				// Workaround for ignored removeAttribute on SVG element in IE9 standards
-				if (mxClient.IS_IE)
-				{
-					canvas.setAttribute('transform', 'translate(' + dx + ',' + dy + ')');
-				}
-				else
-				{
 					canvas.removeAttribute('transform');
-				}
 				
 				if (this.shiftPreview1 != null)
 				{
@@ -8190,9 +8315,9 @@ mxGraph.prototype.zoomActual = function()
  * Zooms the graph to the given scale with an optional boolean center
  * argument, which is passd to <zoom>.
  */
-mxGraph.prototype.zoomTo = function(scale, center)
+mxGraph.prototype.zoomTo = function(scale, center, noScroll)
 {
-	this.zoom(scale / this.view.scale, center);
+	this.zoom(scale / this.view.scale, center, null, noScroll);
 };
 
 /**
@@ -8264,7 +8389,7 @@ mxGraph.prototype.center = function(horizontal, vertical, cx, cy)
  * argument that keeps the graph scrolled to the center. If the center argument
  * is omitted, then <centerZoom> will be used as its value.
  */
-mxGraph.prototype.zoom = function(factor, center, multiplier)
+mxGraph.prototype.zoom = function(factor, center, multiplier, noScroll)
 {
 	center = (center != null) ? center : this.centerZoom;
 	var scale = Math.round(this.view.scale * factor * 100) / 100;
@@ -8329,7 +8454,7 @@ mxGraph.prototype.zoom = function(factor, center, multiplier)
 			
 			this.view.setScale(scale);
 			
-			if (hasScrollbars)
+			if (hasScrollbars && !noScroll)
 			{
 				var dx = 0;
 				var dy = 0;
@@ -9339,7 +9464,13 @@ mxGraph.prototype.setHtmlLabels = function(value)
  */
 mxGraph.prototype.isWrapping = function(cell)
 {
-	return this.getCurrentCellStyle(cell)[mxConstants.STYLE_WHITE_SPACE] == 'wrap';
+	var style = this.getCurrentCellStyle(cell);
+	var state = this.view.getState(cell);
+	var usesSvg = mxUtils.getValue(style, 'convertToSvg', '0') == '1' &&
+		(state == null || state.text == null || state.text.node == null ||
+		state.text.node.getElementsByTagName('foreignObject').length == 0);
+
+	return style[usesSvg ? 'svgWhiteSpace' : mxConstants.STYLE_WHITE_SPACE] == 'wrap';
 };
 
 /**
@@ -11170,6 +11301,95 @@ mxGraph.prototype.isExtendParentsOnMove = function()
 mxGraph.prototype.setExtendParentsOnMove = function(value)
 {
 	this.extendParentsOnMove = value;
+};
+
+/**
+ * Function: isContractParent
+ *
+ * Returns true if the parent of the given cell should be contracted if the
+ * child has been resized, moved, or collapsed so that the parent is larger
+ * than needed. This implementation returns <isContractParents> if the cell
+ * is not an edge.
+ *
+ * Parameters:
+ *
+ * cell - <mxCell> that has been resized.
+ */
+mxGraph.prototype.isContractParent = function(cell)
+{
+	return !this.getModel().isEdge(cell) && this.isContractParents();
+};
+
+/**
+ * Function: isContractParents
+ *
+ * Returns <contractParents>.
+ */
+mxGraph.prototype.isContractParents = function()
+{
+	return this.contractParents;
+};
+
+/**
+ * Function: setContractParents
+ *
+ * Sets <contractParents>.
+ *
+ * Parameters:
+ *
+ * value - New boolean value for <contractParents>.
+ */
+mxGraph.prototype.setContractParents = function(value)
+{
+	this.contractParents = value;
+};
+
+/**
+ * Function: isContractParentsOnRemove
+ *
+ * Returns <contractParentsOnRemove>.
+ */
+mxGraph.prototype.isContractParentsOnRemove = function()
+{
+	return this.contractParentsOnRemove;
+};
+
+/**
+ * Function: setContractParentsOnRemove
+ *
+ * Sets <contractParentsOnRemove>.
+ *
+ * Parameters:
+ *
+ * value - New boolean value for <contractParentsOnRemove>.
+ */
+mxGraph.prototype.setContractParentsOnRemove = function(value)
+{
+	this.contractParentsOnRemove = value;
+};
+
+/**
+ * Function: isContractParentsOnMove
+ *
+ * Returns <contractParentsOnMove>.
+ */
+mxGraph.prototype.isContractParentsOnMove = function()
+{
+	return this.contractParentsOnMove;
+};
+
+/**
+ * Function: setContractParentsOnMove
+ *
+ * Sets <contractParentsOnMove>.
+ *
+ * Parameters:
+ *
+ * value - New boolean value for <contractParentsOnMove>.
+ */
+mxGraph.prototype.setContractParentsOnMove = function(value)
+{
+	this.contractParentsOnMove = value;
 };
 
 /**
@@ -13385,8 +13605,8 @@ mxGraph.prototype.fireMouseEvent = function(evtName, me, sender)
 		me.state = this.getEventState(me.getState());
 		this.fireEvent(new mxEventObject(mxEvent.FIRE_MOUSE_EVENT, 'eventName', evtName, 'event', me));
 		
-		if ((mxClient.IS_OP || mxClient.IS_SF || mxClient.IS_GC || mxClient.IS_IE11 ||
-			(mxClient.IS_IE && mxClient.IS_SVG) || me.getEvent().target != this.container))
+		if ((mxClient.IS_OP || mxClient.IS_SF || mxClient.IS_GC ||
+			me.getEvent().target != this.container))
 		{
 			if (evtName == mxEvent.MOUSE_MOVE && this.isMouseDown && this.autoScroll && !mxEvent.isMultiTouchEvent(me.getEvent))
 			{

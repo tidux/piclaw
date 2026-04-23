@@ -66,6 +66,8 @@ export const SLASH_COMMANDS = [
   { name: "/dream", description: "Run Dream memory maintenance over recent days (default 7)" },
   { name: "/tasks", description: "List scheduled tasks" },
   { name: "/scheduled", description: "List scheduled tasks" },
+  { name: "/pair", description: "Manage remote peer connections (/pair request <url> | /pair list)" },
+  { name: "/ask", description: "Send a prompt to a paired remote instance (/ask <instance_id|fingerprint> <prompt>)" },
   { name: "/restart", description: "Restart the agent and stop subprocesses" },
   { name: "/exit", description: "Exit the current piclaw process immediately (Supervisor will restart it)" },
   { name: "/login", description: "Login to an AI model provider (OAuth or API key)" },

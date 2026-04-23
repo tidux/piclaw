@@ -64,22 +64,15 @@ function mxRubberband(graph)
 		
 		this.graph.addListener(mxEvent.GESTURE, this.gestureHandler);
 		
-		// Automatic deallocation of memory
-		if (mxClient.IS_IE)
-		{
-			mxEvent.addListener(window, 'unload',
-				mxUtils.bind(this, function()
-				{
-					this.destroy();
-				})
-			);
-		}
 	}
 };
 
+// Extends mxEventSource
+mxUtils.extend(mxRubberband, mxEventSource);
+
 /**
  * Variable: defaultOpacity
- * 
+ *
  * Specifies the default opacity to be used for the rubberband div. Default
  * is 20.
  */
@@ -280,7 +273,7 @@ mxRubberband.prototype.createShape = function()
 	this.graph.container.appendChild(this.sharedDiv);
 	var result = this.sharedDiv;
 	
-	if (mxClient.IS_SVG && (!mxClient.IS_IE || document.documentMode >= 10) && this.fadeOut)
+	if (mxClient.IS_SVG && this.fadeOut)
 	{
 		this.sharedDiv = null;
 	}
@@ -337,7 +330,7 @@ mxRubberband.prototype.reset = function()
 {
 	if (this.div != null)
 	{
-		if (mxClient.IS_SVG && (!mxClient.IS_IE || document.documentMode >= 10) && this.fadeOut)
+		if (mxClient.IS_SVG && this.fadeOut)
 		{
 			var temp = this.div;
 			mxUtils.setPrefixedStyle(temp.style, 'transition', 'all 0.2s linear');
@@ -358,11 +351,13 @@ mxRubberband.prototype.reset = function()
 	mxEvent.removeGestureListeners(document, null, this.dragHandler, this.dropHandler);
 	this.dragHandler = null;
 	this.dropHandler = null;
-	
+
 	this.currentX = 0;
 	this.currentY = 0;
 	this.first = null;
 	this.div = null;
+
+	this.fireEvent(new mxEventObject(mxEvent.RESET));
 };
 
 /**
@@ -374,8 +369,10 @@ mxRubberband.prototype.update = function(x, y)
 {
 	this.currentX = x;
 	this.currentY = y;
-	
+
 	this.repaint();
+	this.fireEvent(new mxEventObject(mxEvent.UPDATE, 'x', this.x,
+		'y', this.y, 'width', this.width, 'height', this.height));
 };
 
 /**

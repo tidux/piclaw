@@ -22,6 +22,13 @@ import { createLogger } from "../../../utils/logger.js";
 
 const log = createLogger("web.recovery");
 
+export interface PersistedDraftRecoveryEntry {
+  turnId?: string;
+  text: string;
+  totalLines: number;
+  updatedAt: number;
+}
+
 function persistInterruptedTurnOutcome(chatJid: string, inflight: InflightRun, assistantName: string): void {
   try {
     storeMessage({
@@ -54,6 +61,32 @@ function persistInterruptedTurnOutcome(chatJid: string, inflight: InflightRun, a
   }
 }
 
+function persistRecoveredDraft(chatJid: string, inflight: InflightRun, assistantName: string, draft: PersistedDraftRecoveryEntry): void {
+  const text = typeof draft?.text === "string" ? draft.text.trim() : "";
+  if (!text) return;
+  try {
+    storeMessage({
+      id: createUuid("web"),
+      chat_jid: chatJid,
+      sender: "web-agent",
+      sender_name: assistantName,
+      content: text,
+      thread_id: getMessageThreadRootIdById(chatJid, inflight.messageId) ?? undefined,
+      timestamp: new Date().toISOString(),
+      is_from_me: true,
+      is_bot_message: true,
+      is_terminal_agent_reply: true,
+    });
+  } catch (error) {
+    log.warn("Failed to persist recovered draft after restart", {
+      operation: "recover_inflight_runs.persist_recovered_draft",
+      chatJid,
+      inflightMessageId: inflight.messageId,
+      err: error,
+    });
+  }
+}
+
 function recoveryLaneKey(chatJid: string): string {
   return `chat:${chatJid}`;
 }
@@ -64,6 +97,8 @@ export interface WebRecoveryContext {
   defaultAgentId: string;
   enqueue(task: () => Promise<void>, key: string, laneKey?: string): void;
   processChat(chatJid: string, agentId: string, threadRootId?: number): Promise<void>;
+  getDraftRecovery?: (chatJid: string) => PersistedDraftRecoveryEntry | null;
+  clearDraftRecovery?: (chatJid: string) => void;
   now?: () => number;
   recoveryDelayMs?: number;
   sleep?: (ms: number) => Promise<unknown>;
@@ -186,11 +221,23 @@ export function recoverStaleInflightRun(
   }
 
   if (replyState === "none" && inflightAge >= minAgeMs) {
+    const draft = ctx.getDraftRecovery?.(inflight.chatJid) ?? null;
+    if (draft?.text?.trim()) {
+      persistRecoveredDraft(inflight.chatJid, inflight, ctx.assistantName, draft);
+      ctx.clearDraftRecovery?.(inflight.chatJid);
+      return true;
+    }
     persistInterruptedTurnOutcome(inflight.chatJid, inflight, ctx.assistantName);
+    ctx.clearDraftRecovery?.(inflight.chatJid);
     return true;
   }
 
-  return replyState === "partial" || replyState === "terminal";
+  if (replyState === "partial" || replyState === "terminal") {
+    ctx.clearDraftRecovery?.(inflight.chatJid);
+    return true;
+  }
+
+  return false;
 }
 
 /** Recover interrupted runs left inflight after a restart. */
@@ -256,9 +303,20 @@ export function recoverInflightRuns(
   }
 
   for (const { inflight, replyState } of decisions) {
-    if (replyState === "none") {
-      persistInterruptedTurnOutcome(inflight.chatJid, inflight, ctx.assistantName);
+    if (replyState !== "none") {
+      ctx.clearDraftRecovery?.(inflight.chatJid);
+      continue;
     }
+
+    const draft = ctx.getDraftRecovery?.(inflight.chatJid) ?? null;
+    if (draft?.text?.trim()) {
+      persistRecoveredDraft(inflight.chatJid, inflight, ctx.assistantName, draft);
+      ctx.clearDraftRecovery?.(inflight.chatJid);
+      continue;
+    }
+
+    persistInterruptedTurnOutcome(inflight.chatJid, inflight, ctx.assistantName);
+    ctx.clearDraftRecovery?.(inflight.chatJid);
   }
 }
 

@@ -79,7 +79,7 @@ function isQuotaError(errorText: string | null | undefined): boolean {
   return /quota|usage.*limit|out of.*usage|billing|insufficient.*funds|exceeded.*limit|credit/i.test(errorText);
 }
 
-type TurnOutcomeSeverity = "warning" | "error" | "critical";
+type TurnOutcomeSeverity = "warning" | "error" | "critical" | "info";
 
 function buildTurnOutcomeMarker(options: {
   kind: string;
@@ -104,6 +104,10 @@ function buildTurnOutcomeMarker(options: {
   };
 }
 
+function isToolBudgetExceededError(text: string): boolean {
+  return /tool.use budget exceeded/i.test(text);
+}
+
 function buildErrorOutcomeMarker(
   errorText: string,
   options: {
@@ -113,6 +117,19 @@ function buildErrorOutcomeMarker(
     severity?: TurnOutcomeSeverity;
   } = {},
 ): Record<string, unknown> {
+  if (isToolBudgetExceededError(errorText)) {
+    return buildTurnOutcomeMarker({
+      kind: "tool_budget",
+      label: "tool budget",
+      title: "Tool-use budget exceeded",
+      detail: errorText.slice(0, 500),
+      severity: "warning",
+      draftRecovered: options.draftRecovered,
+      attemptsUsed: options.attemptsUsed,
+      classifier: options.classifier,
+    });
+  }
+
   if (isRateLimitError(errorText)) {
     return buildTurnOutcomeMarker({
       kind: "provider",
@@ -166,6 +183,94 @@ function buildErrorOutcomeMarker(
     attemptsUsed: options.attemptsUsed,
     classifier: options.classifier,
   });
+}
+
+interface FailureActionSummary {
+  summary: string;
+  title?: string;
+  toolName?: string;
+  statusText?: string;
+}
+
+function readTrimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function summarizeFailureActionFromStatus(status: Record<string, unknown> | null | undefined): FailureActionSummary | null {
+  if (!status || typeof status !== "object") return null;
+
+  const type = readTrimmedString(status.type);
+  const title = readTrimmedString(status.title);
+  const detail = readTrimmedString(status.detail);
+  const toolName = readTrimmedString(status.tool_name ?? status.toolName);
+  const statusText = readTrimmedString(status.status ?? status.tool_status ?? status.toolStatus);
+
+  if (type === "thinking" && !toolName) return null;
+
+  let summary = "";
+  if ((type === "tool_call" || type === "tool_status") && (title || toolName)) {
+    const statusSuffix = statusText && !/^(working\.\.\.|done)$/i.test(statusText) ? statusText : "";
+    summary = [title || toolName, statusSuffix].filter(Boolean).join(" — ");
+  } else if (type === "intent") {
+    summary = [title, detail].filter(Boolean).join(" — ");
+  } else if (title) {
+    summary = [title, detail].filter(Boolean).join(" — ");
+  }
+
+  if (!summary) return null;
+  return {
+    summary,
+    title: title || undefined,
+    toolName: toolName || undefined,
+    statusText: statusText || undefined,
+  };
+}
+
+function withFailureActionMetadata(
+  marker: Record<string, unknown> | null,
+  action: FailureActionSummary | null,
+): Record<string, unknown> | null {
+  if (!marker || !action?.summary) return marker;
+  return {
+    ...marker,
+    tool_action_summary: action.summary,
+    tool_title: action.title,
+    tool_name: action.toolName,
+    tool_status: action.statusText,
+  };
+}
+
+function buildFailureVisibleText(options: {
+  draftText?: string;
+  title?: string;
+  detail?: string;
+  actionSummary?: string;
+  attemptsUsed?: number;
+  classifier?: string;
+}): string {
+  const draftText = readTrimmedString(options.draftText);
+  const title = readTrimmedString(options.title);
+  const detail = readTrimmedString(options.detail);
+  const actionSummary = readTrimmedString(options.actionSummary);
+  const attemptsUsed = Number.isFinite(options.attemptsUsed) && (options.attemptsUsed ?? 0) > 0 ? options.attemptsUsed : undefined;
+  const classifier = readTrimmedString(options.classifier);
+
+  const rows: Array<[string, string]> = [];
+  if (title) rows.push(["Issue", title]);
+  if (detail && detail !== title) rows.push(["Detail", detail]);
+  if (actionSummary) rows.push(["Last action", actionSummary]);
+  if (attemptsUsed) rows.push(["Recovery attempts", String(attemptsUsed)]);
+  if (classifier) rows.push(["Classifier", classifier.replace(/_/g, " ")]);
+
+  const useTable = rows.length >= 2;
+  const diagnosticText = useTable
+    ? ["| | |", "|---|---|", ...rows.map(([k, v]) => `| **${k}** | ${v} |`)].join("\n")
+    : rows.map(([k, v]) => `${k}: ${v}`).join("\n\n");
+
+  if (draftText && rows.length === 0) return draftText;
+  if (!draftText && rows.length === 0) return "Turn failed.";
+  if (!draftText) return diagnosticText;
+  return [draftText, "", diagnosticText].join("\n");
 }
 
 function buildRetryStatusPayload(base: {
@@ -1235,7 +1340,36 @@ export async function processChat(
       ...(Array.isArray(options.additionalBlocks) ? options.additionalBlocks : []),
     ],
   });
-  const publishDraftFallback = (reason?: "timeout" | "error" | "empty-final" | "rate-limit", detail?: string) => {
+  const persistVisibleFailureOutcome = (
+    markerBase: Record<string, unknown>,
+    detail?: string,
+    options: { requireDraft?: boolean } = {},
+  ) => {
+    const draft = channel.getBuffer(turnId, "draft");
+    const draftText = typeof draft?.text === "string" ? draft.text.trim() : "";
+    if (options.requireDraft && !draftText) return false;
+
+    const lastAction = summarizeFailureActionFromStatus(channel.getAgentStatus(chatJid));
+    const marker = withFailureActionMetadata(markerBase, lastAction);
+    const title = readTrimmedString(marker?.title) || "Turn failed";
+    const markerDetail = readTrimmedString(marker?.detail);
+    const text = buildFailureVisibleText({
+      draftText,
+      title,
+      detail: detail || markerDetail,
+      actionSummary: lastAction?.summary,
+      attemptsUsed: Number.isFinite(marker?.attempts_used) ? (marker?.attempts_used as number) : undefined,
+      classifier: readTrimmedString(marker?.classifier),
+    });
+
+    return persistTerminalOutcome(text, marker);
+  };
+
+  const publishDraftFallback = (
+    reason?: "timeout" | "error" | "empty-final" | "rate-limit",
+    detail?: string,
+    options: { requireDraft?: boolean } = {},
+  ) => {
     // Draft fallback should publish the currently visible draft for whichever
     // turn failed to finalize, even if earlier turns in the same session were
     // already flushed via onTurnComplete(). For the very first turn we must
@@ -1243,19 +1377,17 @@ export async function processChat(
     // accidentally stolen by the original response.
     const draft = channel.getBuffer(turnId, "draft");
     const draftText = typeof draft?.text === "string" ? draft.text.trim() : "";
-    if (!draftText) return false;
 
-    const marker = reason === "timeout"
+    const markerBase = reason === "timeout"
       ? {
           type: "timeout_marker",
           timed_out: true,
           title: "Timed out",
-          tool_action_summary: typeof detail === "string" ? detail.slice(0, 500) : "",
-          draft_recovered: true,
+          draft_recovered: Boolean(draftText),
         }
       : reason === "rate-limit"
         ? buildErrorOutcomeMarker(detail || "rate limit", {
-            draftRecovered: true,
+            draftRecovered: Boolean(draftText),
             attemptsUsed: lastRecoveryMeta?.attemptsUsed,
             classifier: lastRecoveryMeta?.lastClassifier ?? null,
           })
@@ -1266,17 +1398,17 @@ export async function processChat(
               title: "No final reply produced",
               detail: lastRecoveryMeta?.lastClassifier ? `Last recovery classifier: ${lastRecoveryMeta.lastClassifier}.` : undefined,
               severity: "warning",
-              draftRecovered: true,
+              draftRecovered: Boolean(draftText),
               attemptsUsed: lastRecoveryMeta?.attemptsUsed,
               classifier: lastRecoveryMeta?.lastClassifier ?? null,
             })
           : buildErrorOutcomeMarker(detail || "Response ended with an error before finalization", {
-              draftRecovered: true,
+              draftRecovered: Boolean(draftText),
               attemptsUsed: lastRecoveryMeta?.attemptsUsed,
               classifier: lastRecoveryMeta?.lastClassifier ?? null,
             });
 
-    return persistTerminalOutcome(draftText, marker);
+    return persistVisibleFailureOutcome(markerBase, reason === "timeout" ? detail : undefined, options);
   };
 
   const finalizeSuccessfulRun = async () => {
@@ -1378,6 +1510,31 @@ export async function processChat(
 
   lastRecoveryMeta = output.recovery || null;
 
+  if (output.status === "tool_complete") {
+    // Provider stopped cleanly after tool use with no closing text reply.
+    // This is not an error — emit a muted "done" pill and finalise normally.
+    const marker = buildTurnOutcomeMarker({
+      kind: "tool_complete",
+      label: "done",
+      title: "Completed via tools",
+      detail: "Turn finished after tool use — no closing reply was emitted.",
+      severity: "info",
+    });
+    const persisted = persistVisibleFailureOutcome(marker);
+    if (persisted) {
+      await finalizeSuccessfulRun();
+    } else {
+      rollbackChatRunWithError(chatJid, {
+        prevTs: prevCursor,
+        failedTs: lastMessage.timestamp,
+        messageId: lastMessage.id,
+        threadRootId: resolvedThreadRootId ?? null,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    return;
+  }
+
   if (output.status === "error") {
     if (output.error && output.error.includes("already processing")) {
       // A concurrent run is already handling this chat. Roll back the cursor
@@ -1425,7 +1582,7 @@ export async function processChat(
       classifier: output.recovery?.lastClassifier ?? null,
       severity: rateLimited ? "warning" : "error",
     });
-    const persisted = persistTerminalOutcome("", marker);
+    const persisted = persistVisibleFailureOutcome(marker);
     if (persisted) {
       await finalizeSuccessfulRun();
     } else {
@@ -1468,7 +1625,7 @@ export async function processChat(
         isTerminalAgentReply: true,
         extraContentBlocks: buildRecoveryMarkerBlocks(output.recovery),
       })
-    : publishDraftFallback("empty-final");
+    : publishDraftFallback("empty-final", undefined, { requireDraft: true });
 
   if (!finalized && hasOutput) {
     // The agent produced output but terminal persistence failed.
@@ -1588,7 +1745,7 @@ export async function processChat(
         attemptsUsed: lastRecoveryMeta?.attemptsUsed,
         classifier: lastRecoveryMeta?.lastClassifier ?? null,
       });
-      const persisted = persistTerminalOutcome("", marker);
+      const persisted = persistVisibleFailureOutcome(marker);
       if (persisted) {
         await finalizeSuccessfulRun();
       } else {
@@ -1636,7 +1793,7 @@ export async function processChat(
       attemptsUsed: lastRecoveryMeta?.attemptsUsed,
       classifier: lastRecoveryMeta?.lastClassifier ?? null,
     });
-    const persisted = persistTerminalOutcome("", marker);
+    const persisted = persistVisibleFailureOutcome(marker);
     if (persisted) {
       await finalizeSuccessfulRun();
     } else {

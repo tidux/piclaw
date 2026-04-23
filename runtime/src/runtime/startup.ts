@@ -47,6 +47,7 @@ function parseStartupWarmupLimit(value: string | undefined, fallback = 0): numbe
 }
 const WORKSPACE_BOOTSTRAP_ENTRIES = [
   "AGENTS.md",
+  ".mcp.json.example",
   ".pi/skills",
   ".pi/mcp.json.example",
   ".piclaw/README.md",

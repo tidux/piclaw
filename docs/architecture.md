@@ -185,7 +185,7 @@ In addition to the inline factories, piclaw ships **packaged runtime extensions*
 | `integrations/ssh/` | Always loaded | `ssh` agent-only tool for session-scoped SSH profile `get`/`set`/`clear` |
 | `integrations/proxmox/` | Always loaded | `proxmox` agent-only tool for session-scoped Proxmox profile actions plus `discover`, `capabilities`, `workflow_help`, `recommend`, raw `request`, named `workflow` actions, and colocated packaged skill discovery for Proxmox comparison/reporting flows |
 | `integrations/portainer/` | Always loaded | `portainer` agent-only tool for session-scoped Portainer profile actions plus `discover`, `capabilities`, `workflow_help`, `recommend`, raw `request`, named `workflow` actions, and colocated packaged skill discovery for Portainer comparison/reporting flows |
-| `node_modules/pi-mcp-adapter/index.ts` | Always loaded | Bundled Pi package extension that exposes the token-efficient `mcp` proxy tool plus `/mcp` and `/mcp-auth` commands for external MCP servers configured through `.pi/mcp.json` or the Pi home config |
+| `node_modules/pi-mcp-adapter/index.ts` | Always loaded | Bundled Pi package extension that exposes the token-efficient `mcp` proxy tool plus `/mcp`, `/mcp setup`, and `/mcp-auth` commands for external MCP servers configured through shared `.mcp.json` / `~/.config/mcp/mcp.json` with optional Pi-specific override layers |
 | per-session `ssh-core` session extension | Created per session by `AgentPool` | Wraps `read`/`write`/`edit`/`bash` with session-scoped local-or-remote SSH execution |
 | `browser/cdp-browser/` | Always loaded | Cross-platform Chromium CDP browser control tool (`cdp_browser`) |
 | `platform/windows/win-ui/` | Always loaded (runtime no-op off Windows) | Windows desktop automation via bun:ffi + IAccessible (`win_*` tools) |
@@ -384,6 +384,32 @@ There is no longer a supported path where an empty terminal turn both:
 - Scheduled tasks validate the requested model at creation time; invalid or ambiguous model names are rejected before the task is persisted.
 
 For the message‑level flow, see [runtime-flows.md](runtime-flows.md).
+
+## Remote interop
+
+Cross-instance communication is handled by `RemoteInteropService`
+(`src/remote/service.ts`), which routes all `/api/remote/*` endpoints.
+Peer identity uses Ed25519 key pairs derived at first run; every request
+is signed and verified against stored public keys.
+
+Key modules:
+
+| Module | Responsibility |
+|--------|---------------|
+| `remote/service.ts` | Request router, nonce cache, rate limiters |
+| `remote/service-pairing.ts` | Pair-request, pair-confirm, pair-callback handlers |
+| `remote/service-operations.ts` | Ping, proposal, execute, revoke, result-callback |
+| `remote/service-security.ts` | Callback proof verification (SSRF-safe) |
+| `remote/auth.ts` | Ed25519 signature build/verify |
+| `remote/policy.ts` | Profile-based tool ceiling filters (`read-only` → `non-mutating` → `restricted` → `full`) |
+| `remote/ssrf.ts` | Callback URL validation (hostname, DNS, private-IP) |
+| `extensions/remote-pair.ts` | `/pair` slash command (accept/deny/block/revoke/list) |
+| `skills/remote-peer/` | Agent skill for sending prompts to paired peers |
+| `db/remote-interop.ts` | SQLite schema and queries for peers, requests, proposals |
+
+Pairing follows a five-step consent protocol (request → review → URL
+proof → accept/deny → confirm). See [cross-instance-ipc.md](cross-instance-ipc.md)
+for the full protocol and configuration reference.
 
 ## Additional documentation
 

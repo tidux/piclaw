@@ -69,6 +69,40 @@ describe("web recovery helpers", () => {
     expect(enqueued.map(({ key, laneKey }) => ({ key, laneKey }))).toEqual([]);
   });
 
+  test("recoverInflightRuns persists a buffered draft instead of an interrupted marker when restart recovery has visible text", () => {
+    const cleared: string[] = [];
+
+    const ctx: WebRecoveryContext = {
+      assistantName: "Pi",
+      defaultAgentId: "default",
+      enqueue: async () => {},
+      processChat: async () => {},
+      getDraftRecovery: (chatJid) => chatJid === "web:draft"
+        ? { turnId: "turn-draft", text: "Recovered draft after restart", totalLines: 1, updatedAt: Date.now() }
+        : null,
+      clearDraftRecovery: (chatJid) => {
+        cleared.push(chatJid);
+      },
+      now: () => new Date("2026-01-01T00:05:00Z").getTime(),
+    };
+
+    const store: WebRecoveryStore = {
+      getInflightRuns: () => [{ chatJid: "web:draft", prevTs: "t0", messageId: "m1", startedAt: "2026-01-01T00:04:00Z" }],
+      transaction: (run) => run(),
+      getAgentReplyStateAfter: () => "none",
+      clearInflightMarker: () => {},
+      rollbackInflightRun: () => {},
+      getAllChatCursors: () => ({}),
+      getKnownChatJids: () => [],
+      getDeferredQueuedFollowups: () => [],
+      getMessagesSince: () => [],
+    };
+
+    recoverInflightRuns(ctx, store);
+
+    expect(cleared).toEqual(["web:draft"]);
+  });
+
   test("recoverInflightRuns clears stale inflight markers without replay", () => {
     const staleStartedAt = "2026-01-01T00:00:00Z";
     const now = new Date("2026-01-01T01:00:00Z").getTime();

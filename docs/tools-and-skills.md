@@ -233,7 +233,7 @@ You can extend that baseline with `.piclaw/config.json`:
 - `ssh` — get, set, or clear the session-scoped SSH profile used by remote-backed core tools (`read`, `write`, `edit`, `bash`)
 - `proxmox` — get, set, or clear the session-scoped Proxmox API profile, perform ad-hoc Proxmox API requests, or run common VM/task/metrics workflows with keychain-backed token auth
 - `portainer` — get, set, or clear the session-scoped Portainer API profile, perform ad-hoc Portainer API requests, or run common endpoint/stack/container workflows with keychain-backed token auth
-- `mcp` — token-efficient proxy for external MCP servers via the bundled `pi-mcp-adapter`; supports search, describe, connect, tool calls, and MCP UI message retrieval using `.pi/mcp.json` or the Pi home config
+- `mcp` — token-efficient proxy for external MCP servers via the bundled `pi-mcp-adapter`; supports search, describe, connect, tool calls, and MCP UI message retrieval using shared `.mcp.json` plus optional Pi-owned override config
 
 `messages` `search` accepts `query`, `chat_jid` (or `*`/`all`), `role`, `sender`, `after`, `before`, `since`, `after_row`, `before_row`, `limit`, `offset`, `excerpt_chars`, and `details_max_chars` for controlling detail payloads.
 `messages` `get` accepts `row_ids`, optional `chat_jid`, `role`, `context_before`, `context_after`, `details_max_chars`, `content_lines`, and `content_grep`.
@@ -496,7 +496,7 @@ Each skill keeps its script alongside its `SKILL.md` for portability. Current se
 | `twitter-summary` | Fetch a user's recent tweets via Playwright + Nitter |
 | `feed-digest` | Build a deduped Markdown digest from an RSS/Atom feed index |
 | `bootstrap-container` | Validate required tools and install missing dependencies |
-| `mcp-adapter` | Configure and use the bundled `pi-mcp-adapter` through `.pi/mcp.json` |
+| `mcp-adapter` | Configure and use the bundled `pi-mcp-adapter` through shared `.mcp.json` plus optional Pi-owned overrides |
 | `extension-design` | Design and audit Pi extensions safely |
 | `extension-troubleshoot` | Diagnose and fix extension issues (imports, DB init, watcher perms) |
 | `kanban-management` | Manage the project workitems board: ideation, triage, quality scoring, definition-of-done tracking |
@@ -511,6 +511,7 @@ Each skill keeps its script alongside its `SKILL.md` for portability. Current se
 | `proxmox-management` | Manage Proxmox VM lifecycle, USB mapping passthrough, and backup-restore moves |
 | `proxmox-guest-compare-chart` | Compare two Proxmox guests using native `proxmox` data collection and render SVG/CSV outputs |
 | `portainer-container-compare-chart` | Compare two Portainer containers using native `portainer` data collection and render SVG/CSV outputs |
+| `remote-peer` | Send signed prompts to paired remote piclaw instances (see [cross-instance-ipc.md](cross-instance-ipc.md)) |
 
 `kanban-management` intentionally keeps its public name for now, but repo-local board paths in this project now live under `workitems/`. Visual/editor semantics such as `*.kanban.md` remain intentionally named.
 
@@ -586,14 +587,14 @@ Direct commands (no LLM round-trip):
 | `/tasks [filter]` | List scheduled tasks (via extension) |
 | `/scheduled [filter]` | Alias for `/tasks` |
 | `/dream [days]` | Queue an out-of-band Dream cycle on a temporary `dream:` channel; runtime backs up notes, seeds daily notes from DB, the model follows Orient / Signal / Consolidate / Prune and Index, and runtime refreshes FTS at the end |
-| `/mcp [status\|tools\|reconnect [server]]` | Open the MCP management panel in the web UI (or text status elsewhere), list MCP tools, or reconnect bundled `pi-mcp-adapter` servers |
+| `/mcp [status\|tools\|reconnect [server]\|setup]` | Open the MCP management panel in the web UI (or text status elsewhere), list MCP tools, reconnect bundled `pi-mcp-adapter` servers, or launch guided MCP setup |
 | `/mcp-auth <server>` | Show OAuth token-setup guidance for an MCP server managed by `pi-mcp-adapter` |
 
 > [!NOTE]
 > Provider auth works via `pi /login` in the terminal or the experimental `/login` card flow in the web UI.
 > The card-based `/login` flow supports GitHub Copilot, Codex, and standard OpenAI providers. Anthropic is untested. The terminal remains the reliable fallback.
 
-The bundled `pi-mcp-adapter` reads project-local MCP config from `.pi/mcp.json` (starter example: `.pi/mcp.json.example`) and also understands the Pi home config under `~/.pi/agent/mcp.json` (inside the container image this typically maps to `/config/.pi/agent/mcp.json`). It merges Pi-home config, optional imported tool configs, then project-local `.pi/mcp.json` overrides. Prefer the project-local config when an MCP server belongs to the current workspace.
+The bundled `pi-mcp-adapter` now prefers shared MCP config first: `~/.config/mcp/mcp.json` and project-local `.mcp.json`. Pi-owned config still works under `~/.pi/agent/mcp.json` (inside the container image this typically maps to `/config/.pi/agent/mcp.json`) and project-local `.pi/mcp.json`, with `.pi/mcp.json` acting as the final Pi-specific override. Starter examples are seeded at `.mcp.json.example` and `.pi/mcp.json.example`. Use `/mcp setup` for guided onboarding.
 
 `/image` writes generated images back into the workspace and renders them as workspace-backed timeline images plus file-path listings. `/flux` follows the same output pattern, but transparent background requests are currently supported only on `/image`.
 

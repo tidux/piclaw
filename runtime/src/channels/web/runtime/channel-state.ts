@@ -17,10 +17,18 @@
 
 import { getRouterState, setRouterState } from "../../../db.js";
 
+export interface PersistedDraftRecoveryEntry {
+  turnId?: string;
+  text: string;
+  totalLines: number;
+  updatedAt: number;
+}
+
 /** Persistent per-chat state manager for the web channel. */
 export class WebChannelState {
   agentStatuses: Record<string, Record<string, unknown>> = {};
   contextUsages: Record<string, Record<string, unknown>> = {};
+  draftRecoveries: Record<string, PersistedDraftRecoveryEntry> = {};
 
   constructor(private stateKey: string) {}
 
@@ -36,16 +44,21 @@ export class WebChannelState {
         parsed && typeof parsed === "object" && typeof parsed.contextUsages === "object"
           ? (parsed.contextUsages as Record<string, Record<string, unknown>>)
           : {};
+      this.draftRecoveries =
+        parsed && typeof parsed === "object" && typeof parsed.draftRecoveries === "object"
+          ? (parsed.draftRecoveries as Record<string, PersistedDraftRecoveryEntry>)
+          : {};
     } catch {
       this.agentStatuses = {};
       this.contextUsages = {};
+      this.draftRecoveries = {};
     }
   }
 
   save(): void {
     setRouterState(
       this.stateKey,
-      JSON.stringify({ agentStatuses: this.agentStatuses, contextUsages: this.contextUsages })
+      JSON.stringify({ agentStatuses: this.agentStatuses, contextUsages: this.contextUsages, draftRecoveries: this.draftRecoveries })
     );
   }
 
@@ -71,5 +84,17 @@ export class WebChannelState {
 
   getContextUsage(chatJid: string): Record<string, unknown> | null {
     return this.contextUsages[chatJid] ?? null;
+  }
+
+  setDraftRecovery(chatJid: string, entry: PersistedDraftRecoveryEntry | null): void {
+    if (!entry) {
+      delete this.draftRecoveries[chatJid];
+      return;
+    }
+    this.draftRecoveries[chatJid] = entry;
+  }
+
+  getDraftRecovery(chatJid: string): PersistedDraftRecoveryEntry | null {
+    return this.draftRecoveries[chatJid] ?? null;
   }
 }

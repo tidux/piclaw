@@ -412,5 +412,7 @@ mxGeometry.prototype.equals = function(obj)
 		((this.targetPoint == null && obj.targetPoint == null) || (this.targetPoint != null && this.targetPoint.equals(obj.targetPoint))) &&
 		((this.points == null && obj.points == null) || (this.points != null && mxUtils.equalPoints(this.points, obj.points))) &&
 		((this.alternateBounds == null && obj.alternateBounds == null) || (this.alternateBounds != null && this.alternateBounds.equals(obj.alternateBounds))) &&
-		((this.offset == null && obj.offset == null) || (this.offset != null && this.offset.equals(obj.offset)));
+		((this.offset == null && obj.offset == null) || (this.offset != null && obj.offset != null &&
+			(typeof this.offset.equals === 'function' ? this.offset.equals(obj.offset) :
+			this.offset.x == obj.offset.x && this.offset.y == obj.offset.y)));
 };

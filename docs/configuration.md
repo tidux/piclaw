@@ -357,22 +357,24 @@ Set via environment variables (see above) or in `.piclaw/config.json`:
 
 PiClaw ships the `pi-mcp-adapter` extension for token-efficient MCP access.
 
-Preferred project-local config:
+Preferred shared project config:
 
 ```text
-/workspace/.pi/mcp.json
+/workspace/.mcp.json
 ```
 
-Starter example seeded on first startup:
+Starter examples seeded on first startup:
 
 ```text
+/workspace/.mcp.json.example
 /workspace/.pi/mcp.json.example
 ```
 
-Global Pi-home config also works:
+Pi-specific override layers also work:
 
 ```text
 ~/.pi/agent/mcp.json
+/workspace/.pi/mcp.json
 ```
 
 In the container image that Pi home is typically bind-mounted under:
@@ -392,7 +394,7 @@ The same `/config/.pi/agent/` path also holds Pi-managed provider auth/model met
 Notes:
 
 - prefer the project-local file when MCP servers are part of the current workspace
-- config is merged from Pi-home config, optional imported tool configs, then project-local `.pi/mcp.json` overrides
+- config now prefers shared MCP files first (`~/.config/mcp/mcp.json`, then project `.mcp.json`), with Pi-owned config layers used for Pi-specific imports/overrides and project-local `.pi/mcp.json` as the final override
 - start a new chat/session or restart PiClaw after changing MCP config
 - the adapter exposes the `mcp` tool plus `/mcp`, `/mcp status`, `/mcp tools`, `/mcp reconnect [server]`, and `/mcp-auth` commands
 - `/mcp` opens the MCP management panel in the web UI and falls back to text status elsewhere
@@ -724,6 +726,8 @@ Optional settings for multi-instance communication. See [cross-instance-ipc.md](
 |----------|---------|---------|
 | `PICLAW_REMOTE_INTEROP_ENABLED` | `0` | Enable cross-instance interop endpoints |
 | `PICLAW_REMOTE_INTEROP_ALLOW_HTTP` | `0` | Allow `http://` callback URLs (not just `https://`) |
+| `PICLAW_REMOTE_INTEROP_ALLOW_PRIVATE_NETWORK` | `0` | Skip **all** SSRF protections on callback URLs — private/loopback IP checks, blocked-hostname checks, and DNS re-resolution. Only for Docker/LAN dev environments. |
 | `PICLAW_REMOTE_SHORT_CIRCUIT_ENABLED` | `0` | Enable short-circuit execution mode |
 | `PICLAW_REMOTE_INSTANCE_NAME` | _(empty)_ | Display name for this instance in interop metadata |
 | `PICLAW_REMOTE_INTEROP_DECISION_MODEL` | _(empty)_ | Model label for interop mediation (metadata only) |
+| `PICLAW_WEB_EXTERNAL_URL` | _(empty)_ | Public base URL used as callback origin during pairing (e.g. `https://mybox.example.com`). Falls back to `http://localhost:<port>` if unset — real deployments should always set this. |

@@ -249,6 +249,7 @@ test('Post renders an outcome chip after the timestamp for turn failures', async
     label: 'provider',
     title: 'Provider retry budget exhausted',
     detail: '429 Too Many Requests',
+    tool_action_summary: 'bash echo hi',
     severity: 'warning',
   }]);
 
@@ -257,7 +258,7 @@ test('Post renders an outcome chip after the timestamp for turn failures', async
   const timestamp = findByClass(host, 'post-time');
   expect(chip).toBeTruthy();
   expect(flattenText(chip)).toContain('provider');
-  expect(chip?.getAttribute('title')).toBe('Provider retry budget exhausted — 429 Too Many Requests');
+  expect(chip?.getAttribute('title')).toBe('Provider retry budget exhausted — 429 Too Many Requests — Last action: bash echo hi');
   const metaText = flattenText(meta);
   const timestampText = flattenText(timestamp);
   expect(metaText.indexOf(timestampText)).toBeGreaterThan(-1);

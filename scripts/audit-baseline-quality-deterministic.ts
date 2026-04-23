@@ -358,6 +358,12 @@ const groupDefinitions: GroupDefinition[] = [
     match: (relativePath) => relativePath.startsWith("scripts/") || relativePath.startsWith("vendor/"),
   },
   {
+    id: "features",
+    label: "feature regression tests",
+    notes: "End-to-end feature validation against a real in-process web server.",
+    match: (relativePath) => relativePath.startsWith("features/"),
+  },
+  {
     id: "web-ui-interaction-and-state",
     label: "web ui interaction and state",
     notes: "Compose, queue state, session switching, tabs, app resume, routing, and interaction-heavy UI flows.",

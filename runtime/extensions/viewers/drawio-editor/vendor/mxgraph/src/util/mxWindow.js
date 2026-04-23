@@ -411,18 +411,20 @@ mxWindow.prototype.init = function(x, y, width, height, style)
  */
 mxWindow.prototype.setTitle = function(title)
 {
-	// Removes all text content nodes (normally just one)
+	// Removes all child nodes except the buttons container.
+	// Must remove element nodes too (not just text nodes)
+	// because browser translation wraps text in font elements.
 	var child = this.title.firstChild;
-	
+
 	while (child != null)
 	{
 		var next = child.nextSibling;
-		
-		if (child.nodeType == mxConstants.NODETYPE_TEXT)
+
+		if (child != this.buttons)
 		{
 			child.parentNode.removeChild(child);
 		}
-		
+
 		child = next;
 	}
 	
@@ -925,8 +927,11 @@ mxWindow.prototype.installMoveHandler = function()
  */
 mxWindow.prototype.setLocation = function(x, y)
 {
-	this.div.style.left = x + 'px';
-	this.div.style.top = y + 'px';
+	if (this.div != null)
+	{
+		this.div.style.left = x + 'px';
+		this.div.style.top = y + 'px';
+	}
 };
 
 /**

@@ -2024,7 +2024,7 @@ test("processChat records an explicit failed run when draft fallback persistence
   expect(contents).toEqual(["hello"]);
 });
 
-test("processChat surfaces provider rate limits as a compact outcome bubble", async () => {
+test("processChat surfaces provider rate limits as a visible outcome bubble", async () => {
   const ws = createTempWorkspace("piclaw-web-channel-");
   cleanupWorkspace = ws.cleanup;
   restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
@@ -2060,7 +2060,8 @@ test("processChat surfaces provider rate limits as a compact outcome bubble", as
   const timeline = db.getTimeline("web:default", 10);
   const botMessages = timeline.filter((item: any) => item.data.type === "agent_response");
   expect(botMessages.length).toBe(1);
-  expect(botMessages[0].data.content).toBe("");
+  expect(botMessages[0].data.content).toContain("Provider retry budget exhausted");
+  expect(botMessages[0].data.content).toContain("Error: HTTP 429 Too Many Requests");
   expect(botMessages[0].data.content_blocks).toContainEqual(expect.objectContaining({
     type: "turn_outcome_marker",
     kind: "provider",
@@ -2114,6 +2115,55 @@ test("processChat keeps partial draft text and adds a rate-limit bubble when fal
     type: "turn_outcome_marker",
     kind: "provider",
     draft_recovered: true,
+  }));
+});
+
+test("processChat includes the last action summary in visible failure fallbacks", async () => {
+  const ws = createTempWorkspace("piclaw-web-channel-");
+  cleanupWorkspace = ws.cleanup;
+  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+
+  const db = await import("../../../src/db.js");
+  db.initDatabase();
+  db.getDb().exec("DELETE FROM message_media; DELETE FROM messages; DELETE FROM chats; DELETE FROM chat_cursors; DELETE FROM chat_cursors;");
+  db.storeChatMetadata("web:default", new Date().toISOString(), "Web");
+
+  db.storeMessage({
+    id: `msg-${Math.random()}`,
+    chat_jid: "web:default",
+    sender: "user",
+    sender_name: "User",
+    content: "hello",
+    timestamp: new Date().toISOString(),
+    is_from_me: false,
+    is_bot_message: false,
+  });
+
+  const webMod = await import("../../../src/channels/web.js");
+  const web = new (webMod.WebChannel as any)({
+    queue: { enqueue: () => {} },
+    agentPool: {
+      setSessionBinder: () => {},
+      runAgent: async (_prompt: string, _chatJid: string, options: any) => {
+        options.onEvent?.({ type: "tool_execution_start", toolCallId: "tool-1", toolName: "bash", args: { command: "echo hi" } });
+        options.onEvent?.({ type: "tool_execution_update", toolCallId: "tool-1", toolName: "bash", args: { command: "echo hi" } });
+        return { status: "error", error: "Prompt completed without emitting an assistant reply before finalization (session delta: 0 appended entries).", result: null, attachments: [] };
+      },
+      getContextUsageForChat: async () => null,
+    },
+  });
+
+  await web.processChat("web:default", "default");
+
+  const timeline = db.getTimeline("web:default", 10);
+  const last = timeline[timeline.length - 1];
+  expect(String(last.data.content || "")).toContain("Turn failed");
+  expect(String(last.data.content || "")).toContain("Last action");
+  expect(String(last.data.content || "")).toContain("bash");
+  expect(last.data.content_blocks).toContainEqual(expect.objectContaining({
+    type: "turn_outcome_marker",
+    kind: "error",
+    tool_action_summary: expect.stringContaining("bash"),
   }));
 });
 
@@ -2219,6 +2269,7 @@ test("processChat consumes an empty successful output with a compact no-reply bu
   const botMessages = timeline.filter((item: any) => item.data.type === "agent_response");
   expect(botMessages.some((item: any) => Array.isArray(item.data.content_blocks)
     && item.data.content_blocks.some((block: any) => block?.type === "turn_outcome_marker" && block?.label === "no reply"))).toBe(true);
+  expect(botMessages.some((item: any) => String(item.data.content || "").includes("Agent produced no response"))).toBe(true);
 });
 
 test("processChat does not replay empty-output turns on subsequent passes", async () => {
@@ -2719,9 +2770,10 @@ test("processChat publishes final draft fallback even after an intermediate turn
   await web.processChat("web:default", "default");
 
   const timeline = db.getTimeline("web:default", 10);
-  const contents = timeline.map((item: any) => item.data.content);
+  const contents = timeline.map((item: any) => String(item.data.content || ""));
   expect(contents).toContain("first reply");
-  expect(contents).toContain("second draft");
+  expect(contents.some((content) => content.includes("second draft"))).toBe(true);
+  expect(contents.some((content) => content.includes("No final reply produced"))).toBe(true);
 });
 
 test("processChat publishes queued follow-up only after current turn completes", async () => {

@@ -12,6 +12,7 @@ import { startIpcWatcher, type IpcDeps } from "../ipc.js";
 import { startSchedulerLoop, type SchedulerDeps } from "../task-scheduler.js";
 import { createUuid } from "../utils/ids.js";
 import { createLogger } from "../utils/logger.js";
+import { executeApprovedProposal, rejectProposal } from "../remote/service-operations.js";
 
 const log = createLogger("runtime.wiring");
 
@@ -168,6 +169,19 @@ export function startRuntimeWorkers(
           await senders.sendMessage(chatJid, result.result, { forceRoot: true, source: "dream" });
         }
       }, getDreamQueueLane(chatJid));
+    },
+    executeProposal: async (proposalId) => {
+      const taskId = `proposal:${proposalId}`;
+      queue.enqueueTask(taskId, async () => {
+        await executeApprovedProposal(proposalId, agentPool, async (text) => {
+          await senders.sendMessage("web:default", text, { forceRoot: true, source: "remote-proposal" });
+        });
+      });
+    },
+    rejectProposal: async (proposalId, reason) => {
+      await rejectProposal(proposalId, reason, async (text) => {
+        await senders.sendMessage("web:default", text, { forceRoot: true, source: "remote-proposal" });
+      });
     },
   });
 

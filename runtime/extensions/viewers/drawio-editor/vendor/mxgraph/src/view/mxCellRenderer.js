@@ -1311,6 +1311,7 @@ mxCellRenderer.prototype.redrawCellOverlays = function(state, forced)
 			{
 				shape.bounds = bounds;
 				shape.scale = state.view.scale;
+				shape.viewTranslate = state.view.translate;
 				shape.redraw();
 			}
 		});
@@ -1366,8 +1367,8 @@ mxCellRenderer.prototype.getControlBounds = function(state, w, h)
 	
 		if (!state.view.graph.getModel().isEdge(state.cell))
 		{
-			cx = state.x + w * s;
-			cy = state.y + h * s;
+			cx = state.x + Math.max(w / 2, 9) * s;
+			cy = state.y + Math.max(h / 2, 9) * s;
 			
 			if (state.shape != null)
 			{
@@ -1434,7 +1435,7 @@ mxCellRenderer.prototype.insertStateAfter = function(state, node, htmlNode)
 				shapes[i].node.parentNode != state.view.getOverlayPane();
 			var temp = (html) ? htmlNode : node;
 			
-			if (temp != null && temp.nextSibling != shapes[i].node)
+			if (temp != null && temp.parentNode != null && temp.nextSibling != shapes[i].node)
 			{
 				if (temp.nextSibling == null)
 				{
@@ -1629,7 +1630,8 @@ mxCellRenderer.prototype.redrawShape = function(state, force, rendering)
 			}
 
 			state.shape.scale = state.view.scale;
-			
+			state.shape.viewTranslate = state.view.translate;
+
 			if (rendering == null || rendering)
 			{
 				this.doRedrawShape(state);
