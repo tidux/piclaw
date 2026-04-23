@@ -177,6 +177,24 @@ describe("web channel http surface service", () => {
           return response("handoff");
         },
       },
+      lspHttpService: {
+        handleLspSession: (req: Request) => {
+          calls.push(`lsp-session:${req.method}`);
+          return response("lsp-session");
+        },
+        handleLspHandoff: async (req: Request) => {
+          calls.push(`lsp-handoff:${req.method}`);
+          return response("lsp-handoff");
+        },
+        handleLspGetSettings: (req: Request) => {
+          calls.push(`lsp-get-settings:${req.method}`);
+          return response("lsp-get-settings");
+        },
+        handleLspUpdateSettings: async (req: Request) => {
+          calls.push(`lsp-update-settings:${req.method}`);
+          return response("lsp-update-settings");
+        },
+      },
       sessionBroadcast: {
         handleSse: (req: Request) => {
           calls.push(`sse:${req.method}`);
@@ -234,6 +252,10 @@ describe("web channel http surface service", () => {
     expect(await service.handleSse(getReq).text()).toBe("sse");
     expect(await service.handleTerminalSession(getReq).text()).toBe("terminal");
     expect(await (await service.handleTerminalHandoff(postReq)).text()).toBe("terminal-handoff");
+    expect(await service.handleLspSession(getReq).text()).toBe("lsp-session");
+    expect(await (await service.handleLspHandoff(postReq)).text()).toBe("lsp-handoff");
+    expect(await service.handleLspGetSettings(getReq).text()).toBe("lsp-get-settings");
+    expect(await (await service.handleLspUpdateSettings(postReq)).text()).toBe("lsp-update-settings");
     expect(await service.handleVncSession(getReq).text()).toBe("vnc");
     expect(await (await service.handleVncHandoff(postReq)).text()).toBe("handoff");
     expect(await (await service.handlePost(postReq, true)).text()).toBe("post");
@@ -279,6 +301,10 @@ describe("web channel http surface service", () => {
       "sse:GET",
       "terminal:GET",
       "terminal-handoff:POST",
+      "lsp-session:GET",
+      "lsp-handoff:POST",
+      "lsp-get-settings:GET",
+      "lsp-update-settings:POST",
       "vnc:GET",
       "handoff:POST",
       "post:POST:1",
@@ -316,6 +342,7 @@ describe("web channel http surface service", () => {
       controlPlaneService: {} as never,
       serverLifecycleGateway: {} as never,
       terminalVncHttpService: {} as never,
+      lspHttpService: {} as never,
       sessionBroadcast: {} as never,
       remoteInterop: {} as never,
       responses: {} as never,

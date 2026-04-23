@@ -39,3 +39,4 @@ runtime/artifacts/web-control-plane-fuzz/
 
 # TypeScript validation build output (not packaged)
 runtime/generated/dist/
+.piclaw

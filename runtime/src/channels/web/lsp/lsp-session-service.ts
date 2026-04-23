@@ -13,6 +13,12 @@ import {
   type LspServerProfile,
   type ResolvedLspTarget,
 } from "./server-registry.js";
+import {
+  LspRuntimePolicy,
+  getDefaultLspRuntimePolicyConfigPath,
+  getLspLanguageDisabledReason,
+  type LspRuntimePolicySettings,
+} from "./lsp-runtime-policy.js";
 
 const log = createLogger("web.lsp-session-service");
 const LSP_ANON_CLIENT_HEADER = "x-piclaw-lsp-client";
@@ -102,10 +108,25 @@ export interface LspSessionInfo {
   unavailable_reason?: string | null;
 }
 
+export interface LspRequestFailure {
+  status: number;
+  error: string;
+}
+
+export type LspSocketDataResolution =
+  | { ok: true; data: LspSocketData }
+  | { ok: false; failure: LspRequestFailure };
+
+export type LspHandoffResolution =
+  | { ok: true; handoff: { token: string; expires_at: string } }
+  | { ok: false; failure: LspRequestFailure };
+
 export interface LspSessionServiceOptions {
   spawnProcess?: (target: ResolvedLspTarget) => LspProcessLike;
   handoffTtlMs?: number;
   idleTtlMs?: number;
+  runtimePolicy?: LspRuntimePolicy;
+  runtimePolicyConfigPath?: string | null;
 }
 
 type EditorClientMessage =
@@ -173,6 +194,7 @@ export class LspSessionService {
   private readonly spawnProcess: (target: ResolvedLspTarget) => LspProcessLike;
   private readonly handoffTtlMs: number;
   private readonly idleTtlMs: number;
+  private readonly runtimePolicy: LspRuntimePolicy;
 
   constructor(options: LspSessionServiceOptions = {}) {
     this.spawnProcess = options.spawnProcess ?? createDefaultSpawnProcess;
@@ -182,6 +204,11 @@ export class LspSessionService {
     this.idleTtlMs = Number.isFinite(options.idleTtlMs)
       ? Math.max(0, Number(options.idleTtlMs))
       : DEFAULT_LSP_IDLE_TTL_MS;
+    this.runtimePolicy = options.runtimePolicy ?? new LspRuntimePolicy({
+      configPath: options.runtimePolicyConfigPath === undefined
+        ? getDefaultLspRuntimePolicyConfigPath()
+        : options.runtimePolicyConfigPath,
+    });
   }
 
   resolveOwnerFromRequest(req: Request, allowUnauthenticated = false): LspSessionOwner | null {
@@ -201,19 +228,29 @@ export class LspSessionService {
   }
 
   resolveSocketDataFromRequest(req: Request, allowUnauthenticated = false): LspSocketData | null {
+    const resolution = this.resolveSocketDataRequest(req, allowUnauthenticated);
+    return resolution.ok ? resolution.data : null;
+  }
+
+  resolveSocketDataRequest(req: Request, allowUnauthenticated = false): LspSocketDataResolution {
     const owner = this.resolveOwnerFromRequest(req, allowUnauthenticated);
-    if (!owner) return null;
+    if (!owner) {
+      return { ok: false, failure: { status: 401, error: "Unauthorized" } };
+    }
     const pathParam = new URL(req.url).searchParams.get("path")?.trim() || "";
-    const target = resolveLspTargetForPath(pathParam);
-    if (!target || !target.available) return null;
+    const targetResolution = this.resolvePathTarget(pathParam);
+    if (!targetResolution.ok) return targetResolution;
     return {
-      kind: "lsp",
-      token: owner.token,
-      userId: owner.userId,
-      handoffToken: new URL(req.url).searchParams.get("handoff")?.trim() || null,
-      path: target.relativePath,
-      target,
-      attachedSessionKey: null,
+      ok: true,
+      data: {
+        kind: "lsp",
+        token: owner.token,
+        userId: owner.userId,
+        handoffToken: new URL(req.url).searchParams.get("handoff")?.trim() || null,
+        path: targetResolution.target.relativePath,
+        target: targetResolution.target,
+        attachedSessionKey: null,
+      },
     };
   }
 
@@ -235,31 +272,48 @@ export class LspSessionService {
         unavailable_reason: "No curated LSP server profile matches this file type.",
       };
     }
+    const languageEnabled = this.runtimePolicy.isLanguageEnabled(target.profile.languageId);
     const session = this.sessions.get(sessionKeyFor(target, owner));
     return {
-      enabled: true,
+      enabled: languageEnabled,
       transport: "websocket",
       ws_path: "/lsp/ws",
       handoff_supported: true,
       active: Boolean(session),
-      available: target.available,
+      available: languageEnabled && target.available,
       language_id: target.profile.languageId,
       profile_id: target.profile.id,
       root_path: target.rootRelativePath || null,
       path: target.relativePath,
       connected_clients: session?.clients.size ?? 0,
-      unavailable_reason: target.unavailableReason,
+      unavailable_reason: languageEnabled ? target.unavailableReason : getLspLanguageDisabledReason(target.profile.languageId),
     };
   }
 
   createHandoffFromRequest(req: Request, allowUnauthenticated = false): { token: string; expires_at: string } | null {
+    const resolution = this.createHandoffRequest(req, allowUnauthenticated);
+    return resolution.ok ? resolution.handoff : null;
+  }
+
+  createHandoffRequest(req: Request, allowUnauthenticated = false): LspHandoffResolution {
     const owner = this.resolveOwnerFromRequest(req, allowUnauthenticated);
-    if (!owner) return null;
+    if (!owner) {
+      return { ok: false, failure: { status: 401, error: "Unauthorized" } };
+    }
     const pathParam = new URL(req.url).searchParams.get("path")?.trim() || "";
-    const target = resolveLspTargetForPath(pathParam);
-    if (!target || !target.available) return null;
+    const targetResolution = this.resolvePathTarget(pathParam);
+    if (!targetResolution.ok) return targetResolution;
+    const target = targetResolution.target;
     const session = this.sessions.get(sessionKeyFor(target, owner));
-    if (!session || session.clients.size === 0) return null;
+    if (!session || session.clients.size === 0) {
+      return {
+        ok: false,
+        failure: {
+          status: 409,
+          error: "No live LSP session is available to transfer.",
+        },
+      };
+    }
     this.sweepExpiredHandoffs();
     const token = createHandoffToken();
     const expiresAt = Date.now() + this.handoffTtlMs;
@@ -268,11 +322,37 @@ export class LspSessionService {
       relativePath: target.relativePath,
       expiresAt,
     });
-    return { token, expires_at: new Date(expiresAt).toISOString() };
+    return { ok: true, handoff: { token, expires_at: new Date(expiresAt).toISOString() } };
+  }
+
+  getRuntimePolicySettings(): LspRuntimePolicySettings {
+    return this.runtimePolicy.getSettings();
+  }
+
+  updateRuntimePolicySettings(update: unknown): LspRuntimePolicySettings {
+    const previous = this.runtimePolicy.getSettings();
+    const next = this.runtimePolicy.updateSettings(update);
+    this.reconcileRuntimePolicyUpdate(previous, next);
+    return next;
   }
 
   attachClient(ws: ServerWebSocket<LspSocketData>): void {
     const owner = ws.data;
+    if (!this.runtimePolicy.isLanguageEnabled(owner.target.profile.languageId)) {
+      this.send(ws, {
+        type: "error",
+        error: getLspLanguageDisabledReason(owner.target.profile.languageId),
+      });
+      try {
+        ws.close(1000, getLspLanguageDisabledReason(owner.target.profile.languageId));
+      } catch (error) {
+        debugSuppressedError(log, "LSP websocket was already closing during attach-time policy rejection.", error, {
+          path: owner.path,
+          languageId: owner.target.profile.languageId,
+        });
+      }
+      return;
+    }
     const session = this.ensureSession(owner.target, owner);
     ws.data.attachedSessionKey = session.key;
     this.clearIdleTimer(session);
@@ -391,24 +471,7 @@ export class LspSessionService {
 
   shutdown(): void {
     for (const session of this.sessions.values()) {
-      this.clearIdleTimer(session);
-      for (const pending of session.pendingRequests.values()) {
-        if (pending.kind !== "internal") continue;
-        clearTimeout(pending.timeout);
-        pending.reject(new Error("Language server session shut down."));
-      }
-      session.pendingRequests.clear();
-      try {
-        const pid = session.process.pid ?? null;
-        if (pid) {
-          unregisterProcess(pid);
-          killProcessTree(pid);
-        } else {
-          session.process.kill("SIGKILL");
-        }
-      } catch (error) {
-        debugSuppressedError(log, "Language server already exited during shutdown.", error, { sessionKey: session.key });
-      }
+      this.teardownSession(session, "Language server session shut down.", false);
     }
     this.sessions.clear();
     this.handoffs.clear();
@@ -631,16 +694,17 @@ export class LspSessionService {
     process.on("exit", (code, signal) => {
       if (process.pid) unregisterProcess(process.pid);
       this.sessions.delete(session.key);
+      const errorMessage = `Language server exited${code != null ? ` with code ${code}` : ""}${signal ? ` (${signal})` : ""}.`;
       for (const pending of session.pendingRequests.values()) {
         if (pending.kind !== "internal") continue;
         clearTimeout(pending.timeout);
-        pending.reject(new Error(`Language server exited${code != null ? ` with code ${code}` : ""}${signal ? ` (${signal})` : ""}.`));
+        pending.reject(new Error(errorMessage));
       }
       session.pendingRequests.clear();
       for (const client of session.clients) {
         this.send(client, {
           type: "error",
-          error: `Language server exited${code != null ? ` with code ${code}` : ""}${signal ? ` (${signal})` : ""}.`,
+          error: errorMessage,
         });
       }
     });
@@ -729,6 +793,9 @@ export class LspSessionService {
     const target = resolveLspTargetForPath(inputPath);
     if (!target || !target.available) {
       throw new Error("This file is not available for LSP.");
+    }
+    if (!this.runtimePolicy.isLanguageEnabled(target.profile.languageId)) {
+      throw new Error(getLspLanguageDisabledReason(target.profile.languageId));
     }
     if (target.profile.id !== session.target.profile.id || target.rootPath !== session.target.rootPath) {
       throw new Error("This file does not belong to the current LSP session.");
@@ -842,20 +909,7 @@ export class LspSessionService {
     this.clearIdleTimer(session);
     session.idleTimer = setTimeout(() => {
       if (session.clients.size > 0) return;
-      this.sessions.delete(session.key);
-      try {
-        const pid = session.process.pid ?? null;
-        if (pid) {
-          unregisterProcess(pid);
-          killProcessTree(pid);
-        } else {
-          session.process.kill("SIGKILL");
-        }
-      } catch (error) {
-        debugSuppressedError(log, "Failed to terminate idle language server session.", error, {
-          sessionKey: session.key,
-        });
-      }
+      this.teardownSession(session, null, false);
     }, this.idleTtlMs);
   }
 
@@ -863,5 +917,96 @@ export class LspSessionService {
     if (!session.idleTimer) return;
     clearTimeout(session.idleTimer);
     session.idleTimer = null;
+  }
+
+  private resolvePathTarget(
+    inputPath: string | null | undefined,
+  ):
+    | { ok: true; target: ResolvedLspTarget }
+    | { ok: false; failure: LspRequestFailure } {
+    const target = resolveLspTargetForPath(inputPath);
+    if (!target) {
+      return {
+        ok: false,
+        failure: {
+          status: 404,
+          error: "No curated LSP server profile matches this file type.",
+        },
+      };
+    }
+    if (!this.runtimePolicy.isLanguageEnabled(target.profile.languageId)) {
+      return {
+        ok: false,
+        failure: {
+          status: 403,
+          error: getLspLanguageDisabledReason(target.profile.languageId),
+        },
+      };
+    }
+    if (!target.available) {
+      return {
+        ok: false,
+        failure: {
+          status: 409,
+          error: target.unavailableReason || "This file is not available for LSP.",
+        },
+      };
+    }
+    return { ok: true, target };
+  }
+
+  private reconcileRuntimePolicyUpdate(
+    previous: LspRuntimePolicySettings,
+    next: LspRuntimePolicySettings,
+  ): void {
+    const previousLanguages = previous.agents.editor.languages;
+    const nextLanguages = next.agents.editor.languages;
+    for (const session of Array.from(this.sessions.values())) {
+      const languageId = session.target.profile.languageId;
+      const wasEnabled = previousLanguages[languageId]?.enabled !== false;
+      const isEnabled = nextLanguages[languageId]?.enabled !== false;
+      if (!wasEnabled || isEnabled) continue;
+      this.teardownSession(session, getLspLanguageDisabledReason(languageId), true);
+    }
+  }
+
+  private teardownSession(session: LspSessionRecord, message: string | null, closeClients: boolean): void {
+    this.clearIdleTimer(session);
+    this.sessions.delete(session.key);
+    for (const pending of session.pendingRequests.values()) {
+      if (pending.kind !== "internal") continue;
+      clearTimeout(pending.timeout);
+      pending.reject(new Error(message || "Language server session shut down."));
+    }
+    session.pendingRequests.clear();
+    if (message) {
+      for (const client of session.clients) {
+        this.send(client, { type: "error", error: message });
+      }
+    }
+    if (closeClients) {
+      for (const client of session.clients) {
+        try {
+          client.close(1000, message || "lsp session closed");
+        } catch (error) {
+          debugSuppressedError(log, "LSP websocket was already closing during runtime policy teardown.", error, {
+            sessionKey: session.key,
+          });
+        }
+      }
+    }
+    session.clients.clear();
+    session.openDocuments.clear();
+    try {
+      const pid = session.process.pid ?? null;
+      if (pid) {
+        unregisterProcess(pid);
+        killProcessTree(pid);
+      } else {
+        session.process.kill("SIGKILL");
+      }
+    } catch (error) {
+      debugSuppressedError(log, "Language server already exited during session teardown.", error, { sessionKey: session.key });
+    }
   }
 }

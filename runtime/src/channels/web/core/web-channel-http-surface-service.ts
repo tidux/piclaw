@@ -71,7 +71,10 @@ export interface WebChannelHttpSurfaceChannel {
     WebTerminalVncHttpService,
     "handleTerminalSession" | "handleTerminalHandoff" | "handleVncSession" | "handleVncHandoff"
   >;
-  lspHttpService: Pick<WebLspHttpService, "handleLspSession" | "handleLspHandoff">;
+  lspHttpService: Pick<
+    WebLspHttpService,
+    "handleLspSession" | "handleLspHandoff" | "handleLspGetSettings" | "handleLspUpdateSettings"
+  >;
   sessionBroadcast: Pick<WebSessionBroadcastService, "handleSse">;
   remoteInterop: Pick<RemoteInteropService, "handleRequest">;
   responses: WebChannelHttpSurfaceResponses;
@@ -169,6 +172,14 @@ export class WebChannelHttpSurfaceService {
 
   handleLspHandoff(req: Request): Promise<Response> {
     return this.channel.lspHttpService.handleLspHandoff(req);
+  }
+
+  handleLspGetSettings(req: Request): Response {
+    return this.channel.lspHttpService.handleLspGetSettings(req);
+  }
+
+  handleLspUpdateSettings(req: Request): Promise<Response> {
+    return this.channel.lspHttpService.handleLspUpdateSettings(req);
   }
 
   handleVncSession(req: Request): Response {

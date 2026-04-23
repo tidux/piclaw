@@ -35,6 +35,10 @@ interface TerminalServiceLike {
 
 interface LspServiceLike {
   resolveSocketDataFromRequest(req: Request, allowUnauthenticated?: boolean): LspSocketData | null;
+  resolveSocketDataRequest(
+    req: Request,
+    allowUnauthenticated?: boolean,
+  ): { ok: boolean; data?: LspSocketData; failure?: { status: number; error: string } };
   attachClient(ws: ServerWebSocket<LspSocketData>): void;
   handleMessage(ws: ServerWebSocket<LspSocketData>, message: string | Buffer | Uint8Array): void;
   detachClient(ws: ServerWebSocket<LspSocketData>): void;
@@ -312,11 +316,14 @@ export class WebServerLifecycleGatewayService {
     if (!checkCsrfOrigin(req)) {
       return this.deps.json({ error: "Origin not allowed" }, 403);
     }
-    const data = this.deps.lspService.resolveSocketDataFromRequest(req, !authEnabled);
-    if (!data) {
-      return this.deps.json({ error: "Unauthorized or unsupported LSP file." }, 401);
+    const resolution = this.deps.lspService.resolveSocketDataRequest(req, !authEnabled);
+    if (!resolution.ok || !resolution.data) {
+      return this.deps.json(
+        { error: resolution.failure?.error || "Unauthorized or unsupported LSP file." },
+        resolution.failure?.status || 401,
+      );
     }
-    if (!server?.upgrade(req, { data })) {
+    if (!server?.upgrade(req, { data: resolution.data })) {
       return this.deps.json({ error: "WebSocket upgrade failed" }, 400);
     }
     return undefined;

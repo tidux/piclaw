@@ -475,6 +475,16 @@ export function installWebChannelPrototype(
       writable: true,
       value: withHttpSurface((service, req: Request) => service.handleLspHandoff(req)),
     },
+    handleLspGetSettings: {
+      configurable: true,
+      writable: true,
+      value: withHttpSurface((service, req: Request) => service.handleLspGetSettings(req)),
+    },
+    handleLspUpdateSettings: {
+      configurable: true,
+      writable: true,
+      value: withHttpSurface((service, req: Request) => service.handleLspUpdateSettings(req)),
+    },
     handleVncSession: {
       configurable: true,
       writable: true,

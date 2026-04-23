@@ -92,6 +92,8 @@ describe("web channel constructor wiring factory", () => {
     const lspHttpService = {
       handleLspSession: (_req: Request) => new Response("lsp-session"),
       handleLspHandoff: async (_req: Request) => new Response("lsp-handoff"),
+      handleLspGetSettings: (_req: Request) => new Response("lsp-get-settings"),
+      handleLspUpdateSettings: async (_req: Request) => new Response("lsp-update-settings"),
     } as unknown as ReturnType<WebChannelConstructorFactoryDeps["createLspHttpService"]>;
     const adaptiveCardSidePromptService = sentinel<ReturnType<WebChannelConstructorFactoryDeps["createAdaptiveCardSidePromptService"]>>(
       "adaptive-card-side-prompt",
@@ -439,6 +441,8 @@ describe("web channel constructor wiring factory", () => {
 
     expect(creationOrder).not.toContain("lspHttpService");
     expect(await result.lspHttpService.handleLspSession(new Request("https://example.com/lsp/session?path=src/app.ts")).text()).toBe("lsp-session");
+    expect(await result.lspHttpService.handleLspGetSettings(new Request("https://example.com/lsp/settings")).text()).toBe("lsp-get-settings");
+    expect(await (await result.lspHttpService.handleLspUpdateSettings(new Request("https://example.com/lsp/settings", { method: "POST" }))).text()).toBe("lsp-update-settings");
     expect(creationOrder.filter((entry) => entry === "lspHttpService")).toEqual(["lspHttpService"]);
 
     expect(creationOrder).not.toContain("remoteInterop");

@@ -125,6 +125,10 @@ function createFixture(overrides: Partial<WebServerLifecycleGatewayDeps> = {}) {
     },
     lspService: {
       resolveSocketDataFromRequest: (_req, _allowUnauthenticated = false) => lspOwner,
+      resolveSocketDataRequest: (_req, _allowUnauthenticated = false) => ({
+        ok: true,
+        data: lspOwner,
+      }),
       attachClient: () => {},
       handleMessage: () => {},
       detachClient: () => {},
@@ -224,6 +228,28 @@ describe("web server lifecycle gateway service", () => {
     const standardResponse = await service.handleFetch(createRequest("/timeline?limit=10"));
     expect(standardResponse?.status).toBe(200);
     expect(fixture.state.handleRequestCalls).toEqual(["/timeline"]);
+  });
+
+  test("lsp websocket upgrade preserves disabled-language failures", () => {
+    const fixture = createFixture({
+      lspService: {
+        resolveSocketDataFromRequest: () => null,
+        resolveSocketDataRequest: () => ({
+          ok: false,
+          failure: {
+            status: 403,
+            error: "LSP is disabled for the \"typescript\" language in workspace settings.",
+          },
+        }),
+        attachClient: () => {},
+        handleMessage: () => {},
+        detachClient: () => {},
+        shutdown: () => {},
+      },
+    });
+
+    const response = fixture.service.handleLspWebSocketUpgrade(createRequest("/lsp/ws?path=src/app.ts"), fixture.server);
+    expect(response?.status).toBe(403);
   });
 
   test("terminal websocket upgrade preserves auth, csrf, and upgrade failure responses", () => {

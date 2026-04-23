@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { LspSessionService } from "../../../src/channels/web/lsp/lsp-session-service.js";
+import { LspRuntimePolicy } from "../../../src/channels/web/lsp/lsp-runtime-policy.js";
 import { resolveLspTargetForPath } from "../../../src/channels/web/lsp/server-registry.js";
 
 const TEST_WORKSPACE_ROOT = process.env.PICLAW_WORKSPACE || process.cwd();
@@ -51,13 +52,17 @@ class FakeLspProcess {
 
 function createMockWs(data: Record<string, unknown>) {
   const sent: any[] = [];
+  const closed: Array<{ code?: number; reason?: string }> = [];
   return {
     data,
     sent,
+    closed,
     send(payload: string) {
       sent.push(JSON.parse(payload));
     },
-    close: () => {},
+    close: (code?: number, reason?: string) => {
+      closed.push({ code, reason });
+    },
   };
 }
 
@@ -113,6 +118,7 @@ describe("LspSessionService", () => {
         spawnCalls += 1;
         return fakeProcess as any;
       },
+      runtimePolicyConfigPath: null,
     });
 
     const baseData = {
@@ -300,6 +306,7 @@ describe("LspSessionService", () => {
     const fakeProcess = new FakeLspProcess();
     const service = new LspSessionService({
       spawnProcess: () => fakeProcess as any,
+      runtimePolicyConfigPath: null,
     });
 
     const ws = createMockWs({
@@ -331,5 +338,181 @@ describe("LspSessionService", () => {
       payload?.type === "error"
       && payload?.error === "This file does not belong to the current LSP session."
     )).toBe(true);
+  });
+
+  test("exposes runtime settings and tears down live sessions when a language is disabled", async () => {
+    const project = createWorkspaceProject("lsp-service-disable");
+    createdRoots.push(project.root);
+    const target = resolveLspTargetForPath(project.relativeFile);
+    expect(target?.available).toBe(true);
+    if (!target) throw new Error("Expected LSP target");
+
+    const fakeProcess = new FakeLspProcess();
+    const service = new LspSessionService({
+      spawnProcess: () => fakeProcess as any,
+      runtimePolicy: new LspRuntimePolicy(),
+    });
+
+    const ws = createMockWs({
+      kind: "lsp",
+      token: "owner-1",
+      userId: "user-1",
+      path: target.relativePath,
+      target,
+      attachedSessionKey: null,
+    });
+
+    service.attachClient(ws as any);
+    const initializeRequest = decodeLastProcessPayload(fakeProcess);
+    fakeProcess.emit({
+      jsonrpc: "2.0",
+      id: initializeRequest.id,
+      result: { capabilities: {} },
+    });
+    await flushMicrotasks();
+
+    expect(service.getRuntimePolicySettings().agents.editor.languages.typescript.enabled).toBe(true);
+
+    const updated = service.updateRuntimePolicySettings({
+      agents: {
+        editor: {
+          languages: {
+            typescript: { enabled: false },
+          },
+        },
+      },
+    });
+    expect(updated.agents.editor.languages.typescript.enabled).toBe(false);
+    expect(ws.closed).toEqual([{ code: 1000, reason: "LSP is disabled for the \"typescript\" language in workspace settings." }]);
+
+    const sessionInfo = service.getSessionInfo({ token: "owner-1", userId: "user-1" }, target.relativePath);
+    expect(sessionInfo.enabled).toBe(false);
+    expect(sessionInfo.available).toBe(false);
+    expect(sessionInfo.unavailable_reason).toBe("LSP is disabled for the \"typescript\" language in workspace settings.");
+    expect(sessionInfo.active).toBe(false);
+  });
+
+  test("preserves disabled-language failure reasons for websocket and handoff requests", () => {
+    const project = createWorkspaceProject("lsp-service-disabled-requests");
+    createdRoots.push(project.root);
+
+    const service = new LspSessionService({
+      runtimePolicy: new LspRuntimePolicy(),
+    });
+    service.updateRuntimePolicySettings({
+      agents: {
+        editor: {
+          languages: {
+            typescript: { enabled: false },
+          },
+        },
+      },
+    });
+
+    const socketResolution = service.resolveSocketDataRequest(
+      new Request(`http://localhost/lsp/ws?path=${project.relativeFile}`, {
+        headers: { "x-piclaw-lsp-client": "client-token-1234" },
+      }),
+      true,
+    );
+    expect(socketResolution.ok).toBe(false);
+    if (socketResolution.ok) throw new Error("Expected socket resolution to fail");
+    expect(socketResolution.failure).toEqual({
+      status: 403,
+      error: "LSP is disabled for the \"typescript\" language in workspace settings.",
+    });
+
+    const handoffResolution = service.createHandoffRequest(
+      new Request(`http://localhost/lsp/handoff?path=${project.relativeFile}`, {
+        method: "POST",
+        headers: { "x-piclaw-lsp-client": "client-token-1234" },
+      }),
+      true,
+    );
+    expect(handoffResolution.ok).toBe(false);
+    if (handoffResolution.ok) throw new Error("Expected handoff resolution to fail");
+    expect(handoffResolution.failure).toEqual({
+      status: 403,
+      error: "LSP is disabled for the \"typescript\" language in workspace settings.",
+    });
+  });
+
+  test("rejects attach when a language is disabled after websocket validation but before open", () => {
+    const project = createWorkspaceProject("lsp-service-attach-race");
+    createdRoots.push(project.root);
+    const target = resolveLspTargetForPath(project.relativeFile);
+    expect(target?.available).toBe(true);
+    if (!target) throw new Error("Expected LSP target");
+
+    let spawnCalls = 0;
+    const service = new LspSessionService({
+      spawnProcess: () => {
+        spawnCalls += 1;
+        return new FakeLspProcess() as any;
+      },
+      runtimePolicy: new LspRuntimePolicy(),
+    });
+
+    const socketResolution = service.resolveSocketDataRequest(
+      new Request(`http://localhost/lsp/ws?path=${project.relativeFile}`, {
+        headers: { "x-piclaw-lsp-client": "client-token-1234" },
+      }),
+      true,
+    );
+    expect(socketResolution.ok).toBe(true);
+    if (!socketResolution.ok) throw new Error("Expected websocket resolution to succeed before disable");
+
+    service.updateRuntimePolicySettings({
+      agents: {
+        editor: {
+          languages: {
+            typescript: { enabled: false },
+          },
+        },
+      },
+    });
+
+    const ws = createMockWs(socketResolution.data);
+    service.attachClient(ws as any);
+
+    expect(spawnCalls).toBe(0);
+    expect(ws.sent).toContainEqual({
+      type: "error",
+      error: "LSP is disabled for the \"typescript\" language in workspace settings.",
+    });
+    expect(ws.closed).toEqual([
+      { code: 1000, reason: "LSP is disabled for the \"typescript\" language in workspace settings." },
+    ]);
+    expect(ws.data.attachedSessionKey).toBeNull();
+  });
+
+  test("does not partially enforce a new policy when persistence fails", () => {
+    const project = createWorkspaceProject("lsp-service-persist-failure");
+    createdRoots.push(project.root);
+    const target = resolveLspTargetForPath(project.relativeFile);
+    expect(target?.available).toBe(true);
+    if (!target) throw new Error("Expected LSP target");
+
+    const badConfigPath = path.join(project.root, ".piclaw", "config.json");
+    mkdirSync(badConfigPath, { recursive: true });
+
+    const service = new LspSessionService({
+      runtimePolicyConfigPath: badConfigPath,
+    });
+
+    expect(() => service.updateRuntimePolicySettings({
+      agents: {
+        editor: {
+          languages: {
+            typescript: { enabled: false },
+          },
+        },
+      },
+    })).toThrow();
+
+    const info = service.getSessionInfo({ token: "owner-1", userId: "user-1" }, target.relativePath);
+    expect(info.enabled).toBe(true);
+    expect(info.available).toBe(true);
+    expect(info.unavailable_reason).toBeNull();
   });
 });

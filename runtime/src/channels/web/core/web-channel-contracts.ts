@@ -140,6 +140,8 @@ export interface WebChannelLike
   handleTerminalHandoff(req: Request): Promise<Response>;
   handleLspSession(req: Request): Response;
   handleLspHandoff(req: Request): Promise<Response>;
+  handleLspGetSettings(req: Request): Response;
+  handleLspUpdateSettings(req: Request): Promise<Response>;
   handleVncSession(req: Request): Response;
   handleVncHandoff(req: Request): Promise<Response>;
   handleAgents(): Promise<Response>;

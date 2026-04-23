@@ -468,6 +468,12 @@ export function createWebChannelConstructorFactory(
     async handleLspHandoff(req: Request): Promise<Response> {
       return await getLspHttpService().handleLspHandoff(req);
     },
+    handleLspGetSettings(req: Request): Response {
+      return getLspHttpService().handleLspGetSettings(req);
+    },
+    async handleLspUpdateSettings(req: Request): Promise<Response> {
+      return await getLspHttpService().handleLspUpdateSettings(req);
+    },
   };
 
   const adaptiveCardSidePromptService = deps.createAdaptiveCardSidePromptService({

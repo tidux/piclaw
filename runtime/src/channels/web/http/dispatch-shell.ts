@@ -93,6 +93,14 @@ export async function handleShellRoutes(
     return await channel.handleLspHandoff(req);
   }
 
+  if (req.method === "GET" && pathname === "/lsp/settings") {
+    return channel.handleLspGetSettings(req);
+  }
+
+  if (req.method === "POST" && pathname === "/lsp/settings") {
+    return await channel.handleLspUpdateSettings(req);
+  }
+
   if (req.method === "GET" && pathname === "/vnc/session") {
     return channel.handleVncSession(req);
   }
