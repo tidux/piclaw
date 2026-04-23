@@ -7,12 +7,21 @@ import { AgentTurnCoordinator } from "../../src/agent-pool/turn-coordinator.js";
 import { runAgentPrompt } from "../../src/agent-pool/run-agent-orchestrator.js";
 import { setEnv } from "../helpers.js";
 
-function createRuntime(session: any): AgentSessionRuntime {
+function createRuntime(session: any, retrySettings?: { enabled?: boolean; maxRetries?: number; baseDelayMs?: number; maxDelayMs?: number }): AgentSessionRuntime {
   return {
     session,
     cwd: "/workspace",
     diagnostics: [],
-    services: {} as any,
+    services: {
+      settingsManager: {
+        getRetrySettings: () => ({
+          enabled: retrySettings?.enabled ?? true,
+          maxRetries: retrySettings?.maxRetries ?? 3,
+          baseDelayMs: retrySettings?.baseDelayMs ?? 1,
+          maxDelayMs: retrySettings?.maxDelayMs ?? 100,
+        }),
+      },
+    } as any,
     modelFallbackMessage: undefined,
     newSession: async () => ({ cancelled: false }),
     switchSession: async () => ({ cancelled: false }),

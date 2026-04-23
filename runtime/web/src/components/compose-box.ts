@@ -196,7 +196,7 @@ export function resolveComposeExtensionWorkingDisplay(workingState, frameIndex =
  * Tiny SVG pie chart showing context window usage.
  * Green when <75%, amber 75–90%, red >90%. Tooltip shows exact numbers.
  */
-function ContextPie({ usage, onCompact }) {
+function ContextPie({ usage, onCompact, compactionLabel = '', compactionTitle = '' }) {
     const pct = Math.min(100, Math.max(0, usage.percent || 0));
     const tokens = usage.tokens;
     const window = usage.contextWindow;
@@ -204,7 +204,11 @@ function ContextPie({ usage, onCompact }) {
     const label = tokens != null
         ? `Context: ${formatK(tokens)} / ${formatK(window)} tokens (${pct.toFixed(0)}%)`
         : `Context: ${pct.toFixed(0)}%`;
-    const title = `${label} — ${compactLabel}`;
+    const activeCompactionLabel = typeof compactionLabel === 'string' ? compactionLabel.trim() : '';
+    const activeCompactionTitle = typeof compactionTitle === 'string' ? compactionTitle.trim() : '';
+    const title = activeCompactionLabel
+        ? `${label} — ${activeCompactionTitle || 'Smart compaction'} · ${activeCompactionLabel}`
+        : `${label} — ${compactLabel}`;
 
     // Pie arc: SVG circle with stroke-dasharray trick.
     // Circle circumference = 2πr = 2π×9 ≈ 56.55
@@ -218,10 +222,10 @@ function ContextPie({ usage, onCompact }) {
 
     return html`
         <button
-            class="compose-context-pie icon-btn"
+            class=${`compose-context-pie icon-btn${activeCompactionLabel ? ' is-compacting' : ''}`}
             type="button"
             title=${title}
-            aria-label="Compact context"
+            aria-label=${activeCompactionLabel ? `Smart compaction ${activeCompactionLabel}` : 'Compact context'}
             onClick=${(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -241,6 +245,7 @@ function ContextPie({ usage, onCompact }) {
                     stroke-linecap="round"
                     transform="rotate(-90 12 12)" />
             </svg>
+            ${activeCompactionLabel && html`<span class="compose-context-pie-timer">${activeCompactionLabel}</span>`}
         </button>
     `;
 }
@@ -662,7 +667,6 @@ export function ComposeBox({
     onMoveQueuedFollowup,
     onSubmitIntercept,
     onMessageResponse,
-    onPopOutChat,
     isAgentActive = false,
     activeChatAgents = [],
     currentChatJid = 'web:default',
@@ -837,6 +841,7 @@ export function ComposeBox({
         currentSessionAgent
         && currentSessionAgent.chat_jid === (currentSessionAgent.root_chat_jid || currentSessionAgent.chat_jid)
     );
+    const isCurrentDefaultRootSession = Boolean(isCurrentRootSession && (currentSessionAgent?.chat_jid || currentChatJid) === 'web:default');
     const switchableChatAgents = useMemo(() => {
         const seen = new Set();
         const chats = [];
@@ -856,7 +861,7 @@ export function ComposeBox({
     const renameInProgress = Boolean(isRenameSessionInProgress || renameSessionInProgressRef.current);
     const canRenameSession = !searchMode && typeof onRenameSession === 'function' && !renameInProgress;
     const canCreateSession = !searchMode && typeof onCreateSession === 'function';
-    const canDeleteSession = !searchMode && typeof onDeleteSession === 'function' && !isCurrentRootSession;
+    const canDeleteSession = !searchMode && typeof onDeleteSession === 'function' && !isCurrentDefaultRootSession;
     const showSessionSwitcherButton = !searchMode && (canSwitchSession || canRestoreSession || canRenameSession || canCreateSession || canDeleteSession);
     const modelPickerState = resolveComposeModelPickerState(activeModel, agentModelsPayload);
     const showModelPickerHint = modelPickerState.showPicker;
@@ -1939,15 +1944,15 @@ export function ComposeBox({
                     </div>
                 </div>
             `}
-            ${statusNotice && html`
+            ${statusNotice && !statusNoticeIsCompaction && html`
                 <div
-                    class=${`compose-inline-status${statusNoticeIsCompaction ? ' compaction' : ''}`}
+                    class="compose-inline-status"
                     role="status"
                     aria-live="polite"
                     title=${statusNoticeDetail || ''}
                 >
                     <div class="compose-inline-status-row">
-                        <span class=${buildComposeStatusDotClass({ pulsing: statusNoticeIsCompaction })} aria-hidden="true"></span>
+                        <span class=${buildComposeStatusDotClass({ pulsing: false })} aria-hidden="true"></span>
                         <span class="compose-inline-status-title">${statusNoticeTitle}</span>
                         ${statusNoticeElapsedLabel && html`<span class="compose-inline-status-elapsed">${statusNoticeElapsedLabel}</span>`}
                     </div>
@@ -2018,24 +2023,6 @@ export function ComposeBox({
                                 Clear all
                             </button>
                         </div>
-                    `}
-                    ${!searchMode && typeof onPopOutChat === 'function' && html`
-                        <button
-                            type="button"
-                            class="compose-popout-btn"
-                            onClick=${() => onPopOutChat?.()}
-                            title="Open this chat in a new chat-only window"
-                            aria-label="Open this chat in a new chat-only window"
-                        >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M14 5h5v5" />
-                                <path d="M10 14 19 5" />
-                                <path d="M19 14v5h-5" />
-                                <path d="M5 10V5h5" opacity="0" />
-                                <path d="M5 19h5" />
-                                <path d="M5 19v-5" />
-                            </svg>
-                        </button>
                     `}
                     <textarea
                         ref=${textareaRef}
@@ -2241,7 +2228,12 @@ export function ComposeBox({
                             </div>
                         `}
                         ${!searchMode && contextUsage && contextUsage.percent != null && html`
-                            <${ContextPie} usage=${contextUsage} onCompact=${handleContextCompact} />
+                            <${ContextPie}
+                                usage=${contextUsage}
+                                onCompact=${handleContextCompact}
+                                compactionLabel=${statusNoticeIsCompaction ? statusNoticeElapsedLabel || '0:00' : ''}
+                                compactionTitle=${statusNoticeIsCompaction ? (statusNoticeTitle || 'Smart compaction') : ''}
+                            />
                         `}
                     </div>
                     `}

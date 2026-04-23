@@ -219,7 +219,12 @@ test("agent pool honors timeout overrides", async () => {
 
 test("agent pool clears attachments when a run errors", async () => {
   const ws = getTestWorkspace();
-  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+  restoreEnv = setEnv({
+    PICLAW_WORKSPACE: ws.workspace,
+    PICLAW_STORE: ws.store,
+    PICLAW_DATA: ws.data,
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "0",
+  });
 
   const { AgentPool } = await importFresh<typeof import("../src/agent-pool.js")>("../src/agent-pool.js");
   const attachments = getAttachmentRegistry();
@@ -323,7 +328,12 @@ test("agent pool stores SSH config for future sessions when no live SSH session 
 
 test("agent pool evicts idle sessions and recreates them", async () => {
   const ws = getTestWorkspace();
-  restoreEnv = setEnv({ PICLAW_WORKSPACE: ws.workspace, PICLAW_STORE: ws.store, PICLAW_DATA: ws.data });
+  restoreEnv = setEnv({
+    PICLAW_WORKSPACE: ws.workspace,
+    PICLAW_STORE: ws.store,
+    PICLAW_DATA: ws.data,
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "0",
+  });
 
   const { AgentPool } = await importFresh<typeof import("../src/agent-pool.js")>("../src/agent-pool.js");
 
@@ -524,6 +534,7 @@ test("agent pool applies the pressure pool cap immediately after acquiring a sec
     PICLAW_DATA: ws.data,
     PICLAW_MAIN_SESSION_PRESSURE_RSS_BYTES: "1",
     PICLAW_MAIN_SESSION_PRESSURE_POOL_MAX_SIZE: "1",
+    PICLAW_TURN_AUTO_RECOVERY_ENABLED: "0",
   });
 
   const { AgentPool } = await importFresh<typeof import("../src/agent-pool.js")>("../src/agent-pool.js");

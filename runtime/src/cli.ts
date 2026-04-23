@@ -12,18 +12,21 @@
 
 import { readFileSync } from "fs";
 import { join } from "path";
-import { initDatabase } from "./db.js";
+import { getDb, initDatabase, storeMessage } from "./db.js";
+import { stripInternalTags } from "./router.js";
 import {
   deleteKeychainEntry,
   getKeychainEntry,
   listKeychainEntries,
   setKeychainEntry,
 } from "./secure/keychain.js";
+import { createUuid } from "./utils/ids.js";
 
 const HELP_TEXT = `piclaw - Pi Coding Agent Assistant
 
 Usage:
   piclaw [options]
+  piclaw --post <chat_jid> <message>
   piclaw keychain <command> [args]
 
 Options:
@@ -92,6 +95,55 @@ function consumeLeadingGlobalOptions(args: string[]): string[] {
   return remaining;
 }
 
+function getLatestAgentSenderName(chatJid: string): string {
+  const row = getDb()
+    .prepare(
+      `SELECT sender_name
+         FROM messages
+        WHERE chat_jid = ? AND sender = 'web-agent' AND sender_name IS NOT NULL AND trim(sender_name) <> ''
+        ORDER BY rowid DESC
+        LIMIT 1`,
+    )
+    .get(chatJid) as { sender_name?: string } | undefined;
+  return row?.sender_name?.trim() || "Smith";
+}
+
+async function handlePostCommand(args: string[]): Promise<void> {
+  const [chatJid, ...messageParts] = args;
+  initDatabase();
+
+  if (!chatJid?.trim()) {
+    throw new Error("Chat JID is required for --post.");
+  }
+
+  const rawMessage = messageParts.join(" ");
+  const content = stripInternalTags(rawMessage).trim();
+  if (!content) {
+    throw new Error("Message content is required for --post.");
+  }
+
+  const senderName = getLatestAgentSenderName(chatJid.trim());
+  const rowId = storeMessage({
+    id: createUuid("msg"),
+    chat_jid: chatJid.trim(),
+    sender: "web-agent",
+    sender_name: senderName,
+    content,
+    timestamp: new Date().toISOString(),
+    is_from_me: false,
+    is_bot_message: true,
+    content_blocks: undefined,
+    link_previews: undefined,
+    thread_id: null,
+  });
+
+  if (rowId <= 0) {
+    throw new Error("Failed to post message.");
+  }
+
+  console.log(`Posted message ${rowId} to ${chatJid.trim()}.`);
+}
+
 async function handleKeychainCommand(args: string[]): Promise<void> {
   const [subcommand, name] = args;
   initDatabase();
@@ -156,6 +208,15 @@ export async function handleCliOptions(args = process.argv.slice(2)): Promise<bo
   }
 
   const commandArgs = consumeLeadingGlobalOptions(args);
+  if (commandArgs[0] === "--post") {
+    try {
+      await handlePostCommand(commandArgs.slice(1));
+    } catch (error) {
+      console.error((error as Error).message);
+      return true;
+    }
+    return true;
+  }
   if (commandArgs[0] === "keychain") {
     try {
       await handleKeychainCommand(commandArgs.slice(1));

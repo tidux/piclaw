@@ -28,10 +28,12 @@ import {
     markdown,
     markdownLanguage,
     go,
+    cpp,
     json,
     rust,
     css,
     html as htmlLang,
+    rust,
     yaml,
     sql,
     xml,
@@ -148,7 +150,6 @@ function languageForPath(path: string) {
     const lower = String(path || '').toLowerCase();
     if (lower.endsWith('.py')) return python();
     if (lower.endsWith('.rs')) return rust();
-    if (lower.endsWith('.c') || lower.endsWith('.cc') || lower.endsWith('.cpp') || lower.endsWith('.cxx') || lower.endsWith('.h') || lower.endsWith('.hh') || lower.endsWith('.hpp') || lower.endsWith('.hxx')) return cpp();
     if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return javascript({ typescript: true, jsx: lower.endsWith('.tsx') });
     if (lower.endsWith('.js') || lower.endsWith('.jsx')) return javascript({ jsx: lower.endsWith('.jsx') });
     if (lower.endsWith('.md') || lower.endsWith('.markdown')) return markdown({
@@ -156,6 +157,9 @@ function languageForPath(path: string) {
         extensions: [frontmatterExtension, footnoteExtension, hashtagExtension],
     });
     if (lower.endsWith('.go')) return go();
+    if (lower.endsWith('.c') || lower.endsWith('.c++') || lower.endsWith('.cc') || lower.endsWith('.cp') || lower.endsWith('.cpp') || lower.endsWith('.cxx')
+        || lower.endsWith('.h')
+        || lower.endsWith('.hh') || lower.endsWith('.hpp') || lower.endsWith('.hxx')) return cpp();
     if (lower.endsWith('.json') || lower.endsWith('.jsonl')) return json();
     if (lower.endsWith('.css') || lower.endsWith('.scss')) return css();
     if (lower.endsWith('.html') || lower.endsWith('.htm')) return htmlLang();

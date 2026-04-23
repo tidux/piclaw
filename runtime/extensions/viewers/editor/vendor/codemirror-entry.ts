@@ -34,14 +34,14 @@ export {
   WidgetType,
 } from "@codemirror/view";
 export { javascript } from "@codemirror/lang-javascript";
-export { cpp } from "@codemirror/lang-cpp";
 export { python } from "@codemirror/lang-python";
 export { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 export { go } from "@codemirror/lang-go";
+export { cpp, cppLanguage } from "@codemirror/lang-cpp";
 export { json } from "@codemirror/lang-json";
-export { rust } from "@codemirror/lang-rust";
 export { css } from "@codemirror/lang-css";
 export { html } from "@codemirror/lang-html";
+export { rust, rustLanguage } from "@codemirror/lang-rust";
 export { yaml } from "@codemirror/lang-yaml";
 export { sql } from "@codemirror/lang-sql";
 export { xml } from "@codemirror/lang-xml";
@@ -59,11 +59,9 @@ export { MergeView } from "@codemirror/merge";
 
 // Additional exports for shared vendor usage by app-side syntax highlighting.
 export { javascriptLanguage, jsxLanguage, tsxLanguage, typescriptLanguage } from "@codemirror/lang-javascript";
-export { cppLanguage } from "@codemirror/lang-cpp";
 export { pythonLanguage } from "@codemirror/lang-python";
 export { goLanguage } from "@codemirror/lang-go";
 export { jsonLanguage } from "@codemirror/lang-json";
-export { rustLanguage } from "@codemirror/lang-rust";
 export { cssLanguage } from "@codemirror/lang-css";
 export { htmlLanguage } from "@codemirror/lang-html";
 export { yamlLanguage } from "@codemirror/lang-yaml";

@@ -82,6 +82,11 @@ export function extractTimeoutMarkerBlocks(contentBlocks) {
     return contentBlocks.filter((block) => block && typeof block === 'object' && block.type === 'timeout_marker' && (block.timed_out ?? true));
 }
 
+export function extractOutcomeMarkerBlocks(contentBlocks) {
+    if (!Array.isArray(contentBlocks)) return [];
+    return contentBlocks.filter((block) => block && typeof block === 'object' && block.type === 'turn_outcome_marker');
+}
+
 const RECOVERY_CLASSIFIER_LABELS = {
     context_recover: 'context limit exceeded',
     rate_limit: 'rate limit hit',
@@ -103,7 +108,17 @@ export function formatRecoveryChipTooltip(marker) {
 
 export function formatTimeoutChipTooltip(marker) {
     const action = typeof marker?.tool_action_summary === 'string' ? marker.tool_action_summary.trim() : '';
-    return action ? `Turn timed out — ${action}` : 'Turn timed out before the model finished responding';
+    const recoveredDraft = marker?.draft_recovered ? ' Showing recovered draft.' : '';
+    return action
+        ? `Turn timed out — ${action}${recoveredDraft}`
+        : `Turn timed out before the model finished responding${recoveredDraft}`;
+}
+
+export function formatOutcomeChipTooltip(marker) {
+    const title = typeof marker?.title === 'string' ? marker.title.trim() : '';
+    const detail = typeof marker?.detail === 'string' ? marker.detail.trim() : '';
+    const recoveredDraft = marker?.draft_recovered ? ' Showing recovered draft.' : '';
+    return [title, detail].filter(Boolean).join(' — ') + recoveredDraft;
 }
 
 function AttachmentPill({ attachment, onPreview }) {
@@ -787,6 +802,8 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
     const recoveryMarker = recoveryMarkerBlocks[0] || null;
     const timeoutMarkerBlocks = extractTimeoutMarkerBlocks(blocks);
     const timeoutMarker = timeoutMarkerBlocks[0] || null;
+    const outcomeMarkerBlocks = extractOutcomeMarkerBlocks(blocks);
+    const outcomeMarker = outcomeMarkerBlocks[0] || null;
     const singleCardFallback = directCardBlocks.length === 1 && typeof directCardBlocks[0]?.fallback_text === 'string'
         ? directCardBlocks[0].fallback_text.trim()
         : '';
@@ -1037,6 +1054,11 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                 <div class="post-meta">
                     <span class="post-author">${displayName}</span>
                     ${showSearchChatAgentTag && html`<span class="post-chat-agent-tag" title=${`Chat: ${searchChatAgentName}`}>@${searchChatAgentName}</span>`}
+                    <a class="post-time" href=${`#msg-${post.id}`} onClick=${(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (onMessageRef) onMessageRef(post.id);
+                    }}>${formatTime(post.timestamp)}</a>
                     ${recoveryMarker && html`
                         <span
                             class="post-recovery-chip"
@@ -1053,11 +1075,14 @@ export function Post({ post, onClick, onHashtagClick, onMessageRef, onScrollToMe
                             timeout
                         </span>
                     `}
-                    <a class="post-time" href=${`#msg-${post.id}`} onClick=${(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (onMessageRef) onMessageRef(post.id);
-                    }}>${formatTime(post.timestamp)}</a>
+                    ${outcomeMarker && html`
+                        <span
+                            class=${`post-recovery-chip post-outcome-chip post-outcome-chip-${String(outcomeMarker.severity || 'warning')}`}
+                            title=${formatOutcomeChipTooltip(outcomeMarker)}
+                        >
+                            ${String(outcomeMarker.label || outcomeMarker.kind || 'issue')}
+                        </span>
+                    `}
                 </div>
                 ${isHardTruncated && truncatedInfo && html`
                     <div class="post-content truncated">

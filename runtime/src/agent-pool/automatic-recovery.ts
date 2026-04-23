@@ -4,10 +4,19 @@
 
 import type { AgentRecoveryMetadata } from "./contracts.js";
 
+export interface RetryBackoffSettings {
+  enabled: boolean;
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+}
+
 export interface AutomaticRecoveryConfig {
   enabled: boolean;
   maxAttempts: number;
   totalBudgetMs: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
 }
 
 export type RecoveryStrategy = "retry" | "compact_then_retry";
@@ -28,6 +37,8 @@ export interface RecoveryAttemptSnapshot {
   hadCompletedTurnOutput?: boolean;
   compactionErrorMessage?: string | null;
   sawCompactionIntent?: boolean;
+  sawAssistantToolCall?: boolean;
+  onlyReadOnlyToolActivity?: boolean;
 }
 
 export interface RecoveryDecision {
@@ -37,8 +48,10 @@ export interface RecoveryDecision {
   reason: string;
 }
 
-const DEFAULT_MAX_ATTEMPTS = 2;
+const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_TOTAL_BUDGET_MS = 30_000;
+const DEFAULT_RETRY_BASE_DELAY_MS = 2_000;
+const DEFAULT_RETRY_MAX_DELAY_MS = 60_000;
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(String(value || "").trim(), 10);
@@ -53,18 +66,51 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
+export const DEFAULT_RETRY_BACKOFF_SETTINGS: Readonly<RetryBackoffSettings> = Object.freeze({
+  enabled: true,
+  maxRetries: DEFAULT_MAX_ATTEMPTS,
+  baseDelayMs: DEFAULT_RETRY_BASE_DELAY_MS,
+  maxDelayMs: DEFAULT_RETRY_MAX_DELAY_MS,
+});
+
 export const DEFAULT_AUTOMATIC_RECOVERY_CONFIG: Readonly<AutomaticRecoveryConfig> = Object.freeze({
   enabled: true,
   maxAttempts: DEFAULT_MAX_ATTEMPTS,
   totalBudgetMs: DEFAULT_TOTAL_BUDGET_MS,
+  baseDelayMs: DEFAULT_RETRY_BASE_DELAY_MS,
+  maxDelayMs: DEFAULT_RETRY_MAX_DELAY_MS,
 });
 
-export function getAutomaticRecoveryConfig(): Readonly<AutomaticRecoveryConfig> {
+export function normalizeRetryBackoffSettings(settings?: Partial<RetryBackoffSettings> | null): RetryBackoffSettings {
+  return {
+    enabled: typeof settings?.enabled === "boolean" ? settings.enabled : DEFAULT_RETRY_BACKOFF_SETTINGS.enabled,
+    maxRetries: Number.isFinite(settings?.maxRetries) && (settings?.maxRetries ?? 0) > 0
+      ? Number(settings?.maxRetries)
+      : DEFAULT_RETRY_BACKOFF_SETTINGS.maxRetries,
+    baseDelayMs: Number.isFinite(settings?.baseDelayMs) && (settings?.baseDelayMs ?? 0) > 0
+      ? Number(settings?.baseDelayMs)
+      : DEFAULT_RETRY_BACKOFF_SETTINGS.baseDelayMs,
+    maxDelayMs: Number.isFinite(settings?.maxDelayMs) && (settings?.maxDelayMs ?? 0) > 0
+      ? Number(settings?.maxDelayMs)
+      : DEFAULT_RETRY_BACKOFF_SETTINGS.maxDelayMs,
+  };
+}
+
+export function getAutomaticRecoveryConfig(retrySettings?: Partial<RetryBackoffSettings> | null): Readonly<AutomaticRecoveryConfig> {
+  const normalizedRetry = normalizeRetryBackoffSettings(retrySettings);
   return Object.freeze({
-    enabled: parseBoolean(process.env.PICLAW_TURN_AUTO_RECOVERY_ENABLED, DEFAULT_AUTOMATIC_RECOVERY_CONFIG.enabled),
-    maxAttempts: parsePositiveInt(process.env.PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS, DEFAULT_AUTOMATIC_RECOVERY_CONFIG.maxAttempts),
+    enabled: parseBoolean(process.env.PICLAW_TURN_AUTO_RECOVERY_ENABLED, normalizedRetry.enabled),
+    maxAttempts: parsePositiveInt(process.env.PICLAW_TURN_AUTO_RECOVERY_MAX_ATTEMPTS, normalizedRetry.maxRetries),
     totalBudgetMs: parsePositiveInt(process.env.PICLAW_TURN_AUTO_RECOVERY_TOTAL_BUDGET_MS, DEFAULT_AUTOMATIC_RECOVERY_CONFIG.totalBudgetMs),
+    baseDelayMs: normalizedRetry.baseDelayMs,
+    maxDelayMs: normalizedRetry.maxDelayMs,
   });
+}
+
+export function getAutomaticRecoveryDelayMs(config: Pick<AutomaticRecoveryConfig, "baseDelayMs" | "maxDelayMs">, attempt: number): number {
+  const exponent = Math.max(0, attempt - 1);
+  const raw = Math.max(0, Math.round(config.baseDelayMs * 2 ** exponent));
+  return Math.min(raw, Math.max(config.baseDelayMs, config.maxDelayMs));
 }
 
 export function isContextPressureFailure(errorText: string | null | undefined): boolean {
@@ -79,7 +125,7 @@ export function isTransientFailure(errorText: string | null | undefined): boolea
 
 export function isNonRecoverableFailure(errorText: string | null | undefined): boolean {
   if (!errorText) return false;
-  return /authentication failed|credentials may have expired|re-authenticate|unauthorized|\b401\b|\b403\b|invalid.*api.*key|api.*key.*invalid|token.*expired|oauth.*expired|refresh.*token|no model selected|select a model|use \/model|use \/login|model not found|deployment.*not found|policy|safety|blocked by policy|invalid_request_error|malformed|schema|unsupported model|capability mismatch|permission denied|missing required file|file not found/i.test(errorText);
+  return /request was aborted|\baborted\b|authentication failed|credentials may have expired|re-authenticate|unauthorized|\b401\b|\b403\b|invalid.*api.*key|api.*key.*invalid|token.*expired|oauth.*expired|refresh.*token|no model selected|select a model|use \/model|use \/login|model not found|deployment.*not found|policy|safety|blocked by policy|invalid_request_error|malformed|schema|unsupported model|capability mismatch|permission denied|missing required file|file not found/i.test(errorText);
 }
 
 export interface RecoveryDecisionInput {
@@ -143,6 +189,19 @@ export function decideAutomaticRecovery(input: RecoveryDecisionInput): RecoveryD
         classifier: "context_pressure",
         strategy: "compact_then_retry",
         reason: "Failure looks context-related despite tool activity; compacting before retrying.",
+      };
+    }
+    if (
+      input.snapshot.onlyReadOnlyToolActivity
+      && input.snapshot.sawAssistantToolCall
+      && !input.snapshot.hadCompletedTurnOutput
+      && /without emitting an assistant reply before finalization|provider stopped after tool use without a final assistant reply/i.test(errorText)
+    ) {
+      return {
+        recover: true,
+        classifier: "transient",
+        strategy: "retry",
+        reason: "Provider stopped after a read-only tool call without sending a final reply; retrying once is safe.",
       };
     }
     return {

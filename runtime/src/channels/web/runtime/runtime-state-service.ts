@@ -50,6 +50,8 @@ interface WebChannelStateStoreLike {
   save(): void;
   setAgentStatus(chatJid: string, status: Record<string, unknown> | null): void;
   getAgentStatuses(): Record<string, Record<string, unknown>>;
+  setContextUsage(chatJid: string, usage: Record<string, unknown> | null): void;
+  getContextUsage(chatJid: string): Record<string, unknown> | null;
 }
 
 interface PendingSteeringStoreLike {
@@ -170,6 +172,15 @@ export class WebChannelRuntimeStateService {
 
   getAgentStatus(chatJid: string): Record<string, unknown> | null {
     return this.agentStatusStore.get(chatJid);
+  }
+
+  setContextUsage(chatJid: string, usage: Record<string, unknown> | null): void {
+    this.state.setContextUsage(chatJid, usage);
+    this.state.save();
+  }
+
+  getContextUsage(chatJid: string): Record<string, unknown> | null {
+    return this.state.getContextUsage(chatJid);
   }
 
   setPanelExpanded(turnId: string, panel: "thought" | "draft", expanded: boolean): void {

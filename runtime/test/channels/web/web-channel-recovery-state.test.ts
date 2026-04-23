@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { createTempWorkspace, setEnv, waitFor } from "../../helpers.js";
+import { createTempWorkspace, setEnv } from "../../helpers.js";
 
 let restoreEnv: (() => void) | null = null;
 let cleanupWorkspace: (() => void) | null = null;
@@ -63,7 +63,7 @@ test("web channel loadState clears stale statuses but preserves restart-restorab
   expect(second.getAgentStatus("web:compact")).toEqual(compactionStatus);
 });
 
-test("recoverInflightRuns replays only interrupted no-output chats while preserving partial and older terminal history", async () => {
+test("recoverInflightRuns clears no-output inflight chats without replay while preserving partial and older terminal history", async () => {
   const chats = ["web:rollback", "web:partial", "web:older-terminal"];
   const { db, webMod } = await initWebChannelFixture(chats);
 
@@ -161,38 +161,37 @@ test("recoverInflightRuns replays only interrupted no-output chats while preserv
     startedAt,
   });
 
-  const recoveredReplies: string[] = [];
   const web = new (webMod.WebChannel as any)({
     queue: { enqueue: async (fn: () => Promise<void>) => fn() },
     agentPool: {
       setSessionBinder: () => {},
-      runAgent: async (_prompt: string, chatJid: string) => {
-        recoveredReplies.push(chatJid);
-        return {
-          status: "success",
-          result: chatJid === "web:rollback" ? "rollback recovered" : "older recovered",
-          attachments: [],
-        };
-      },
+      runAgent: async () => ({
+        status: "success",
+        result: "unexpected recovery replay",
+        attachments: [],
+      }),
       getContextUsageForChat: async () => null,
     },
   });
 
   web.recoverInflightRuns();
-  await waitFor(() => recoveredReplies.length === 2, 5000, 10);
 
-  expect(recoveredReplies.sort()).toEqual(["web:older-terminal", "web:rollback"]);
   expect(db.getInflightRuns().length).toBe(0);
   expect(db.getChatCursor("web:rollback")).toBe(rollbackTs);
   expect(db.getChatCursor("web:partial")).toBe(partialTs);
 
-  const rollbackContents = db.getTimeline("web:rollback", 10).map((item: any) => item.data.content);
-  const partialContents = db.getTimeline("web:partial", 10).map((item: any) => item.data.content);
-  const olderContents = db.getTimeline("web:older-terminal", 10).map((item: any) => item.data.content);
+  const rollbackTimeline = db.getTimeline("web:rollback", 10);
+  const partialTimeline = db.getTimeline("web:partial", 10);
+  const olderTimeline = db.getTimeline("web:older-terminal", 10);
+  const rollbackContents = rollbackTimeline.map((item: any) => item.data.content);
+  const partialContents = partialTimeline.map((item: any) => item.data.content);
+  const olderContents = olderTimeline.map((item: any) => item.data.content);
 
-  expect(rollbackContents).toContain("rollback recovered");
+  expect(rollbackContents).not.toContain("unexpected recovery replay");
   expect(partialContents).toContain("partial reply");
-  expect(partialContents).not.toContain("older recovered");
+  expect(partialContents).not.toContain("unexpected recovery replay");
   expect(olderContents).toContain("previous final");
-  expect(olderContents).toContain("older recovered");
+  expect(olderContents).not.toContain("unexpected recovery replay");
+  expect(rollbackTimeline.some((item: any) => item.data.content_blocks?.some((block: any) => block?.type === "turn_outcome_marker" && block?.kind === "interrupted" && block?.title === "Turn interrupted"))).toBe(true);
+  expect(olderTimeline.some((item: any) => item.data.content_blocks?.some((block: any) => block?.type === "turn_outcome_marker" && block?.kind === "interrupted" && block?.title === "Turn interrupted"))).toBe(true);
 });

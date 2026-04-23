@@ -42,7 +42,11 @@ import {
   resolveSseEventRoutingContext,
 } from './app-sse-event-routing.js';
 import { isAppChatActivationRecent } from './app-refresh-coordination.js';
-import { persistContextUsage } from './app-status-refresh-orchestration.js';
+import {
+  haveSameContextUsage,
+  normalizeContextUsage,
+  persistContextUsage,
+} from './app-status-refresh-orchestration.js';
 
 type StateSetter<T> = (next: T | ((prev: T) => T)) => void;
 
@@ -306,9 +310,10 @@ export function handleAppSseEvent(
         if (isMainTimelineView(viewStateRef.current)) {
           void refreshTimeline();
         }
-        if (data.context_usage) {
-          setContextUsage(data.context_usage);
-          persistContextUsage(currentChatJid, data.context_usage);
+        const contextUsage = normalizeContextUsage(data.context_usage);
+        if (contextUsage && contextUsage.percent != null) {
+          setContextUsage((prev) => haveSameContextUsage(prev, contextUsage) ? prev : contextUsage);
+          persistContextUsage(currentChatJid, contextUsage);
         }
       }
       void refreshContextUsage();
@@ -483,11 +488,14 @@ export function handleAppSseEvent(
     getAgentContext(targetChatJid)
       .then((contextPayload) => {
         if (activeChatJidRef.current !== targetChatJid) return;
-        if (contextPayload) setContextUsage(contextPayload);
+        const nextContextUsage = normalizeContextUsage(contextPayload);
+        if (nextContextUsage && nextContextUsage.percent != null) {
+          setContextUsage((prev) => haveSameContextUsage(prev, nextContextUsage) ? prev : nextContextUsage);
+          persistContextUsage(targetChatJid, nextContextUsage);
+        }
       })
       .catch(() => {
         if (activeChatJidRef.current !== targetChatJid) return;
-        setContextUsage(null);
       });
     return;
   }

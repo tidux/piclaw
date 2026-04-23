@@ -2,7 +2,7 @@
  * agent-pool/contracts.ts – Shared public contracts for AgentPool and its helpers.
  */
 
-import type { AgentSessionEvent, AgentSessionRuntime } from "@mariozechner/pi-coding-agent";
+import type { AgentSessionEvent, AgentSessionRuntime, SettingsManager } from "@mariozechner/pi-coding-agent";
 import type {
   Api,
   AssistantMessageEvent,
@@ -81,6 +81,10 @@ export interface RunAgentOptions {
   onTurnComplete?: (turn: TurnOutput) => void;
   /** Override the default timeout (ms). Use 0 or a negative value to disable. */
   timeoutMs?: number;
+}
+
+export interface RetrySettingsProvider {
+  getRetrySettings?: SettingsManager["getRetrySettings"];
 }
 
 /** Construction options for creating an AgentPool. */

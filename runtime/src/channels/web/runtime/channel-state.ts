@@ -20,6 +20,7 @@ import { getRouterState, setRouterState } from "../../../db.js";
 /** Persistent per-chat state manager for the web channel. */
 export class WebChannelState {
   agentStatuses: Record<string, Record<string, unknown>> = {};
+  contextUsages: Record<string, Record<string, unknown>> = {};
 
   constructor(private stateKey: string) {}
 
@@ -31,15 +32,20 @@ export class WebChannelState {
         parsed && typeof parsed === "object" && typeof parsed.agentStatuses === "object"
           ? (parsed.agentStatuses as Record<string, Record<string, unknown>>)
           : {};
+      this.contextUsages =
+        parsed && typeof parsed === "object" && typeof parsed.contextUsages === "object"
+          ? (parsed.contextUsages as Record<string, Record<string, unknown>>)
+          : {};
     } catch {
       this.agentStatuses = {};
+      this.contextUsages = {};
     }
   }
 
   save(): void {
     setRouterState(
       this.stateKey,
-      JSON.stringify({ agentStatuses: this.agentStatuses })
+      JSON.stringify({ agentStatuses: this.agentStatuses, contextUsages: this.contextUsages })
     );
   }
 
@@ -53,5 +59,17 @@ export class WebChannelState {
 
   getAgentStatuses(): Record<string, Record<string, unknown>> {
     return { ...this.agentStatuses };
+  }
+
+  setContextUsage(chatJid: string, usage: Record<string, unknown> | null): void {
+    if (!usage) {
+      delete this.contextUsages[chatJid];
+      return;
+    }
+    this.contextUsages[chatJid] = usage;
+  }
+
+  getContextUsage(chatJid: string): Record<string, unknown> | null {
+    return this.contextUsages[chatJid] ?? null;
   }
 }

@@ -84,6 +84,9 @@ export interface RenameCurrentBranchOptions {
   renameChatBranch: (chatJid: string, payload: { agentName: string }) => Promise<{ branch?: BranchRecord | null }>;
   refreshActiveChatAgents?: () => Promise<unknown> | unknown;
   refreshCurrentChatBranches?: () => Promise<unknown> | unknown;
+  navigate?: NavigateFn;
+  baseHref?: string;
+  chatOnlyMode?: boolean;
   showIntentToast?: ToastFn;
   closeRenameForm?: () => void;
   now?: () => number;
@@ -103,6 +106,9 @@ export async function renameCurrentBranch(options: RenameCurrentBranchOptions): 
     renameChatBranch,
     refreshActiveChatAgents,
     refreshCurrentChatBranches,
+    navigate,
+    baseHref,
+    chatOnlyMode,
     showIntentToast,
     closeRenameForm,
     now = () => Date.now(),
@@ -146,6 +152,12 @@ export async function renameCurrentBranch(options: RenameCurrentBranchOptions): 
       refreshCurrentChatBranches?.(),
     ]);
     const savedHandle = response?.branch?.agent_name || nextAgentName || currentHandle;
+    // If the server renamed the JID (agent_name → web:<agent>), navigate to it.
+    const newChatJid = response?.branch?.chat_jid;
+    if (newChatJid && newChatJid !== currentBranchRecord.chat_jid) {
+      const nextUrl = buildChatWindowUrl(baseHref, newChatJid, { chatOnly: chatOnlyMode });
+      navigate?.(nextUrl);
+    }
     showIntentToast?.('Branch renamed', `@${savedHandle}`, 'info', 3500);
     closeRenameForm?.();
     return true;
@@ -221,13 +233,34 @@ export async function pruneCurrentBranch(options: PruneCurrentBranchOptions): Pr
     || null;
 
   const isRootBranch = branch?.chat_jid === (branch?.root_chat_jid || branch?.chat_jid);
-  if (isRootBranch) {
-    showIntentToast?.('Cannot prune branch', 'The root chat branch cannot be pruned.', 'warning', 4000);
+  const isDefaultRootSession = Boolean(isRootBranch && chatJid === 'web:default');
+  const hasActiveChildBranches = Boolean(
+    isRootBranch
+    && currentChatBranches.some((item) => {
+      const itemChatJid = typeof item?.chat_jid === 'string' ? item.chat_jid.trim() : '';
+      const itemRootChatJid = typeof item?.root_chat_jid === 'string' ? item.root_chat_jid.trim() : itemChatJid;
+      return itemChatJid
+        && itemChatJid !== chatJid
+        && itemRootChatJid === chatJid
+        && !item?.archived_at;
+    })
+  );
+
+  if (isDefaultRootSession) {
+    showIntentToast?.('Cannot archive session', 'The default chat session cannot be archived.', 'warning', 4000);
+    return false;
+  }
+  if (hasActiveChildBranches) {
+    showIntentToast?.('Cannot archive session', 'Archive or delete the child branch sessions first.', 'warning', 4500);
     return false;
   }
 
   const label = `@${branch?.agent_name || chatJid}${branch?.chat_jid ? ` — ${branch.chat_jid}` : ''}`;
-  const confirmed = confirm(`Prune ${label}?\n\nThis archives the branch agent and removes it from the branch picker. Chat history is preserved.`);
+  const confirmed = confirm(
+    isRootBranch
+      ? `Archive ${label}?\n\nThis removes the session from the session picker. Chat history is preserved.`
+      : `Prune ${label}?\n\nThis archives the branch agent and removes it from the branch picker. Chat history is preserved.`
+  );
   if (!confirmed) return false;
 
   try {
@@ -236,8 +269,8 @@ export async function pruneCurrentBranch(options: PruneCurrentBranchOptions): Pr
       refreshActiveChatAgents?.(),
       refreshCurrentChatBranches?.(),
     ]);
-    const fallbackChatJid = branch?.root_chat_jid || 'web:default';
-    showIntentToast?.('Branch pruned', `${label} has been archived.`, 'info', 3000);
+    const fallbackChatJid = isRootBranch ? 'web:default' : (branch?.root_chat_jid || 'web:default');
+    showIntentToast?.(isRootBranch ? 'Session archived' : 'Branch pruned', `${label} has been archived.`, 'info', 3000);
     const nextUrl = buildChatWindowUrl(baseHref, fallbackChatJid, { chatOnly: chatOnlyMode });
     navigate?.(nextUrl);
     return true;

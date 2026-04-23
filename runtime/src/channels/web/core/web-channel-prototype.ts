@@ -232,6 +232,19 @@ export function installWebChannelPrototype(
       value: withRuntimePublicSurface((service, chatJid: string): Record<string, unknown> | null =>
         service.getAgentStatus(chatJid)),
     },
+    setContextUsage: {
+      configurable: true,
+      writable: true,
+      value: withRuntimePublicSurface((service, chatJid: string, usage: Record<string, unknown> | null): void => {
+        service.setContextUsage(chatJid, usage);
+      }),
+    },
+    getContextUsage: {
+      configurable: true,
+      writable: true,
+      value: withRuntimePublicSurface((service, chatJid: string): Record<string, unknown> | null =>
+        service.getContextUsage(chatJid)),
+    },
     replaceQueuedFollowupPlaceholder: {
       configurable: true,
       writable: true,
@@ -578,6 +591,11 @@ export function installWebChannelPrototype(
       configurable: true,
       writable: true,
       value: withHttpSurface(async (service, req: Request) => await service.handleAgentBranchRename(req)),
+    },
+    handleAgentRenameJid: {
+      configurable: true,
+      writable: true,
+      value: withHttpSurface(async (service, req: Request) => await service.handleAgentRenameJid(req)),
     },
     handleAgentBranchPrune: {
       configurable: true,

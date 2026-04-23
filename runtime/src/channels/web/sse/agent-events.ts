@@ -491,7 +491,7 @@ export function createStreamingEventHandler(options: StreamingEventHandlerOption
       const title = reason === "overflow"
         ? "Compacting context"
         : reason === "threshold"
-          ? "Auto-compacting after response"
+          ? "Smart compaction"
           : "Compacting context";
       const detail = reason === "overflow"
         ? "Recovering from context pressure so the turn can continue."
@@ -534,11 +534,14 @@ export function createStreamingEventHandler(options: StreamingEventHandlerOption
     const customEventType = (event as { type?: string }).type;
 
     if (customEventType === "recovery_start") {
-      const e = event as { strategy?: string; attempt?: number; maxAttempts?: number; reason?: string };
+      const e = event as { strategy?: string; attempt?: number; maxAttempts?: number; delayMs?: number; reason?: string };
       const strategy = e.strategy === "compact_then_retry"
         ? "Compacting context and continuing"
         : "Recovering interrupted response";
-      const detail = `Attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}${e.reason ? ` — ${e.reason}` : ""}`;
+      const delaySuffix = e.strategy === "retry" && typeof e.delayMs === "number"
+        ? ` · ${Math.max(0, Math.round(e.delayMs / 1000))}s delay`
+        : "";
+      const detail = `Attempt ${e.attempt ?? "?"}/${e.maxAttempts ?? "?"}${delaySuffix}${e.reason ? ` — ${e.reason}` : ""}`;
       options.emitter.status({
         ...base,
         type: "intent",

@@ -24,6 +24,7 @@ import { handleUiThemeCommand } from "../theming/ui-theme-commands.js";
 import { handleUiMetersCommand } from "../ui-meters-commands.js";
 import {
   beginChatRun,
+  clearFailedRun,
   endChatRun,
   getChatCursor,
   getFailedRun,
@@ -78,30 +79,93 @@ function isQuotaError(errorText: string | null | undefined): boolean {
   return /quota|usage.*limit|out of.*usage|billing|insufficient.*funds|exceeded.*limit|credit/i.test(errorText);
 }
 
-function formatUserVisibleError(errorText: string, rateLimited: boolean): string {
-  if (rateLimited) {
-    return `\u26a0\ufe0f AI provider rate limit after automatic retries:\n\n\`${errorText.slice(0, 500)}\`\n\nPiclaw now retries 429/rate-limit failures with exponential backoff up to 5 times before surfacing the error.`;
+type TurnOutcomeSeverity = "warning" | "error" | "critical";
+
+function buildTurnOutcomeMarker(options: {
+  kind: string;
+  label: string;
+  title: string;
+  detail?: string;
+  severity?: TurnOutcomeSeverity;
+  draftRecovered?: boolean;
+  attemptsUsed?: number;
+  classifier?: string | null;
+}): Record<string, unknown> {
+  return {
+    type: "turn_outcome_marker",
+    kind: options.kind,
+    label: options.label,
+    title: options.title,
+    detail: options.detail,
+    severity: options.severity ?? "warning",
+    draft_recovered: Boolean(options.draftRecovered),
+    attempts_used: Number.isFinite(options.attemptsUsed) ? options.attemptsUsed : undefined,
+    classifier: options.classifier ?? null,
+  };
+}
+
+function buildErrorOutcomeMarker(
+  errorText: string,
+  options: {
+    draftRecovered?: boolean;
+    attemptsUsed?: number;
+    classifier?: string | null;
+    severity?: TurnOutcomeSeverity;
+  } = {},
+): Record<string, unknown> {
+  if (isRateLimitError(errorText)) {
+    return buildTurnOutcomeMarker({
+      kind: "provider",
+      label: "rate limit",
+      title: "Provider retry budget exhausted",
+      detail: errorText.slice(0, 500),
+      severity: "warning",
+      draftRecovered: options.draftRecovered,
+      attemptsUsed: options.attemptsUsed,
+      classifier: options.classifier,
+    });
   }
 
-  if (isAuthError(errorText)) {
-    const providerMatch = errorText.match(/(?:for|provider)\s+["']?([\w-]+)["']?/i);
-    const provider = providerMatch?.[1] || "your provider";
-    return `\u26a0\ufe0f Authentication error with ${provider}:\n\n\`${errorText.slice(0, 500)}\`\n\nCredentials may have expired or been revoked. Use \`/login ${provider !== "your provider" ? provider : ""}\`.trim() to re-authenticate, or check your API key in the terminal with \`pi /login\`.`;
-  }
-
-  if (isQuotaError(errorText)) {
-    return `\u26a0\ufe0f Provider quota or billing limit reached:\n\n\`${errorText.slice(0, 500)}\`\n\nCheck your provider dashboard for usage limits or billing status.`;
-  }
-
-  if (isModelConfigError(errorText)) {
-    return `\u26a0\ufe0f Model not configured:\n\n\`${errorText.slice(0, 300)}\`\n\nUse \`/model\` to select a model, or \`/login\` to configure a provider.`;
+  if (isAuthError(errorText) || isQuotaError(errorText) || isModelConfigError(errorText)) {
+    return buildTurnOutcomeMarker({
+      kind: "provider",
+      label: "provider",
+      title: isAuthError(errorText)
+        ? "Provider authentication failed"
+        : isQuotaError(errorText)
+          ? "Provider quota exceeded"
+          : "Model configuration error",
+      detail: errorText.slice(0, 500),
+      severity: options.severity ?? "error",
+      draftRecovered: options.draftRecovered,
+      attemptsUsed: options.attemptsUsed,
+      classifier: options.classifier,
+    });
   }
 
   if (isSessionCorruptionError(errorText)) {
-    return `\u26a0\ufe0f API error \u2014 the session may be corrupted:\n\n\`${errorText.slice(0, 500)}\`\n\nThis error may repeat on every message. Try \`/compact\` to rewrite the session (PiClaw now strips corrupt image blocks and orphaned tool-result blocks automatically), or \`/new-session\` to start fresh.`;
+    return buildTurnOutcomeMarker({
+      kind: "context",
+      label: "context",
+      title: "Session context needs repair",
+      detail: errorText.slice(0, 500),
+      severity: options.severity ?? "error",
+      draftRecovered: options.draftRecovered,
+      attemptsUsed: options.attemptsUsed,
+      classifier: options.classifier,
+    });
   }
 
-  return `\u26a0\ufe0f Agent error: ${errorText.slice(0, 300)}`;
+  return buildTurnOutcomeMarker({
+    kind: "error",
+    label: "error",
+    title: "Turn failed",
+    detail: errorText.slice(0, 500),
+    severity: options.severity ?? "warning",
+    draftRecovered: options.draftRecovered,
+    attemptsUsed: options.attemptsUsed,
+    classifier: options.classifier,
+  });
 }
 
 function buildRetryStatusPayload(base: {
@@ -227,71 +291,6 @@ export function buildRecoveryMarkerBlocks(recovery: { attemptsUsed?: number; las
       ? "Recovered automatically"
       : `Recovered after ${recovery.attemptsUsed} attempts`,
   }];
-}
-
-function buildRecoveryActionCard(
-  turnId: string,
-  threadId: number | null | undefined,
-  options: {
-    cardIdPrefix: string;
-    title: string;
-    detail: string;
-    fallbackText: string;
-  },
-): Record<string, unknown> {
-  return {
-    type: "adaptive_card",
-    card_id: `${options.cardIdPrefix}-${turnId}`,
-    schema_version: "1.5",
-    state: "active",
-    fallback_text: options.fallbackText,
-    payload: {
-      type: "AdaptiveCard",
-      version: "1.5",
-      body: [
-        { type: "TextBlock", text: options.title, weight: "Bolder", size: "Medium" },
-        { type: "TextBlock", text: options.detail, wrap: true, spacing: "Small" },
-        { type: "TextBlock", text: "Choose how to proceed.", wrap: true, spacing: "Small" },
-      ],
-      actions: [
-        {
-          type: "Action.Submit",
-          title: "Continue",
-          data: {
-            intent: "recovery-continue",
-            thread_id: threadId ?? null,
-          },
-        },
-        {
-          type: "Action.Submit",
-          title: "Retry cleanly",
-          data: {
-            intent: "recovery-retry-clean",
-            __card_state: "completed",
-          },
-        },
-      ],
-    },
-  };
-}
-
-function buildRecoveryExhaustedCard(turnId: string, threadId: number | null | undefined, attemptsUsed: number, classifier?: string | null): Record<string, unknown> {
-  const detail = classifier ? `Automatic recovery stopped after ${attemptsUsed} attempt(s) (${classifier}).` : `Automatic recovery stopped after ${attemptsUsed} attempt(s).`;
-  return buildRecoveryActionCard(turnId, threadId, {
-    cardIdPrefix: "recovery-exhausted",
-    title: "Automatic recovery exhausted",
-    detail,
-    fallbackText: "Automatic recovery exhausted. Choose Continue or Retry cleanly.",
-  });
-}
-
-function buildRecoveryStalledCard(turnId: string, threadId: number | null | undefined, detail: string): Record<string, unknown> {
-  return buildRecoveryActionCard(turnId, threadId, {
-    cardIdPrefix: "recovery-stalled",
-    title: "Context recovery needed",
-    detail,
-    fallbackText: "Context recovery needed. Choose Continue or Retry cleanly.",
-  });
 }
 
 export function summarizeCommandStatusTitle(message: unknown, fallback = "Command failed"): string {
@@ -1064,14 +1063,22 @@ export async function processChat(
 
   const unresolvedFailedRun = getFailedRun(chatJid);
   if (unresolvedFailedRun && unresolvedFailedRun.messageId === currentMessage.id) {
-    log.info("processChat paused on unresolved failed run", {
-      operation: "process_chat.blocked_failed_run",
+    log.info("processChat clearing stale failed-run marker without replay", {
+      operation: "process_chat.clear_failed_run_without_replay",
       chatJid,
       cursor: prevCursor,
       failedPrevTs: unresolvedFailedRun.prevTs,
       failedTs: unresolvedFailedRun.failedTs,
       failedMessageId: unresolvedFailedRun.messageId,
+      pendingMessageCount: messages.length,
     });
+    clearFailedRun(chatJid);
+    setChatCursor(chatJid, currentMessage.timestamp);
+    if (messages.length > 1) {
+      channel.resumeChat(chatJid);
+    } else {
+      materializeNextDeferredFollowup();
+    }
     return;
   }
 
@@ -1211,7 +1218,23 @@ export async function processChat(
     if (intentKey === "compaction" || intentKey === "recovery") return intentKey;
     return null;
   };
-  const isCompactionIntentActive = (): boolean => getActiveRecoveryIntent() === "compaction";
+  const persistTerminalOutcome = (
+    text: string,
+    marker: Record<string, unknown> | null,
+    options: { critical?: boolean; additionalBlocks?: Array<Record<string, unknown>> } = {},
+  ) => storeAgentTurn(channel, emitter, {
+    chatJid,
+    text,
+    attachments: [],
+    channelName,
+    threadId: resolvedThreadRootId,
+    skipPlaceholder: turnCount === 0,
+    isTerminalAgentReply: true,
+    extraContentBlocks: [
+      ...(marker ? [marker] : []),
+      ...(Array.isArray(options.additionalBlocks) ? options.additionalBlocks : []),
+    ],
+  });
   const publishDraftFallback = (reason?: "timeout" | "error" | "empty-final" | "rate-limit", detail?: string) => {
     // Draft fallback should publish the currently visible draft for whichever
     // turn failed to finalize, even if earlier turns in the same session were
@@ -1222,30 +1245,38 @@ export async function processChat(
     const draftText = typeof draft?.text === "string" ? draft.text.trim() : "";
     if (!draftText) return false;
 
-    const compactionNote = isCompactionIntentActive()
-      ? "\n\nℹ️ Context compaction was in progress."
-      : "";
-    const recoveryNote = lastRecoveryMeta?.exhausted
-      ? `\n\nℹ️ Piclaw attempted automatic recovery ${Math.max(0, lastRecoveryMeta.attemptsUsed || 0)} time(s) before giving up${lastRecoveryMeta.lastClassifier ? ` (${lastRecoveryMeta.lastClassifier})` : ""}.`
-      : "";
-    const suffix =
-      reason === "timeout"
-        ? `\n\n⚠️ Response timed out before finalization.${compactionNote}${recoveryNote}`
-        : reason === "rate-limit"
-          ? `\n\n⚠️ AI provider rate limit after automatic retries.\n\n\`${String(detail || "rate limit").slice(0, 500)}\`\n\nPiclaw retried the request, but the provider still exhausted its rate-limit budget before finalization.${compactionNote}${recoveryNote}`
-          : reason === "error"
-            ? `\n\n⚠️ Response ended with an error before finalization.${compactionNote}${recoveryNote}`
-            : compactionNote;
+    const marker = reason === "timeout"
+      ? {
+          type: "timeout_marker",
+          timed_out: true,
+          title: "Timed out",
+          tool_action_summary: typeof detail === "string" ? detail.slice(0, 500) : "",
+          draft_recovered: true,
+        }
+      : reason === "rate-limit"
+        ? buildErrorOutcomeMarker(detail || "rate limit", {
+            draftRecovered: true,
+            attemptsUsed: lastRecoveryMeta?.attemptsUsed,
+            classifier: lastRecoveryMeta?.lastClassifier ?? null,
+          })
+        : reason === "empty-final"
+          ? buildTurnOutcomeMarker({
+              kind: "blank_final",
+              label: "no reply",
+              title: "No final reply produced",
+              detail: lastRecoveryMeta?.lastClassifier ? `Last recovery classifier: ${lastRecoveryMeta.lastClassifier}.` : undefined,
+              severity: "warning",
+              draftRecovered: true,
+              attemptsUsed: lastRecoveryMeta?.attemptsUsed,
+              classifier: lastRecoveryMeta?.lastClassifier ?? null,
+            })
+          : buildErrorOutcomeMarker(detail || "Response ended with an error before finalization", {
+              draftRecovered: true,
+              attemptsUsed: lastRecoveryMeta?.attemptsUsed,
+              classifier: lastRecoveryMeta?.lastClassifier ?? null,
+            });
 
-    return storeAgentTurn(channel, emitter, {
-      chatJid,
-      text: `${draftText}${suffix}`,
-      attachments: [],
-      channelName,
-      threadId: resolvedThreadRootId,
-      skipPlaceholder: turnCount === 0,
-      isTerminalAgentReply: true,
-    });
+    return persistTerminalOutcome(draftText, marker);
   };
 
   const finalizeSuccessfulRun = async () => {
@@ -1262,6 +1293,9 @@ export async function processChat(
 
     channel.saveState();
     const contextUsage = await channel.agentPool.getContextUsageForChat(chatJid);
+    channel.setContextUsage(chatJid, contextUsage
+      ? { tokens: contextUsage.tokens, contextWindow: contextUsage.contextWindow, percent: contextUsage.percent }
+      : null);
     trackedEmitter.status({
       thread_id: threadId,
       agent_id: agentId,
@@ -1376,44 +1410,32 @@ export async function processChat(
     const errorText = output.error || "Agent error";
     const rateLimited = isRateLimitError(errorText);
     const fallbackPublished = errorText.toLowerCase().includes("timed out")
-      ? publishDraftFallback("timeout")
+      ? publishDraftFallback("timeout", errorText)
       : rateLimited
         ? publishDraftFallback("rate-limit", errorText)
-        : publishDraftFallback("error");
+        : publishDraftFallback("error", errorText);
 
     if (fallbackPublished) {
-      // A persisted draft fallback is a terminal outcome, not a replayable
-      // failure. Clear inflight state through the normal success path so the
-      // turn can drain pending work and the client receives a normal done
-      // transition plus the already-persisted fallback post.
       await finalizeSuccessfulRun();
-      if (output.recovery?.exhausted) {
-        await channel.sendMessage(chatJid, "Automatic recovery exhausted. Choose how to continue.", {
-          threadId: resolvedThreadRootId,
-          contentBlocks: [buildRecoveryExhaustedCard(turnId, resolvedThreadRootId, output.recovery.attemptsUsed, output.recovery.lastClassifier)],
-        });
-      }
       return;
     }
 
-    rollbackChatRunWithError(chatJid, {
-      prevTs: prevCursor,
-      failedTs: lastMessage.timestamp,
-      messageId: lastMessage.id,
-      threadRootId: resolvedThreadRootId ?? null,
-      createdAt: new Date().toISOString(),
+    const marker = buildErrorOutcomeMarker(errorText, {
+      attemptsUsed: output.recovery?.attemptsUsed,
+      classifier: output.recovery?.lastClassifier ?? null,
+      severity: rateLimited ? "warning" : "error",
     });
-
-    // Surface the error as a visible timeline message so the user can see
-    // what went wrong. Previously errors were only shown as transient status
-    // events which are invisible in timeline history.
-    const userVisibleError = formatUserVisibleError(errorText, rateLimited);
-    const errorNotice = channel.storeMessage(chatJid, userVisibleError, true, [], {
-      threadId: resolvedThreadRootId ?? undefined,
-      isTerminalAgentReply: true,
-    });
-    if (errorNotice) {
-      channel.broadcastEvent("agent_response", errorNotice);
+    const persisted = persistTerminalOutcome("", marker);
+    if (persisted) {
+      await finalizeSuccessfulRun();
+    } else {
+      rollbackChatRunWithError(chatJid, {
+        prevTs: prevCursor,
+        failedTs: lastMessage.timestamp,
+        messageId: lastMessage.id,
+        threadRootId: resolvedThreadRootId ?? null,
+        createdAt: new Date().toISOString(),
+      });
     }
 
     trackedEmitter.status({
@@ -1424,12 +1446,6 @@ export async function processChat(
       detail: rateLimited ? errorText : undefined,
       turn_id: turnId,
     });
-    if (output.recovery?.exhausted) {
-      await channel.sendMessage(chatJid, "Automatic recovery exhausted. Choose how to continue.", {
-        threadId: resolvedThreadRootId,
-        contentBlocks: [buildRecoveryExhaustedCard(turnId, resolvedThreadRootId, output.recovery.attemptsUsed, output.recovery.lastClassifier)],
-      });
-    }
     return;
   }
 
@@ -1551,8 +1567,6 @@ export async function processChat(
         : lastRecoveryMeta?.lastClassifier
           ? `Last recovery classifier: ${lastRecoveryMeta.lastClassifier}.`
           : "The turn ended without a persisted reply while compaction or automatic recovery was in flight.";
-      const previewBlock = preview ? `\n\n> ${preview}` : "";
-      const noticeText = `⚠️ ${title} — this turn ended without a persisted reply.\n\n${detail}\n\nUse \`/compact\` to repair and rewrite the session, or \`/new-session\` if the session keeps failing.${previewBlock}`;
 
       log.warn("Agent completed without output after compaction/recovery activity", {
         operation: "process_chat.no_output_recovery_stalled",
@@ -1565,20 +1579,26 @@ export async function processChat(
         recovery: lastRecoveryMeta,
       });
 
-      rollbackChatRunWithError(chatJid, {
-        prevTs: prevCursor,
-        failedTs: lastMessage.timestamp,
-        messageId: lastMessage.id,
-        threadRootId: resolvedThreadRootId ?? null,
-        createdAt: new Date().toISOString(),
+      const marker = buildTurnOutcomeMarker({
+        kind: lastCompactionErrorMessage ? "context" : "recovery",
+        label: lastCompactionErrorMessage ? "context" : "recovery",
+        title,
+        detail,
+        severity: "warning",
+        attemptsUsed: lastRecoveryMeta?.attemptsUsed,
+        classifier: lastRecoveryMeta?.lastClassifier ?? null,
       });
-
-      const notice = channel.storeMessage(chatJid, noticeText, true, [], {
-        threadId: resolvedThreadRootId ?? undefined,
-        isTerminalAgentReply: true,
-      });
-      if (notice) {
-        channel.broadcastEvent("agent_response", notice);
+      const persisted = persistTerminalOutcome("", marker);
+      if (persisted) {
+        await finalizeSuccessfulRun();
+      } else {
+        rollbackChatRunWithError(chatJid, {
+          prevTs: prevCursor,
+          failedTs: lastMessage.timestamp,
+          messageId: lastMessage.id,
+          threadRootId: resolvedThreadRootId ?? null,
+          createdAt: new Date().toISOString(),
+        });
       }
 
       trackedEmitter.status({
@@ -1589,23 +1609,14 @@ export async function processChat(
         detail,
         turn_id: turnId,
       });
-
-      await channel.sendMessage(chatJid, `${title}. Choose how to continue.`, {
-        threadId: resolvedThreadRootId,
-        contentBlocks: [lastRecoveryMeta?.exhausted
-          ? buildRecoveryExhaustedCard(turnId, resolvedThreadRootId, lastRecoveryMeta.attemptsUsed || 0, lastRecoveryMeta.lastClassifier)
-          : buildRecoveryStalledCard(turnId, resolvedThreadRootId, detail)],
-      });
       return;
     }
 
-    // Missing terminal output is a real failure. Never consume the user turn
-    // as a success when no persisted assistant reply exists.
+    // Missing terminal output is a real failure. Consume the user turn with a
+    // compact bubble instead of replaying it through hidden failed-run state.
     const title = "Agent produced no response";
     const detail =
-      "The model returned an empty reply before finalization. The turn was not committed as success.";
-    const previewBlock = preview ? `\n\n> ${preview}` : "";
-    const noticeText = `⚠️ ${title}.\n\n${detail}${previewBlock}`;
+      "The model returned an empty reply before finalization.";
 
     log.warn("Agent completed without output; marking run as failed", {
       operation: "process_chat.no_output_blank_failed",
@@ -1616,20 +1627,26 @@ export async function processChat(
       recovery: lastRecoveryMeta,
     });
 
-    rollbackChatRunWithError(chatJid, {
-      prevTs: prevCursor,
-      failedTs: lastMessage.timestamp,
-      messageId: lastMessage.id,
-      threadRootId: resolvedThreadRootId ?? null,
-      createdAt: new Date().toISOString(),
+    const marker = buildTurnOutcomeMarker({
+      kind: "blank_final",
+      label: "no reply",
+      title,
+      detail: preview ? `${detail} Prompt: ${preview}` : detail,
+      severity: "warning",
+      attemptsUsed: lastRecoveryMeta?.attemptsUsed,
+      classifier: lastRecoveryMeta?.lastClassifier ?? null,
     });
-
-    const notice = channel.storeMessage(chatJid, noticeText, true, [], {
-      threadId: resolvedThreadRootId ?? undefined,
-      isTerminalAgentReply: true,
-    });
-    if (notice) {
-      channel.broadcastEvent("agent_response", notice);
+    const persisted = persistTerminalOutcome("", marker);
+    if (persisted) {
+      await finalizeSuccessfulRun();
+    } else {
+      rollbackChatRunWithError(chatJid, {
+        prevTs: prevCursor,
+        failedTs: lastMessage.timestamp,
+        messageId: lastMessage.id,
+        threadRootId: resolvedThreadRootId ?? null,
+        createdAt: new Date().toISOString(),
+      });
     }
 
     trackedEmitter.status({
@@ -1640,13 +1657,6 @@ export async function processChat(
       detail,
       turn_id: turnId,
     });
-
-    if (lastRecoveryMeta?.exhausted) {
-      await channel.sendMessage(chatJid, `${title}. Choose how to continue.`, {
-        threadId: resolvedThreadRootId,
-        contentBlocks: [buildRecoveryExhaustedCard(turnId, resolvedThreadRootId, lastRecoveryMeta.attemptsUsed || 0, lastRecoveryMeta.lastClassifier)],
-      });
-    }
     return;
   }
 

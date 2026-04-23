@@ -6,7 +6,7 @@
 # Behavior:
 # - refresh the normalized JSON + Markdown digest using the repo collator
 # - emit nothing when there are zero open issues/PRs (so shell tasks stay quiet)
-# - emit the Markdown digest when there is at least one item
+# - post the Markdown digest directly into the target chat when there is at least one item
 
 set -euo pipefail
 
@@ -15,6 +15,7 @@ COLLATE_SCRIPT="$ROOT_DIR/scripts/github-collate-issues-prs.ts"
 OUTPUT_DIR="$ROOT_DIR/runtime/generated/github-collate"
 LATEST_JSON="$OUTPUT_DIR/latest-open-all-repos.json"
 LATEST_MD="$OUTPUT_DIR/latest-open-all-repos.md"
+TARGET_CHAT_JID="${1:-${PICLAW_CHAT_JID:-web:chat:94b5b0fe-d4d6-4e37-b6fe-a73f0d8362ec}}"
 
 if [[ ! -f "$COLLATE_SCRIPT" ]]; then
   echo "Missing collate script: $COLLATE_SCRIPT" >&2
@@ -69,4 +70,5 @@ if [[ "$total_items" == "0" ]]; then
   exit 0
 fi
 
-cat "$LATEST_MD"
+POST_CONTENT="$(cat "$LATEST_MD")"
+/usr/local/bin/piclaw --post "$TARGET_CHAT_JID" "$POST_CONTENT" >/dev/null
